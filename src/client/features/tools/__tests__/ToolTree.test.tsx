@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CatalogToolSummary, ConnectionSummary } from "../../../api/api-client.js";
@@ -28,7 +28,10 @@ function catalog(connectionId: string, name: string, description: string, status
   };
 }
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 describe("ToolTree", () => {
   it("groups, filters name/description, collapses, and renders status as text", async () => {
@@ -67,11 +70,11 @@ describe("ToolTree", () => {
     expect(onRefresh).toHaveBeenCalledWith(first.id);
     const item = screen.getByRole("treeitem", { name: /img onerror/ });
     await user.click(item);
-    await new Promise((resolve) => setTimeout(resolve, 220));
+    await new Promise((resolve) => setTimeout(resolve, 550));
     expect(onSelectTool).toHaveBeenCalledWith(expect.objectContaining({ name: unsafe.name }));
     onSelectTool.mockClear();
     await user.dblClick(item);
-    await new Promise((resolve) => setTimeout(resolve, 220));
+    await new Promise((resolve) => setTimeout(resolve, 550));
     expect(onSelectTool).not.toHaveBeenCalled();
     expect(onOpenTool).toHaveBeenCalledWith(expect.objectContaining({ name: unsafe.name }));
     item.focus();
@@ -81,5 +84,31 @@ describe("ToolTree", () => {
     expect(screen.getByText("已连接，目录未就绪")).toBeVisible();
     expect(container.querySelector("img")).toBeNull();
     expect(container.querySelector("script")).toBeNull();
+  });
+
+  it("keeps a slow pointer double-click separate while a single click eventually selects once", () => {
+    vi.useFakeTimers();
+    const onSelectTool = vi.fn();
+    const onOpenTool = vi.fn();
+    render(<ToolTree
+      connections={[first]} catalogs={{ [first.id]: [catalog(first.id, "slow", "Slow double click", "current")] }}
+      onRefresh={vi.fn()} onSelectTool={onSelectTool} onOpenTool={onOpenTool}
+    />);
+    const item = screen.getByRole("treeitem", { name: /slow/ });
+
+    fireEvent.click(item, { detail: 1 });
+    act(() => vi.advanceTimersByTime(450));
+    fireEvent.click(item, { detail: 2 });
+    fireEvent.doubleClick(item, { detail: 2 });
+    act(() => vi.advanceTimersByTime(550));
+
+    expect(onSelectTool).not.toHaveBeenCalled();
+    expect(onOpenTool).toHaveBeenCalledOnce();
+
+    fireEvent.click(item, { detail: 1 });
+    act(() => vi.advanceTimersByTime(499));
+    expect(onSelectTool).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
+    expect(onSelectTool).toHaveBeenCalledOnce();
   });
 });

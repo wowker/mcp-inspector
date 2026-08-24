@@ -289,6 +289,37 @@ describe("createStreamableMcpSessionFactory", () => {
     }));
   });
 
+  it("rejects malformed known Tool fields on the low-level tools/list boundary", async () => {
+    const request = vi.fn(async (_rawRequest: unknown, schema: StandardSchemaV1) => {
+      const validated = await schema["~standard"].validate({
+        tools: [{
+          name: "malformed",
+          inputSchema: { type: "object", properties: [] },
+          annotations: { readOnlyHint: "yes" },
+        }],
+      });
+      if (validated.issues !== undefined) throw new Error("invalid controlled Tool page");
+      return validated.value;
+    });
+    const factory = createStreamableMcpSessionFactory({
+      createClient: () => ({
+        connect: async () => undefined,
+        getServerVersion: () => undefined,
+        listTools: async () => ({ tools: [] }),
+        callTool: async () => ({ content: [] }),
+        request,
+        close: async () => undefined,
+      }),
+      createTransport: () => ({
+        start: async () => undefined, send: async () => undefined, close: async () => undefined,
+      }),
+    });
+    const session = await factory(connection, () => undefined);
+
+    await expect(session.listTools()).rejects.toThrow("invalid controlled Tool page");
+    expect(request).toHaveBeenCalledOnce();
+  });
+
   it("sends tools/call exactly once through the low-level request path", async () => {
     const callTool = vi.fn(async () => { throw new Error("HEADER_MISMATCH would retry"); });
     const request = vi.fn(async (

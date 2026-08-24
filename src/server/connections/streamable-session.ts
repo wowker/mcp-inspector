@@ -10,6 +10,7 @@ import {
   type StandardSchemaV1,
 } from "@modelcontextprotocol/client";
 import { z } from "zod";
+import { toolDefinitionSchema } from "../../shared/tool-definition.js";
 import { DialectAwareJsonSchemaValidator } from "./dialect-aware-validator.js";
 import { createObservedFetch } from "./observed-fetch.js";
 import type {
@@ -37,10 +38,7 @@ interface ClientLike {
 }
 
 const toolListPageSchema = z.object({
-  tools: z.array(z.object({
-    name: z.string(),
-    inputSchema: z.object({ type: z.literal("object") }).loose(),
-  }).loose()),
+  tools: z.array(toolDefinitionSchema),
   nextCursor: z.string().optional(),
 }).loose();
 

@@ -33,12 +33,12 @@ Implemented a project-scoped MCP Tool catalog backed by immutable SQLite snapsho
 - Initial service RED failed because `tool-service.js` did not exist.
 - Initial route RED returned 404 for all Tool routes.
 - Initial UI RED failed because `ToolTree.js` did not exist and connection actions were absent.
-- Focused final suite: 58 Task 5/server-client boundary tests passed.
+- Focused final suite: 84 Task 5/server-client boundary tests passed.
 
 ## Verification
 
 - `npm run verify` — passed using bundled Node v24.19.0.
-- Full suite — 155 tests passed across 19 files, including the real loopback Streamable HTTP integration.
+- Full suite — 180 tests passed across 19 files, including the real loopback Streamable HTTP integration.
 - TypeScript client/server typecheck — passed.
 - Vite client and Node 22 tsup production build — passed.
 - `cmp src/server/projects/migrations/003_tools.sql dist/server/projects/migrations/003_tools.sql` — exact byte match.
@@ -56,3 +56,11 @@ All Node/npm/npx commands used the mandated bundled Node v24.19.0 PATH.
 - Disconnect, delete, reconnect, and project invalidation synchronously clear refreshing/readiness/error state and advance a generation fence. Deferred tests prove old refresh/connect completions and `finally` blocks cannot repopulate deleted or disconnected UI state.
 - Tool detail decoding now requires canonical millisecond UTC timestamps, actual-epoch ordering, UUID lexical ordering for equal timestamps (matching the repository's `created_at, id` ordering), globally unique snapshot IDs, and canonical deep equality between the current snapshot and its history entry.
 - Refresh/readiness changes are announced through a polite live status. Native button keyboard activation is covered; full arrow-key tree navigation remains intentionally deferred to the later workspace interaction slice.
+
+## Second review fixes
+
+- Added one shared runtime Tool definition schema used by the low-level `tools/list` adapter, server catalog validation, and client catalog/detail decoding. It follows the installed MCP client/SDK field shapes for names, JSON Schema roots, annotations, task execution hints, icons, and metadata while retaining JSON-valued extension fields at every object layer.
+- JSON Schema `properties` must be an object and `required` must contain strings, while property schemas and extension keywords retain the protocol's full JSON value range, including valid boolean schemas.
+- Added adapter-to-snapshot coverage for every currently known Tool field and nested/top-level future fields, adapter rejection coverage, and client malformed-response coverage for every known structured field.
+- Increased pointer click disambiguation to a documented 500 ms desktop double-click window. A fake-timer regression covers a slow double-click with no selection and a single click that selects exactly once; keyboard activation remains immediate.
+- Delete now advances the generation fence and clears transient refresh/readiness/error state immediately, but retains the offline Tool catalog unless deletion succeeds. A failed-delete regression verifies the saved catalog remains browsable.

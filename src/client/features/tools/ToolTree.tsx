@@ -18,6 +18,9 @@ const statusLabels: Record<CatalogToolSummary["status"], string> = {
   removed: "已移除",
 };
 
+// Covers common desktop OS double-click windows while keyboard activation stays immediate.
+const POINTER_DOUBLE_CLICK_WINDOW_MS = 500;
+
 export function ToolTree({
   connections,
   catalogs,
@@ -66,7 +69,7 @@ export function ToolTree({
       if (pendingSelection.current?.timer !== timer) return;
       pendingSelection.current = null;
       onSelectTool(tool);
-    }, 180);
+    }, POINTER_DOUBLE_CLICK_WINDOW_MS);
     pendingSelection.current = { timer, tool };
   }
 

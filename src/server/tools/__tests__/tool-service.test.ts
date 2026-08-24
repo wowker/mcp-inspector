@@ -100,9 +100,38 @@ describe("ToolService", () => {
     const adapterProject = projects.create("Adapter Catalog");
     const definition = {
       name: "future/tool",
-      inputSchema: { type: "object", futureKeyword: { nested: ["a", "b"] } },
-      annotations: { readOnlyHint: true, futureHint: { keep: true } },
+      title: "Future tool",
+      description: "Exercises every current MCP Tool field",
+      inputSchema: {
+        $schema: "https://json-schema.org/draft/2020-12/schema",
+        type: "object",
+        properties: { value: { type: "string", minLength: 1 }, disabled: false },
+        required: ["value"],
+        additionalProperties: false,
+        futureKeyword: { nested: ["a", "b"] },
+      },
+      outputSchema: {
+        type: "object",
+        properties: { result: { type: "boolean" } },
+        required: ["result"],
+        futureOutputKeyword: true,
+      },
+      annotations: {
+        title: "Future annotation",
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+        futureHint: { keep: true },
+      },
       execution: { taskSupport: "optional", futureExecution: "keep" },
+      icons: [{
+        src: "https://example.test/icon.svg",
+        mimeType: "image/svg+xml",
+        sizes: ["any", "48x48"],
+        theme: "dark",
+        futureIconField: { keep: true },
+      }],
       _meta: { vendor: { keep: true } },
       futureTopLevel: { keep: [1, 2, 3] },
     };
@@ -144,6 +173,15 @@ describe("ToolService", () => {
     expect(request).toHaveBeenCalledOnce();
     expect(adapterTools.get(adapterProject.id, adapterConnectionId, definition.name)
       .tool.currentSnapshot.definition).toEqual(definition);
+  });
+
+  it("rejects a Tool whose inputSchema properties is not an object", async () => {
+    pages = [{ tools: [tool("bad-properties", {
+      inputSchema: { type: "object", properties: [] },
+    })] }];
+
+    await expect(service().refresh(projectId, connectionId))
+      .rejects.toThrow("MCP Tool catalog is invalid");
   });
 
   it("preserves nested special keys and hashes them as content", async () => {

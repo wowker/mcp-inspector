@@ -1,10 +1,5 @@
-export type JsonPrimitive = null | boolean | number | string;
-export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
-
-export interface ToolDefinition {
-  name: string;
-  [key: string]: JsonValue;
-}
+export type { JsonPrimitive, JsonValue, ToolDefinition } from "../../shared/tool-definition.js";
+import type { ToolDefinition } from "../../shared/tool-definition.js";
 
 export type ToolStatus = "current" | "changed" | "removed";
 

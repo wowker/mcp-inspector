@@ -3,6 +3,7 @@ import type { ConnectionService } from "../connections/connection-service.js";
 import { ConnectionNotFoundError } from "../connections/connection-service.js";
 import { McpNotConnectedError } from "../connections/connection-runtime.js";
 import type { ProjectService } from "../projects/project-service.js";
+import { parseToolDefinition } from "../../shared/tool-definition.js";
 import { ToolRepository, type RefreshedTool } from "./tool-repository.js";
 import type { CatalogTool, JsonValue, ToolDefinition, ToolDetail } from "./tool-types.js";
 
@@ -58,28 +59,11 @@ export function canonicalJson(value: unknown): string {
 
 function validateDefinition(value: unknown): { definition: ToolDefinition; json: string } {
   const json = canonicalJson(value);
-  const definition = JSON.parse(json) as unknown;
-  if (typeof definition !== "object" || definition === null || Array.isArray(definition)) {
+  try {
+    return { definition: parseToolDefinition(JSON.parse(json) as unknown), json };
+  } catch {
     throw new InvalidToolCatalogError();
   }
-  const candidate = definition as Record<string, JsonValue>;
-  if (typeof candidate.name !== "string" || candidate.name.trim().length === 0 ||
-      typeof candidate.inputSchema !== "object" || candidate.inputSchema === null ||
-      Array.isArray(candidate.inputSchema) || candidate.inputSchema.type !== "object" ||
-      (candidate.title !== undefined && typeof candidate.title !== "string") ||
-      (candidate.description !== undefined && typeof candidate.description !== "string") ||
-      (candidate.outputSchema !== undefined &&
-        (typeof candidate.outputSchema !== "object" || candidate.outputSchema === null || Array.isArray(candidate.outputSchema))) ||
-      (candidate.annotations !== undefined &&
-        (typeof candidate.annotations !== "object" || candidate.annotations === null || Array.isArray(candidate.annotations))) ||
-      (candidate.execution !== undefined &&
-        (typeof candidate.execution !== "object" || candidate.execution === null || Array.isArray(candidate.execution))) ||
-      (candidate._meta !== undefined &&
-        (typeof candidate._meta !== "object" || candidate._meta === null || Array.isArray(candidate._meta))) ||
-      (candidate.icons !== undefined && !Array.isArray(candidate.icons))) {
-    throw new InvalidToolCatalogError();
-  }
-  return { definition: candidate as ToolDefinition, json };
 }
 
 export interface ToolService {

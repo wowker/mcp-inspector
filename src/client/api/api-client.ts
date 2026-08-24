@@ -1,3 +1,5 @@
+import { parseToolDefinition, type ToolDefinition } from "../../shared/tool-definition.js";
+
 export interface ProjectSummary {
   id: string;
   name: string;
@@ -34,7 +36,7 @@ export interface ToolSnapshotSummary {
   connectionId: string;
   toolName: string;
   contentHash: string;
-  definition: Record<string, unknown> & { name: string };
+  definition: ToolDefinition;
   createdAt: string;
 }
 
@@ -181,26 +183,6 @@ function decodeCreatedConnection(value: unknown, projectId: string): ConnectionS
   return decodeConnection(value.connection, projectId);
 }
 
-function isJson(value: unknown, ancestors = new Set<object>()): boolean {
-  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
-  if (typeof value === "number") return Number.isFinite(value);
-  if (typeof value !== "object") return false;
-  if (ancestors.has(value)) return false;
-  ancestors.add(value);
-  try {
-    if (Array.isArray(value)) {
-      return value.every((item, index) => Object.hasOwn(value, index) && isJson(item, ancestors));
-    }
-    const prototype = Object.getPrototypeOf(value);
-    if (prototype !== Object.prototype && prototype !== null) return false;
-    if (Object.getOwnPropertySymbols(value).length > 0) return false;
-    return Object.keys(value as Record<string, unknown>)
-      .every((key) => isJson((value as Record<string, unknown>)[key], ancestors));
-  } finally {
-    ancestors.delete(value);
-  }
-}
-
 function isCanonicalUtcTimestamp(value: unknown): value is string {
   if (typeof value !== "string" ||
       !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) return false;
@@ -226,22 +208,21 @@ function decodeSnapshot(
   if (!isObject(value)) throw new Error("Invalid Tool response");
   const { id, projectId: owner, connectionId: connection, toolName: name,
     contentHash, definition, createdAt } = value;
-  const validDefinition = isObject(definition) && definition.name === toolName &&
-    isJson(definition) && isObject(definition.inputSchema) && definition.inputSchema.type === "object" &&
-    (definition.title === undefined || typeof definition.title === "string") &&
-    (definition.description === undefined || typeof definition.description === "string") &&
-    (definition.outputSchema === undefined || isObject(definition.outputSchema)) &&
-    (definition.annotations === undefined || isObject(definition.annotations)) &&
-    (definition._meta === undefined || isObject(definition._meta)) &&
-    (definition.icons === undefined || Array.isArray(definition.icons));
+  let parsedDefinition: ToolDefinition;
+  try {
+    parsedDefinition = parseToolDefinition(definition);
+  } catch {
+    throw new Error("Invalid Tool response");
+  }
   if (
     !uuidPattern.test(projectId) || !uuidPattern.test(connectionId) ||
     typeof id !== "string" || !uuidPattern.test(id) || owner !== projectId ||
     connection !== connectionId || name !== toolName ||
     typeof contentHash !== "string" || !/^[a-f0-9]{64}$/.test(contentHash) ||
-    !validDefinition || !isCanonicalUtcTimestamp(createdAt)
+    parsedDefinition.name !== toolName || !isCanonicalUtcTimestamp(createdAt)
   ) throw new Error("Invalid Tool response");
-  return value as unknown as ToolSnapshotSummary;
+  return { id, projectId, connectionId, toolName, contentHash,
+    definition: parsedDefinition, createdAt };
 }
 
 function decodeTool(value: unknown, projectId: string, connectionId: string): CatalogToolSummary {

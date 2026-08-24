@@ -4,7 +4,7 @@ import "@testing-library/jest-dom/vitest";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { InspectorApiClient } from "../../../api/api-client.js";
+import type { CatalogToolSummary, InspectorApiClient } from "../../../api/api-client.js";
 import { ConnectionPanel } from "../ConnectionPanel.js";
 
 const projectId = "00000000-0000-4000-8000-000000000401";
@@ -189,9 +189,25 @@ describe("ConnectionPanel", () => {
 
   it("requires confirmation before delete and keeps errors actionable", async () => {
     const deleteConnection = vi.fn().mockRejectedValueOnce(new Error("database is busy"));
+    const connected = { ...connection, status: "connected" as const };
+    const savedTool: CatalogToolSummary = {
+      projectId, connectionId: connection.id, name: "offline/tool", status: "current",
+      updatedAt: "2026-08-17T12:00:00.000Z",
+      currentSnapshot: {
+        id: "00000000-0000-4000-8000-000000000410", projectId,
+        connectionId: connection.id, toolName: "offline/tool", contentHash: "a".repeat(64),
+        definition: { name: "offline/tool", inputSchema: { type: "object" } },
+        createdAt: "2026-08-17T12:00:00.000Z",
+      },
+    };
     const user = userEvent.setup();
-    render(<ConnectionPanel api={api({ deleteConnection })} projectId={projectId} />);
+    render(<ConnectionPanel api={api({
+      listConnections: vi.fn().mockResolvedValue([connected]),
+      listTools: vi.fn().mockResolvedValue([savedTool]),
+      deleteConnection,
+    })} projectId={projectId} />);
     await screen.findByText("Catalog MCP");
+    expect(await screen.findByRole("treeitem", { name: /offline\/tool/ })).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "删除 Catalog MCP" }));
     expect(deleteConnection).not.toHaveBeenCalled();
@@ -199,6 +215,7 @@ describe("ConnectionPanel", () => {
     await user.click(screen.getByRole("button", { name: "确认删除 Catalog MCP" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("database is busy");
     expect(screen.getByText("Catalog MCP")).toBeVisible();
+    expect(screen.getByRole("treeitem", { name: /offline\/tool/ })).toBeVisible();
   });
 
   it("retries the initial list after an accessible load error", async () => {
@@ -391,7 +408,7 @@ describe("ConnectionPanel", () => {
       projectId: secondProjectId,
       name: "Orders MCP",
     };
-    const staleTool = {
+    const staleTool: CatalogToolSummary = {
       projectId,
       connectionId: connection.id,
       name: "stale/tool",

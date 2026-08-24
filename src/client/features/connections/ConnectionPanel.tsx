@@ -101,7 +101,7 @@ function ProjectScopedConnectionPanel({
     });
   }
 
-  function invalidateConnection(connectionId: string, dropCatalog = false): number {
+  function invalidateConnection(connectionId: string): number {
     const generation = (catalogGenerations.current.get(connectionId) ?? 0) + 1;
     catalogGenerations.current.set(connectionId, generation);
     setRefreshingConnectionIds((current) => {
@@ -113,11 +113,6 @@ function ProjectScopedConnectionPanel({
     setCatalogErrors((current) => {
       const next = { ...current }; delete next[connectionId]; return next;
     });
-    if (dropCatalog) {
-      setCatalogs((current) => {
-        const next = { ...current }; delete next[connectionId]; return next;
-      });
-    }
     return generation;
   }
 
@@ -215,12 +210,15 @@ function ProjectScopedConnectionPanel({
 
   async function remove(connection: ConnectionSummary): Promise<void> {
     setError(null);
-    const generation = invalidateConnection(connection.id, true);
+    const generation = invalidateConnection(connection.id);
     setDeleting(true);
     try {
       await api.deleteConnection(projectId, connection.id);
       if (!mounted.current || catalogGenerations.current.get(connection.id) !== generation) return;
       setConnections((current) => current?.filter(({ id }) => id !== connection.id) ?? []);
+      setCatalogs((current) => {
+        const next = { ...current }; delete next[connection.id]; return next;
+      });
       catalogGenerations.current.delete(connection.id);
       setPendingDelete(null);
     } catch (cause) {
