@@ -85,4 +85,43 @@ describe("App", () => {
       expect(screen.getByRole("alert")).toHaveTextContent("Invalid health response");
     });
   });
+
+  test("shows connection configuration management after a project opens", async () => {
+    sessionStorage.setItem("dsers-inspector-session", "test-session");
+    const project = {
+      id: "00000000-0000-4000-8000-000000000501",
+      name: "Supplier Tools",
+      createdAt: "2026-08-17T00:00:00.000Z",
+      updatedAt: "2026-08-17T00:00:00.000Z",
+      lastOpenedAt: "2026-08-17T01:00:00.000Z",
+    };
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, version: "0.1.0" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ projects: [project] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ project }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ connections: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }));
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Supplier Tools" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "连接管理" })).toBeVisible();
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      `/api/projects/${project.id}/connections`,
+      expect.objectContaining({
+        headers: expect.objectContaining({ "X-DSers-Inspector-Session": "test-session" }),
+      }),
+    );
+  });
 });

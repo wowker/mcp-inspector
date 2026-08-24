@@ -6,10 +6,35 @@ export interface ProjectSummary {
   lastOpenedAt: string | null;
 }
 
+export interface ConnectionSummary {
+  id: string;
+  projectId: string;
+  name: string;
+  url: string;
+  transport: "streamable-http";
+  authMode: "none";
+  timeoutMs: number;
+  status: "disconnected" | "connecting" | "connected" | "failed";
+  lastProtocolVersion: string | null;
+  lastServerInfo: Record<string, unknown> | null;
+  lastError: { code: string; message: string } | null;
+}
+
+export interface CreateConnectionRequest {
+  name: string;
+  url: string;
+  transport: "streamable-http";
+  authMode: "none";
+  timeoutMs: number;
+}
+
 export interface InspectorApiClient {
   listProjects(): Promise<ProjectSummary[]>;
   createProject(name: string): Promise<ProjectSummary>;
   openProject(projectId: string): Promise<ProjectSummary>;
+  listConnections(projectId: string): Promise<ConnectionSummary[]>;
+  createConnection(projectId: string, input: CreateConnectionRequest): Promise<ConnectionSummary>;
+  deleteConnection(projectId: string, connectionId: string): Promise<void>;
 }
 
 interface ApiErrorBody {
@@ -50,6 +75,27 @@ export function createApiClient(sessionToken: string): InspectorApiClient {
         headers,
       });
       return (await decodeResponse<{ project: ProjectSummary }>(response)).project;
+    },
+    async listConnections(projectId) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/connections`,
+        { headers },
+      );
+      return (await decodeResponse<{ connections: ConnectionSummary[] }>(response)).connections;
+    },
+    async createConnection(projectId, input) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/connections`,
+        { method: "POST", headers, body: JSON.stringify(input) },
+      );
+      return (await decodeResponse<{ connection: ConnectionSummary }>(response)).connection;
+    },
+    async deleteConnection(projectId, connectionId) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/connections/${encodeURIComponent(connectionId)}`,
+        { method: "DELETE", headers },
+      );
+      if (!response.ok) await decodeResponse<never>(response);
     },
   };
 }

@@ -21,6 +21,9 @@ function api(overrides: Partial<InspectorApiClient> = {}): InspectorApiClient {
     listProjects: vi.fn().mockResolvedValue([]),
     createProject: vi.fn(),
     openProject: vi.fn(),
+    listConnections: vi.fn().mockResolvedValue([]),
+    createConnection: vi.fn(),
+    deleteConnection: vi.fn(),
     ...overrides,
   };
 }

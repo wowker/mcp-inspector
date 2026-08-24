@@ -6,6 +6,7 @@ import {
   type ProjectSummary,
 } from "../api/api-client.js";
 import { ProjectPicker } from "../features/projects/ProjectPicker.js";
+import { ConnectionPanel } from "../features/connections/ConnectionPanel.js";
 import { consumeBootstrapSession } from "./bootstrap-session.js";
 
 const SESSION_HEADER = "X-DSers-Inspector-Session";
@@ -102,6 +103,7 @@ export function App() {
           <section className="active-project" aria-labelledby="active-project-name">
             <p className="eyebrow">当前项目</p>
             <h2 id="active-project-name">{activeProject.name}</h2>
+            {api !== null && <ConnectionPanel api={api} projectId={activeProject.id} />}
           </section>
         )}
       </section>

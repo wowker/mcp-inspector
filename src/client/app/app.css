@@ -57,7 +57,7 @@ input:focus-visible {
 }
 
 .welcome-card {
-  width: min(100%, 680px);
+  width: min(100%, 880px);
   padding: clamp(32px, 7vw, 72px);
   border: 1px solid #e1e5ef;
   border-radius: 24px;
@@ -184,6 +184,153 @@ h1 {
   color: #667085;
 }
 
+.connection-panel {
+  margin-top: 28px;
+  padding-top: 28px;
+  border-top: 1px solid #e1e5ef;
+}
+
+.connection-panel__heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.connection-panel__heading h2,
+.connection-create-form h3 {
+  margin: 0;
+}
+
+.connection-panel__heading > p,
+.connection-empty,
+.connection-loading {
+  margin: 0;
+  color: #667085;
+}
+
+.connection-list {
+  display: grid;
+  gap: 10px;
+  margin: 24px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.connection-list > li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid #e1e5ef;
+  border-radius: 12px;
+}
+
+.connection-list__details {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.connection-url {
+  overflow: hidden;
+  color: #667085;
+  font-size: 0.9rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connection-status {
+  width: fit-content;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: #475467;
+  background: #f2f4f7;
+  font-size: 0.78rem;
+}
+
+.connection-create-form {
+  display: grid;
+  gap: 18px;
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid #e1e5ef;
+}
+
+.connection-fields {
+  display: grid;
+  grid-template-columns: 1fr 1.6fr 1fr;
+  gap: 12px;
+}
+
+.connection-fields label {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  color: #344054;
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+
+.connection-fields input {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid #c9d0df;
+  border-radius: 10px;
+  color: #172033;
+  background: #fff;
+  font-weight: 400;
+}
+
+.connection-fixed-options {
+  display: flex;
+  gap: 24px;
+  margin: 0;
+}
+
+.connection-fixed-options > div {
+  display: flex;
+  gap: 8px;
+}
+
+.connection-fixed-options dt {
+  color: #667085;
+}
+
+.connection-fixed-options dd {
+  margin: 0;
+  font-weight: 650;
+}
+
+.connection-create-form > button {
+  justify-self: start;
+}
+
+.button-secondary {
+  color: #344054;
+  background: #eef1f6;
+}
+
+.button-danger {
+  background: #b42318;
+}
+
+.connection-delete-confirmation {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: #7a271a;
+  font-size: 0.88rem;
+}
+
+.connection-error {
+  color: #b42318;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -201,6 +348,16 @@ h1 {
   .project-create-form > div {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .connection-panel__heading,
+  .connection-list > li {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .connection-fields {
+    grid-template-columns: 1fr;
   }
 }
 
