@@ -28,6 +28,30 @@ export interface CreateConnectionRequest {
   timeoutMs: number;
 }
 
+export interface ToolSnapshotSummary {
+  id: string;
+  projectId: string;
+  connectionId: string;
+  toolName: string;
+  contentHash: string;
+  definition: Record<string, unknown> & { name: string };
+  createdAt: string;
+}
+
+export interface CatalogToolSummary {
+  projectId: string;
+  connectionId: string;
+  name: string;
+  status: "current" | "changed" | "removed";
+  updatedAt: string;
+  currentSnapshot: ToolSnapshotSummary;
+}
+
+export interface ToolDetailSummary {
+  tool: CatalogToolSummary;
+  snapshots: ToolSnapshotSummary[];
+}
+
 export interface InspectorApiClient {
   listProjects(): Promise<ProjectSummary[]>;
   createProject(name: string): Promise<ProjectSummary>;
@@ -35,6 +59,11 @@ export interface InspectorApiClient {
   listConnections(projectId: string): Promise<ConnectionSummary[]>;
   createConnection(projectId: string, input: CreateConnectionRequest): Promise<ConnectionSummary>;
   deleteConnection(projectId: string, connectionId: string): Promise<void>;
+  connectConnection(projectId: string, connectionId: string): Promise<ConnectionSummary>;
+  disconnectConnection(projectId: string, connectionId: string): Promise<ConnectionSummary>;
+  listTools(projectId: string, connectionId: string): Promise<CatalogToolSummary[]>;
+  refreshTools(projectId: string, connectionId: string): Promise<CatalogToolSummary[]>;
+  getTool(projectId: string, connectionId: string, toolName: string): Promise<ToolDetailSummary>;
 }
 
 interface ApiErrorBody {
@@ -152,6 +181,101 @@ function decodeCreatedConnection(value: unknown, projectId: string): ConnectionS
   return decodeConnection(value.connection, projectId);
 }
 
+function isJson(value: unknown, ancestors = new Set<object>()): boolean {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value !== "object") return false;
+  if (ancestors.has(value)) return false;
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) {
+      return value.every((item, index) => Object.hasOwn(value, index) && isJson(item, ancestors));
+    }
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return false;
+    if (Object.getOwnPropertySymbols(value).length > 0) return false;
+    return Object.keys(value as Record<string, unknown>)
+      .every((key) => isJson((value as Record<string, unknown>)[key], ancestors));
+  } finally {
+    ancestors.delete(value);
+  }
+}
+
+function decodeSnapshot(
+  value: unknown,
+  projectId: string,
+  connectionId: string,
+  toolName: string,
+): ToolSnapshotSummary {
+  if (!isObject(value)) throw new Error("Invalid Tool response");
+  const { id, projectId: owner, connectionId: connection, toolName: name,
+    contentHash, definition, createdAt } = value;
+  const validDefinition = isObject(definition) && definition.name === toolName &&
+    isJson(definition) && isObject(definition.inputSchema) && definition.inputSchema.type === "object" &&
+    (definition.title === undefined || typeof definition.title === "string") &&
+    (definition.description === undefined || typeof definition.description === "string") &&
+    (definition.outputSchema === undefined || isObject(definition.outputSchema)) &&
+    (definition.annotations === undefined || isObject(definition.annotations)) &&
+    (definition._meta === undefined || isObject(definition._meta)) &&
+    (definition.icons === undefined || Array.isArray(definition.icons));
+  if (
+    !uuidPattern.test(projectId) || !uuidPattern.test(connectionId) ||
+    typeof id !== "string" || !uuidPattern.test(id) || owner !== projectId ||
+    connection !== connectionId || name !== toolName ||
+    typeof contentHash !== "string" || !/^[a-f0-9]{64}$/.test(contentHash) ||
+    !validDefinition || typeof createdAt !== "string" ||
+    Number.isNaN(Date.parse(createdAt))
+  ) throw new Error("Invalid Tool response");
+  return value as unknown as ToolSnapshotSummary;
+}
+
+function decodeTool(value: unknown, projectId: string, connectionId: string): CatalogToolSummary {
+  if (!isObject(value)) throw new Error("Invalid Tool response");
+  const { projectId: owner, connectionId: connection, name, status, updatedAt, currentSnapshot } = value;
+  if (owner !== projectId || connection !== connectionId || typeof name !== "string" || name.length === 0 ||
+      (status !== "current" && status !== "changed" && status !== "removed") ||
+      typeof updatedAt !== "string" || Number.isNaN(Date.parse(updatedAt))) {
+    throw new Error("Invalid Tool response");
+  }
+  return {
+    projectId, connectionId, name, status, updatedAt,
+    currentSnapshot: decodeSnapshot(currentSnapshot, projectId, connectionId, name),
+  };
+}
+
+function decodeToolList(value: unknown, projectId: string, connectionId: string): CatalogToolSummary[] {
+  if (!isObject(value) || !Array.isArray(value.tools)) throw new Error("Invalid Tool response");
+  const decoded = value.tools.map((tool) => decodeTool(tool, projectId, connectionId));
+  if (new Set(decoded.map(({ name }) => name)).size !== decoded.length) {
+    throw new Error("Invalid Tool response");
+  }
+  return decoded;
+}
+
+function decodeToolDetail(value: unknown, projectId: string, connectionId: string, toolName: string): ToolDetailSummary {
+  if (!isObject(value) || !isObject(value.detail)) {
+    throw new Error("Invalid Tool response");
+  }
+  const detail = value.detail;
+  const snapshotValues = detail.snapshots;
+  if (!Array.isArray(snapshotValues)) throw new Error("Invalid Tool response");
+  const tool = decodeTool(detail.tool, projectId, connectionId);
+  if (tool.name !== toolName) throw new Error("Invalid Tool response");
+  const snapshots = snapshotValues.map((snapshot: unknown) =>
+    decodeSnapshot(snapshot, projectId, connectionId, toolName));
+  for (let index = 1; index < snapshots.length; index += 1) {
+    const previous = snapshots[index - 1];
+    const current = snapshots[index];
+    if (previous.createdAt > current.createdAt || previous.id === current.id) {
+      throw new Error("Invalid Tool response");
+    }
+  }
+  if (!snapshots.some((snapshot) => snapshot.id === tool.currentSnapshot.id)) {
+    throw new Error("Invalid Tool response");
+  }
+  return { tool, snapshots };
+}
+
 export function createApiClient(sessionToken: string): InspectorApiClient {
   const headers = {
     "Content-Type": "application/json",
@@ -198,6 +322,41 @@ export function createApiClient(sessionToken: string): InspectorApiClient {
         { method: "DELETE", headers },
       );
       if (!response.ok) await decodeResponse<never>(response);
+    },
+    async connectConnection(projectId, connectionId) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/connections/${encodeURIComponent(connectionId)}/connect`,
+        { method: "POST", headers },
+      );
+      return decodeCreatedConnection(await decodeConnectionResponse(response), projectId);
+    },
+    async disconnectConnection(projectId, connectionId) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/connections/${encodeURIComponent(connectionId)}/disconnect`,
+        { method: "POST", headers },
+      );
+      return decodeCreatedConnection(await decodeConnectionResponse(response), projectId);
+    },
+    async listTools(projectId, connectionId) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/connections/${encodeURIComponent(connectionId)}/tools`,
+        { headers },
+      );
+      return decodeToolList(await decodeResponse<unknown>(response), projectId, connectionId);
+    },
+    async refreshTools(projectId, connectionId) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/connections/${encodeURIComponent(connectionId)}/tools/refresh`,
+        { method: "POST", headers },
+      );
+      return decodeToolList(await decodeResponse<unknown>(response), projectId, connectionId);
+    },
+    async getTool(projectId, connectionId, toolName) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/connections/${encodeURIComponent(connectionId)}/tools/${encodeURIComponent(toolName)}`,
+        { headers },
+      );
+      return decodeToolDetail(await decodeResponse<unknown>(response), projectId, connectionId, toolName);
     },
   };
 }

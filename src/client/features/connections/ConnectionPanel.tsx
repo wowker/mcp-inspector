@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type {
+  CatalogToolSummary,
   ConnectionSummary,
   InspectorApiClient,
 } from "../../api/api-client.js";
+import { ToolTree } from "../tools/ToolTree.js";
 
 interface ConnectionPanelProps {
   api: InspectorApiClient;
   projectId: string;
+  onSelectTool?: (tool: CatalogToolSummary) => void;
+  onOpenTool?: (tool: CatalogToolSummary) => void;
 }
 
 function errorMessage(error: unknown): string {
@@ -20,13 +24,21 @@ const connectionStatusLabels: Record<ConnectionSummary["status"], string> = {
   failed: "失败",
 };
 
-export function ConnectionPanel({ api, projectId }: ConnectionPanelProps) {
-  return <ProjectScopedConnectionPanel key={projectId} api={api} projectId={projectId} />;
+export function ConnectionPanel(props: ConnectionPanelProps) {
+  return <ProjectScopedConnectionPanel key={props.projectId} {...props} />;
 }
 
-function ProjectScopedConnectionPanel({ api, projectId }: ConnectionPanelProps) {
+function ProjectScopedConnectionPanel({
+  api, projectId, onSelectTool = () => undefined, onOpenTool = () => undefined,
+}: ConnectionPanelProps) {
   const mounted = useRef(false);
+  const catalogGenerations = useRef(new Map<string, number>());
   const [connections, setConnections] = useState<ConnectionSummary[] | null>(null);
+  const [catalogs, setCatalogs] = useState<Record<string, CatalogToolSummary[]>>({});
+  const [catalogErrors, setCatalogErrors] = useState<Record<string, string>>({});
+  const [readyConnectionIds, setReadyConnectionIds] = useState<ReadonlySet<string>>(new Set());
+  const [refreshingConnectionIds, setRefreshingConnectionIds] = useState<ReadonlySet<string>>(new Set());
+  const [pendingConnectionIds, setPendingConnectionIds] = useState<ReadonlySet<string>>(new Set());
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [timeoutMs, setTimeoutMs] = useState("10000");
@@ -46,10 +58,31 @@ function ProjectScopedConnectionPanel({ api, projectId }: ConnectionPanelProps) 
   useEffect(() => {
     let active = true;
     setConnections(null);
+    setCatalogs({});
+    setCatalogErrors({});
+    setReadyConnectionIds(new Set());
+    setRefreshingConnectionIds(new Set());
+    catalogGenerations.current.clear();
     setError(null);
     void api.listConnections(projectId)
       .then((items) => {
-        if (active) setConnections(items);
+        if (!active) return;
+        setConnections(items);
+        for (const connection of items) {
+          const generation = 1;
+          catalogGenerations.current.set(connection.id, generation);
+          void api.listTools(projectId, connection.id)
+            .then((tools) => {
+              if (active && catalogGenerations.current.get(connection.id) === generation) {
+                setCatalogs((current) => ({ ...current, [connection.id]: tools }));
+              }
+            })
+            .catch((cause: unknown) => {
+              if (active && catalogGenerations.current.get(connection.id) === generation) {
+                setCatalogErrors((current) => ({ ...current, [connection.id]: errorMessage(cause) }));
+              }
+            });
+        }
       })
       .catch((cause: unknown) => {
         if (active) setError(errorMessage(cause));
@@ -58,6 +91,79 @@ function ProjectScopedConnectionPanel({ api, projectId }: ConnectionPanelProps) 
       active = false;
     };
   }, [api, projectId, loadAttempt]);
+
+  function setPending(connectionId: string, pending: boolean): void {
+    setPendingConnectionIds((current) => {
+      const next = new Set(current);
+      if (pending) next.add(connectionId); else next.delete(connectionId);
+      return next;
+    });
+  }
+
+  function updateConnection(updated: ConnectionSummary): void {
+    setConnections((current) => current?.map((item) => item.id === updated.id ? updated : item) ?? []);
+  }
+
+  async function refresh(connectionId: string): Promise<void> {
+    const generation = (catalogGenerations.current.get(connectionId) ?? 0) + 1;
+    catalogGenerations.current.set(connectionId, generation);
+    setRefreshingConnectionIds((current) => new Set(current).add(connectionId));
+    setCatalogErrors((current) => {
+      const next = { ...current }; delete next[connectionId]; return next;
+    });
+    try {
+      const tools = await api.refreshTools(projectId, connectionId);
+      if (!mounted.current || catalogGenerations.current.get(connectionId) !== generation) return;
+      setCatalogs((current) => ({ ...current, [connectionId]: tools }));
+      setReadyConnectionIds((current) => new Set(current).add(connectionId));
+    } catch (cause) {
+      if (!mounted.current || catalogGenerations.current.get(connectionId) !== generation) return;
+      setReadyConnectionIds((current) => {
+        const next = new Set(current); next.delete(connectionId); return next;
+      });
+      setCatalogErrors((current) => ({ ...current, [connectionId]: errorMessage(cause) }));
+    } finally {
+      if (mounted.current && catalogGenerations.current.get(connectionId) === generation) {
+        setRefreshingConnectionIds((current) => {
+          const next = new Set(current); next.delete(connectionId); return next;
+        });
+      }
+    }
+  }
+
+  async function connect(connection: ConnectionSummary): Promise<void> {
+    setError(null);
+    setPending(connection.id, true);
+    try {
+      const connected = await api.connectConnection(projectId, connection.id);
+      if (!mounted.current) return;
+      updateConnection(connected);
+      await refresh(connection.id);
+    } catch (cause) {
+      if (mounted.current) setError(errorMessage(cause));
+    } finally {
+      if (mounted.current) setPending(connection.id, false);
+    }
+  }
+
+  async function disconnect(connection: ConnectionSummary): Promise<void> {
+    setError(null);
+    setPending(connection.id, true);
+    const generation = (catalogGenerations.current.get(connection.id) ?? 0) + 1;
+    catalogGenerations.current.set(connection.id, generation);
+    try {
+      const disconnected = await api.disconnectConnection(projectId, connection.id);
+      if (!mounted.current) return;
+      updateConnection(disconnected);
+      setReadyConnectionIds((current) => {
+        const next = new Set(current); next.delete(connection.id); return next;
+      });
+    } catch (cause) {
+      if (mounted.current) setError(errorMessage(cause));
+    } finally {
+      if (mounted.current) setPending(connection.id, false);
+    }
+  }
 
   async function create(event: FormEvent): Promise<void> {
     event.preventDefault();
@@ -93,6 +199,8 @@ function ProjectScopedConnectionPanel({ api, projectId }: ConnectionPanelProps) 
       await api.deleteConnection(projectId, connection.id);
       if (!mounted.current) return;
       setConnections((current) => current?.filter(({ id }) => id !== connection.id) ?? []);
+      catalogGenerations.current.delete(connection.id);
+      setCatalogs((current) => { const next = { ...current }; delete next[connection.id]; return next; });
       setPendingDelete(null);
     } catch (cause) {
       if (mounted.current) setError(errorMessage(cause));
@@ -142,6 +250,23 @@ function ProjectScopedConnectionPanel({ api, projectId }: ConnectionPanelProps) 
                   {connection.status}（{connectionStatusLabels[connection.status]}）
                 </span>
               </div>
+              <div className="connection-actions">
+                {connection.status === "connected" ? (
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    disabled={pendingConnectionIds.has(connection.id)}
+                    aria-label={`断开 ${connection.name}`}
+                    onClick={() => void disconnect(connection)}
+                  >断开</button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={pendingConnectionIds.has(connection.id)}
+                    aria-label={`连接 ${connection.name}`}
+                    onClick={() => void connect(connection)}
+                  >{pendingConnectionIds.has(connection.id) ? "连接中…" : "连接"}</button>
+                )}
               {pendingDelete === connection.id ? (
                 <div className="connection-delete-confirmation" role="group" aria-label={`确认删除 ${connection.name}`}>
                   <span>确认删除 {connection.name}？</span>
@@ -168,9 +293,23 @@ function ProjectScopedConnectionPanel({ api, projectId }: ConnectionPanelProps) 
                   删除
                 </button>
               )}
+              </div>
             </li>
           ))}
         </ul>
+      )}
+
+      {connections !== null && connections.length > 0 && (
+        <ToolTree
+          connections={connections}
+          catalogs={catalogs}
+          errors={catalogErrors}
+          refreshingConnectionIds={refreshingConnectionIds}
+          readyConnectionIds={readyConnectionIds}
+          onRefresh={(connectionId) => void refresh(connectionId)}
+          onSelectTool={onSelectTool}
+          onOpenTool={onOpenTool}
+        />
       )}
 
       <form className="connection-create-form" onSubmit={(event) => void create(event)}>

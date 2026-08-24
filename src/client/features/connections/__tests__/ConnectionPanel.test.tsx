@@ -40,6 +40,11 @@ function api(overrides: Partial<InspectorApiClient> = {}): InspectorApiClient {
     listConnections: vi.fn().mockResolvedValue([connection]),
     createConnection: vi.fn().mockResolvedValue(connection),
     deleteConnection: vi.fn().mockResolvedValue(undefined),
+    connectConnection: vi.fn().mockResolvedValue({ ...connection, status: "connected" }),
+    disconnectConnection: vi.fn().mockResolvedValue(connection),
+    listTools: vi.fn().mockResolvedValue([]),
+    refreshTools: vi.fn().mockResolvedValue([]),
+    getTool: vi.fn(),
     ...overrides,
   };
 }
@@ -55,7 +60,39 @@ describe("ConnectionPanel", () => {
     expect(screen.getByText(/disconnected.*未连接/i)).toBeVisible();
     expect(screen.getByText("Streamable HTTP")).toBeVisible();
     expect(screen.getByText("无认证")).toBeVisible();
-    expect(screen.queryByRole("button", { name: /连接/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "连接 Catalog MCP" })).toBeVisible();
+  });
+
+  it("performs exactly one Tool refresh after connect and can disconnect explicitly", async () => {
+    const connectConnection = vi.fn().mockResolvedValue({ ...connection, status: "connected" });
+    const refreshTools = vi.fn().mockResolvedValue([]);
+    const disconnectConnection = vi.fn().mockResolvedValue(connection);
+    const user = userEvent.setup();
+    render(<ConnectionPanel api={api({ connectConnection, refreshTools, disconnectConnection })} projectId={projectId} />);
+    await screen.findByText("Catalog MCP");
+
+    await user.click(screen.getByRole("button", { name: "连接 Catalog MCP" }));
+    await waitFor(() => expect(refreshTools).toHaveBeenCalledTimes(1));
+    expect(refreshTools).toHaveBeenCalledWith(projectId, connection.id);
+    expect(screen.getByText("目录已就绪")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "断开 Catalog MCP" }));
+    expect(disconnectConnection).toHaveBeenCalledWith(projectId, connection.id);
+  });
+
+  it("keeps a successful transport connected when its automatic refresh fails", async () => {
+    const refreshTools = vi.fn().mockRejectedValue(new Error("目录刷新失败"));
+    const disconnectConnection = vi.fn();
+    const user = userEvent.setup();
+    render(<ConnectionPanel api={api({ refreshTools, disconnectConnection })} projectId={projectId} />);
+    await screen.findByText("Catalog MCP");
+    await user.click(screen.getByRole("button", { name: "连接 Catalog MCP" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("目录刷新失败");
+    expect(screen.getByRole("button", { name: "断开 Catalog MCP" })).toBeVisible();
+    expect(screen.getByText("已连接，目录未就绪")).toBeVisible();
+    expect(disconnectConnection).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "刷新 Catalog MCP Tools" }));
+    expect(refreshTools).toHaveBeenCalledTimes(2);
   });
 
   it("saves a local configuration without implying it connected", async () => {
@@ -278,5 +315,47 @@ describe("ConnectionPanel", () => {
     await act(async () => pendingDelete.resolve());
 
     expect(await screen.findByText("Orders MCP")).toBeVisible();
+  });
+
+  it("never applies an old project's delayed Tool catalog to the new scope", async () => {
+    const oldCatalog = deferred<Awaited<ReturnType<InspectorApiClient["listTools"]>>>();
+    const ordersConnection = {
+      ...connection,
+      id: "00000000-0000-4000-8000-000000000408",
+      projectId: secondProjectId,
+      name: "Orders MCP",
+    };
+    const staleTool = {
+      projectId,
+      connectionId: connection.id,
+      name: "stale/tool",
+      status: "current" as const,
+      updatedAt: "2026-08-17T12:00:00.000Z",
+      currentSnapshot: {
+        id: "00000000-0000-4000-8000-000000000409",
+        projectId,
+        connectionId: connection.id,
+        toolName: "stale/tool",
+        contentHash: "a".repeat(64),
+        definition: { name: "stale/tool", inputSchema: { type: "object" } },
+        createdAt: "2026-08-17T12:00:00.000Z",
+      },
+    };
+    const client = api({
+      listConnections: vi.fn()
+        .mockResolvedValueOnce([connection])
+        .mockResolvedValueOnce([ordersConnection]),
+      listTools: vi.fn()
+        .mockReturnValueOnce(oldCatalog.promise)
+        .mockResolvedValueOnce([]),
+    });
+    const { rerender } = render(<ConnectionPanel api={client} projectId={projectId} />);
+    await screen.findByRole("button", { name: "连接 Catalog MCP" });
+
+    rerender(<ConnectionPanel api={client} projectId={secondProjectId} />);
+    await screen.findByRole("button", { name: "连接 Orders MCP" });
+    await act(async () => oldCatalog.resolve([staleTool]));
+
+    expect(screen.queryByRole("treeitem", { name: /stale\/tool/ })).not.toBeInTheDocument();
   });
 });

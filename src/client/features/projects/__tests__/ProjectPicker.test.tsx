@@ -24,6 +24,11 @@ function api(overrides: Partial<InspectorApiClient> = {}): InspectorApiClient {
     listConnections: vi.fn().mockResolvedValue([]),
     createConnection: vi.fn(),
     deleteConnection: vi.fn(),
+    connectConnection: vi.fn(),
+    disconnectConnection: vi.fn(),
+    listTools: vi.fn(),
+    refreshTools: vi.fn(),
+    getTool: vi.fn(),
     ...overrides,
   };
 }
