@@ -1,0 +1,34 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createApiClient } from "../api-client.js";
+
+const projectId = "00000000-0000-4000-8000-000000000831";
+const tabId = "00000000-0000-4000-8000-000000000832";
+const run = { id: "00000000-0000-4000-8000-000000000833", projectId,
+  connectionId: "00000000-0000-4000-8000-000000000834", tabId, toolName: "sum",
+  toolSnapshotId: "00000000-0000-4000-8000-000000000835", idempotencyKey: "once", status: "queued",
+  createdAt: "2026-08-17T00:00:00.000Z", startedAt: null, completedAt: null, durationMs: null, networkDurationMs: null };
+
+describe("Run API client", () => {
+  const fetchMock = vi.fn(); beforeEach(() => { fetchMock.mockReset(); vi.stubGlobal("fetch", fetchMock); }); afterEach(() => vi.unstubAllGlobals());
+  it("posts one idempotent Run and authenticates its SSE observation", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ run }), { status: 202 }))
+      .mockResolvedValueOnce(new Response("", { status: 200 }));
+    const api = createApiClient("session");
+    await expect(api.startRun(projectId, tabId, "once", { a: 1 })).resolves.toEqual(run);
+    const controller = new AbortController(); await api.openRunEventStream(projectId, run.id, 7, controller.signal);
+    expect(fetchMock.mock.calls[0]).toEqual([`/api/projects/${projectId}/runs`, expect.objectContaining({ method: "POST",
+      body: JSON.stringify({ tabId, idempotencyKey: "once", arguments: { a: 1 } }) })]);
+    expect(fetchMock.mock.calls[1]).toEqual([`/api/projects/${projectId}/runs/${run.id}/events?after=7`, expect.objectContaining({
+      headers: expect.objectContaining({ "X-DSers-Inspector-Session": "session", Accept: "text/event-stream" }), signal: controller.signal,
+    })]);
+  });
+
+  it("rejects a foreign or malformed Run response", async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ run: { ...run, projectId: "00000000-0000-4000-8000-000000000899" } }), { status: 200 }));
+    await expect(createApiClient("session").startRun(projectId, tabId, "once", {})).rejects.toThrow("Invalid Run response");
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ run: { ...run, id: "00000000-0000-4000-8000-000000000899",
+      toolSnapshotHash: "a".repeat(64), protocolVersion: null, serverInfo: null, clientInfo: {},
+      request: { arguments: {}, jsonrpc: {}, http: null }, response: null, events: [] } }), { status: 200 }));
+    await expect(createApiClient("session").getRun(projectId, run.id)).rejects.toThrow("Invalid Run response");
+  });
+});

@@ -98,8 +98,10 @@ export class RunRepository {
   }
 
   get(projectId: string, runId: string): RunDetail | null {
-    const row = this.store.database.prepare(`SELECT ${columns} FROM runs WHERE project_id = ? AND id = ?`)
-      .get(projectId, runId) as RunRow | undefined;
+    const row = this.store.database.prepare(`SELECT ${columns},
+      (SELECT content_hash FROM tool_snapshots WHERE id = runs.tool_snapshot_id) AS tool_snapshot_hash
+      FROM runs WHERE project_id = ? AND id = ?`)
+      .get(projectId, runId) as (RunRow & { tool_snapshot_hash: string }) | undefined;
     if (row === undefined) return null;
     const request = this.store.database.prepare(`SELECT arguments_json, jsonrpc_json, http_json FROM run_requests WHERE run_id = ?`)
       .get(runId) as RequestRow | undefined;
@@ -112,7 +114,7 @@ export class RunRepository {
       if (typeof rawError.code !== "string" || typeof rawError.message !== "string") throw new Error("Stored Run error is invalid");
       parsedError = { code: rawError.code, message: rawError.message };
     }
-    return { ...summary(row), protocolVersion: row.protocol_version,
+    return { ...summary(row), toolSnapshotHash: row.tool_snapshot_hash, protocolVersion: row.protocol_version,
       serverInfo: row.server_info_json === null ? null : objectJson(row.server_info_json, "server info"),
       clientInfo: objectJson(row.client_info_json, "client info"), request: {
         arguments: objectJson(request.arguments_json, "arguments"), jsonrpc: parseJson(request.jsonrpc_json, "JSON-RPC request"),

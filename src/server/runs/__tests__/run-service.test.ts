@@ -165,6 +165,7 @@ describe("RunService", () => {
         expect(detail.response?.result).toEqual({ content: [{ type: "text", text: String(marker) }] });
         expect(detail.networkDurationMs).toBe(25);
         expect(detail.protocolVersion).toBe("2025-06-18");
+        expect(detail.toolSnapshotHash).toBe("a".repeat(64));
         expect(detail.serverInfo).toEqual({ name: "fake", version: "1.0.0" });
         expect(detail.request.http).toMatchObject({ kind: "http-request", body: { marker } });
         expect(detail.request.http).toMatchObject({ headers: { Authorization: "[REDACTED]", "x-safe": "visible" } });

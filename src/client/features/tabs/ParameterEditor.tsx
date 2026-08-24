@@ -7,6 +7,7 @@ import { fieldsFromSchema, requiresWholeArgumentsFallback, valueFromInput } from
 interface Props {
   tab: DebugTabSummary; schema: Record<string, unknown>;
   onChange: (patch: Partial<DebugTabSummary>) => void; onExecute?: () => void;
+  executing?: boolean;
   subtreeDrafts?: Readonly<Record<string, { text: string; base: string }>>;
   onSubtreeDraftChange?: (path: string, text: string, base: string) => void;
 }
@@ -28,7 +29,7 @@ function JsonSubtreeEditor({ id, value, describedBy, draft, objectOnly = false, 
     {invalid && <p role="alert">{objectOnly ? "必须是 JSON 对象" : "请输入有效 JSON"}</p>}</>;
 }
 
-export function ParameterEditor({ tab, schema, onChange, onExecute, subtreeDrafts = {}, onSubtreeDraftChange }: Props) {
+export function ParameterEditor({ tab, schema, onChange, onExecute, executing = false, subtreeDrafts = {}, onSubtreeDraftChange }: Props) {
   const [rawTouched, setRawTouched] = useState(false);
   const parsed = parseRawArguments(tab.rawText);
   const validation = validateJsonSchema(schema, tab.inputMode === "raw" && parsed.ok ? parsed.value : tab.arguments);
@@ -52,7 +53,7 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, subtreeDraft
     onChange({ arguments: args, rawText: formatRawArguments(args) });
   }
   function issuesAt(path: string): SchemaIssue[] { return validation.issues.filter((item) => item.path === path); }
-  function execute(): void { if (commitRaw() && canExecute) onExecute?.(); }
+  function execute(): void { if (!executing && commitRaw() && canExecute) onExecute?.(); }
   function rawChanged(text: string): void {
     const current = parseRawArguments(text);
     onChange(current.ok ? { rawText: text, arguments: current.value } : { rawText: text });
@@ -73,7 +74,7 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, subtreeDraft
       </div>
       <button type="button" onClick={() => void navigator.clipboard?.writeText(
         tab.inputMode === "raw" && parsed.ok ? formatRawArguments(parsed.value) : formatRawArguments(tab.arguments))}>复制参数</button>
-      <button type="button" disabled={!canExecute} onClick={execute}>执行</button>
+      <button type="button" disabled={!canExecute || executing} onClick={execute}>{executing ? "执行中…" : "执行"}</button>
     </div>
     {validation.warning !== null && <p role="status">{validation.warning}</p>}
     {tab.inputMode === "raw" ? <div id={`panel-raw-${tab.id}`} role="tabpanel" aria-labelledby={`mode-raw-${tab.id}`}>

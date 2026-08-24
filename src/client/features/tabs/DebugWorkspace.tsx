@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CatalogToolSummary, DebugTabSummary, InspectorApiClient, ToolDetailSummary } from "../../api/api-client.js";
+import type { CatalogToolSummary, DebugTabSummary, InspectorApiClient, RunSummary, ToolDetailSummary } from "../../api/api-client.js";
+import { parseRawArguments } from "../../../shared/json.js";
+import { RunHistory } from "../runs/RunHistory.js";
+import { RunResultPanel } from "../runs/RunResultPanel.js";
+import { useRunEvents } from "../runs/use-run-events.js";
 import { ParameterEditor } from "./ParameterEditor.js";
 import { TabStrip } from "./TabStrip.js";
 
@@ -9,7 +13,7 @@ interface Props {
   onExecute?: (tab: DebugTabSummary) => void;
 }
 
-type WorkspaceView = "debug" | "definition" | "history";
+type WorkspaceView = "debug" | "definition" | "history" | "global-history";
 const PERSIST_DELAY = 300;
 interface PendingSave { revision: number; patch: Partial<DebugTabSummary> }
 interface BoundToolDetail { tabId: string; connectionId: string; toolName: string; value: ToolDetailSummary }
@@ -43,6 +47,10 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
   const [view, setView] = useState<WorkspaceView>("debug");
   const [message, setMessage] = useState<string | null>(null);
   const [subtreeDrafts, setSubtreeDrafts] = useState<Record<string, Record<string, SubtreeDraft>>>({});
+  const [selectedRuns, setSelectedRuns] = useState<Record<string, string>>({});
+  const [readOnlyTabs, setReadOnlyTabs] = useState<RunSummary[]>([]);
+  const [activeReadOnlyId, setActiveReadOnlyId] = useState<string | null>(null);
+  const [startingIds, setStartingIds] = useState<ReadonlySet<string>>(new Set());
   const tabsRef = useRef<DebugTabSummary[]>([]);
   const activeRef = useRef<string | null>(null);
   const pending = useRef(new Map<string, PendingSave>());
@@ -54,6 +62,7 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
   const handledIntent = useRef(0);
   const intentQueue = useRef<Promise<void>>(Promise.resolve());
   const workspaceGeneration = useRef(0);
+  const starts = useRef(new Set<string>());
 
   function assign(next: DebugTabSummary[]): void {
     tabsRef.current = next; setTabs(next);
@@ -71,7 +80,7 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
       return retained;
     });
   }
-  function activate(id: string | null): void { activeRef.current = id; setActiveId(id); }
+  function activate(id: string | null): void { activeRef.current = id; setActiveId(id); if (id !== null) setActiveReadOnlyId(null); }
 
   const flush = useCallback(async (tabId?: string): Promise<boolean> => {
     async function drain(id: string): Promise<boolean> {
@@ -133,6 +142,13 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
   }, [api, flush, projectId]);
 
   const active = tabs?.find(({ id }) => id === activeId) ?? null;
+  const selectedRunId = activeReadOnlyId ?? (active === null ? null : selectedRuns[active.id] ?? active.lastRunId);
+  const observed = useRunEvents(api, projectId, selectedRunId);
+  useEffect(() => {
+    if (observed.run?.tabId === null || observed.run === null) return;
+    const id = observed.run.tabId; const running = !["succeeded", "failed", "cancelled", "interrupted"].includes(observed.run.status);
+    setStartingIds((current) => { const next = new Set(current); if (running) next.add(id); else { next.delete(id); starts.current.delete(id); } return next; });
+  }, [observed.run]);
   useEffect(() => {
     setBoundDetail(null);
     if (active === null) return;
@@ -165,6 +181,17 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
   }, [api, flush, projectId, tabs, toolIntent]);
 
   async function select(id: string): Promise<void> { if (!(await flush(activeRef.current ?? undefined))) return; activate(id); setView("debug"); }
+  async function openHistory(run: RunSummary): Promise<void> {
+    if (!(await flush(activeRef.current ?? undefined))) return;
+    const origin = tabsRef.current.find(({ id }) => id === run.tabId);
+    if (origin !== undefined) { setSelectedRuns((current) => ({ ...current, [origin.id]: run.id })); activate(origin.id); setView("debug"); return; }
+    setReadOnlyTabs((current) => current.some(({ id }) => id === run.id) ? current : [...current, run]);
+    activeRef.current = null; setActiveId(null); setActiveReadOnlyId(run.id); setView("debug");
+  }
+  function closeReadOnly(runId: string): void {
+    setReadOnlyTabs((current) => current.filter(({ id }) => id !== runId));
+    if (activeReadOnlyId === runId) { const fallback = tabsRef.current[0]?.id ?? null; setActiveReadOnlyId(null); activate(fallback); }
+  }
   function actionError(error: unknown): void { setMessage(error instanceof Error ? error.message : "Tab 操作失败"); }
   async function close(id: string): Promise<void> {
     try {
@@ -192,8 +219,21 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
     } catch (error) { actionError(error); }
   }
   async function execute(): Promise<void> {
-    if (active === null || !(await flush(active.id))) return;
-    const latest = tabsRef.current.find(({ id }) => id === active.id); if (latest !== undefined) onExecute?.(latest);
+    if (active === null || starts.current.has(active.id)) return;
+    starts.current.add(active.id); setStartingIds((current) => new Set(current).add(active.id)); setMessage(null);
+    let launched = false;
+    try {
+      if (!(await flush(active.id))) return;
+      const latest = tabsRef.current.find(({ id }) => id === active.id); if (latest === undefined) return;
+      const parsed = parseRawArguments(latest.rawText);
+      if (!parsed.ok) { setMessage(parsed.message); return; }
+      if (onExecute !== undefined) { onExecute(latest); return; }
+      const run = await api.startRun(projectId, latest.id, crypto.randomUUID(), parsed.value);
+      launched = true;
+      setSelectedRuns((current) => ({ ...current, [latest.id]: run.id }));
+      schedule(latest.id, { lastRunId: run.id }); setView("debug");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "启动运行失败"); }
+    finally { if (!launched) { starts.current.delete(active.id); setStartingIds((current) => { const next = new Set(current); next.delete(active.id); return next; }); } }
   }
 
   const detail = active !== null && boundDetail?.tabId === active.id && boundDetail.connectionId === active.connectionId &&
@@ -202,11 +242,21 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
   if (tabs === null) return <p role="status">正在恢复调试 Tabs…</p>;
   return <section className="debug-workspace" aria-label="Tool 调试工作台">
     {message !== null && <p role="alert">{message}</p>}
-    <TabStrip tabs={tabs} activeId={activeId} dirtyIds={new Set([...pending.current.keys(), ...queues.current.keys()])} onSelect={(id) => void select(id)} onClose={(id) => void close(id)}
+    <div className="workspace-global-nav"><button type="button" aria-current={view === "global-history" ? "page" : undefined}
+      onClick={() => { setActiveReadOnlyId(null); setView("global-history"); }}>运行历史</button></div>
+    <TabStrip tabs={tabs} activeId={activeReadOnlyId === null ? activeId : null} dirtyIds={new Set([...pending.current.keys(), ...queues.current.keys()])}
+      runningIds={startingIds} onSelect={(id) => void select(id)} onClose={(id) => void close(id)}
       onDuplicate={(id) => void duplicate(id)} onPin={(id, pinned) => schedule(id, { pinned })}
       onMove={(id, offset) => void move(id, offset)}
       onCloseOthers={(id) => void bulk(id, "others")} onCloseRight={(id) => void bulk(id, "right")} />
-    {active === null ? <div className="workspace-empty"><h2>选择一个 Tool 开始调试</h2><p>单击复用当前未固定 Tab，双击打开新 Tab。</p></div> : <div id={`tabpanel-${active.id}`} role="tabpanel" aria-labelledby={`tab-${active.id}`}>
+    {readOnlyTabs.length > 0 && <div className="history-tabs" role="tablist" aria-label="只读运行 Tabs">{readOnlyTabs.map((run) => <span key={run.id}>
+      <button id={`history-tab-${run.id}`} aria-controls={`history-panel-${run.id}`} type="button" role="tab" tabIndex={activeReadOnlyId === run.id ? 0 : -1}
+        aria-selected={activeReadOnlyId === run.id} onClick={() => { activeRef.current = null; setActiveId(null); setActiveReadOnlyId(run.id); setView("debug"); }}>只读 · {run.toolName} · {run.id.slice(0, 8)}</button>
+      <button type="button" aria-label={`关闭只读运行 ${run.id}`} onClick={() => closeReadOnly(run.id)}>×</button></span>)}</div>}
+    {view === "global-history" ? <RunHistory api={api} projectId={projectId} onOpen={(run) => void openHistory(run)} />
+      : activeReadOnlyId !== null ? <section id={`history-panel-${activeReadOnlyId}`} role="tabpanel" aria-labelledby={`history-tab-${activeReadOnlyId}`} className="read-only-run"><p role="status">只读历史结果，不会重新调用 Tool。</p>
+        {observed.error !== null && <p role="alert">{observed.error}</p>}{observed.run === null ? <p role="status">正在加载运行详情…</p> : <RunResultPanel run={observed.run} />}</section>
+      : active === null ? <div className="workspace-empty"><h2>选择一个 Tool 开始调试</h2><p>单击复用当前未固定 Tab，双击打开新 Tab。</p></div> : <div id={`tabpanel-${active.id}`} role="tabpanel" aria-labelledby={`tab-${active.id}`}>
       <nav className="workspace-nav" aria-label="当前 Tab 视图">
         {(["debug", "definition", "history"] as const).map((item) => <button type="button" key={item}
           aria-current={view === item ? "page" : undefined} onClick={() => setView(item)}>
@@ -216,7 +266,7 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
       {view === "debug" && detail !== null && <div className="request-result-split" style={{ gridTemplateRows: `${active.viewState.splitRatio * 100}% 8px 1fr` }}>
         <div className="request-pane" ref={(node) => { if (node !== null && node.scrollTop !== active.viewState.editorScrollTop) node.scrollTop = active.viewState.editorScrollTop; }}
           onScroll={(event) => schedule(active.id, { viewState: { ...active.viewState, editorScrollTop: event.currentTarget.scrollTop } })}>
-          <ParameterEditor tab={active} schema={detail.tool.currentSnapshot.definition.inputSchema}
+          <ParameterEditor tab={active} schema={detail.tool.currentSnapshot.definition.inputSchema} executing={startingIds.has(active.id)}
             subtreeDrafts={subtreeDrafts[active.id]}
             onSubtreeDraftChange={(path, text, base) => setSubtreeDrafts((current) => ({ ...current,
               [active.id]: { ...(current[active.id] ?? {}), [path]: { text, base } } }))}
@@ -228,7 +278,9 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
         </label>
         <div className="result-placeholder" ref={(node) => { if (node !== null && node.scrollTop !== active.viewState.resultScrollTop) node.scrollTop = active.viewState.resultScrollTop; }}
           onScroll={(event) => schedule(active.id, { viewState: { ...active.viewState, resultScrollTop: event.currentTarget.scrollTop } })}>
-          <h3>调用结果</h3><p>执行与结果将在下一阶段接入。</p></div>
+          {observed.error !== null && <p role="alert">{observed.error}</p>}
+          {selectedRunId === null ? <><h3>调用结果</h3><p>执行 Tool 后在这里查看结果与完整协议轨迹。</p></>
+            : observed.run === null ? <p role="status">正在加载运行详情…</p> : <RunResultPanel run={observed.run} />}</div>
       </div>}
       {view === "definition" && detail !== null && <article className="tool-definition">
         <h2>{detail.tool.name}</h2><p>{detail.tool.currentSnapshot.definition.description ?? "暂无描述"}</p>
@@ -240,7 +292,7 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
         <button type="button" onClick={() => void navigator.clipboard?.writeText(JSON.stringify(detail.tool.currentSnapshot.definition, null, 2))}>复制原始 Tool 定义</button>
         <h3>历史快照</h3><ul>{detail.snapshots.map((snapshot) => <li key={snapshot.id}>{snapshot.createdAt} · {snapshot.contentHash}</li>)}</ul>
       </article>}
-      {view === "history" && <div className="history-placeholder"><h2>当前 Tab 历史</h2><p>运行历史将在下一阶段接入。</p></div>}
+      {view === "history" && <RunHistory api={api} projectId={projectId} tabId={active.id} onOpen={(run) => void openHistory(run)} />}
     </div>}
     <span className="sr-only" role="status" aria-live="polite">{queues.current.size > 0 ? "正在保存 Tab" : pending.current.size > 0 ? "Tab 有待保存更改" : "Tab 已保存"}</span>
   </section>;

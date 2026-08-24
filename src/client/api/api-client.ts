@@ -69,6 +69,29 @@ export interface DebugTabSummary {
   lastRunId: string | null;
 }
 
+export type RunStatus = "queued" | "connecting" | "authorizing" | "running" |
+  "succeeded" | "failed" | "cancelled" | "interrupted";
+export interface RunEvent {
+  runId: string; sequence: number; kind: string; occurredAt: string; payload: unknown;
+}
+export interface RunSummary {
+  id: string; projectId: string; connectionId: string; tabId: string | null;
+  toolName: string; toolSnapshotId: string; idempotencyKey: string; status: RunStatus;
+  createdAt: string; startedAt: string | null; completedAt: string | null;
+  durationMs: number | null; networkDurationMs: number | null;
+}
+export interface RunDetail extends RunSummary {
+  toolSnapshotHash: string;
+  protocolVersion: string | null;
+  serverInfo: Record<string, unknown> | null;
+  clientInfo: Record<string, unknown>;
+  request: { arguments: Record<string, unknown>; jsonrpc: unknown; http: unknown | null };
+  response: { result: unknown | null; error: { code: string; message: string } | null;
+    truncated: boolean; originalBytes: number | null } | null;
+  events: RunEvent[];
+}
+export interface RunPage { runs: RunSummary[]; nextCursor: string | null }
+
 export type UpdateDebugTabRequest = Partial<Pick<DebugTabSummary,
   "title" | "pinned" | "inputMode" | "arguments" | "rawText" | "viewState" | "lastRunId">>;
 
@@ -93,6 +116,10 @@ export interface InspectorApiClient {
   closeTab(projectId: string, tabId: string): Promise<void>;
   closeOtherTabs(projectId: string, tabId: string): Promise<DebugTabSummary[]>;
   closeTabsRight(projectId: string, tabId: string): Promise<DebugTabSummary[]>;
+  startRun(projectId: string, tabId: string, idempotencyKey: string, args: Record<string, unknown>): Promise<RunSummary>;
+  getRun(projectId: string, runId: string): Promise<RunDetail>;
+  listRuns(projectId: string, cursor?: string): Promise<RunPage>;
+  openRunEventStream(projectId: string, runId: string, after: number, signal: AbortSignal): Promise<Response>;
 }
 
 interface ApiErrorBody {
@@ -343,6 +370,72 @@ function decodeTabEnvelope(value: unknown, projectId: string): DebugTabSummary {
   return decodeTab(value.tab, projectId);
 }
 
+const runStatuses = new Set<RunStatus>(["queued", "connecting", "authorizing", "running",
+  "succeeded", "failed", "cancelled", "interrupted"]);
+function nullableTimestamp(value: unknown): value is string | null {
+  return value === null || isCanonicalUtcTimestamp(value);
+}
+function nullableDuration(value: unknown): value is number | null {
+  return value === null || (typeof value === "number" && Number.isSafeInteger(value) && value >= 0);
+}
+function decodeRunSummary(value: unknown, projectId: string): RunSummary {
+  if (!isObject(value)) throw new Error("Invalid Run response");
+  const { id, projectId: owner, connectionId, tabId, toolName, toolSnapshotId, idempotencyKey, status,
+    createdAt, startedAt, completedAt, durationMs, networkDurationMs } = value;
+  if (typeof id !== "string" || !uuidPattern.test(id) || owner !== projectId ||
+      typeof connectionId !== "string" || !uuidPattern.test(connectionId) ||
+      !(tabId === null || (typeof tabId === "string" && uuidPattern.test(tabId))) ||
+      typeof toolName !== "string" || toolName.length === 0 || typeof toolSnapshotId !== "string" || !uuidPattern.test(toolSnapshotId) ||
+      typeof idempotencyKey !== "string" || idempotencyKey.length === 0 || typeof status !== "string" || !runStatuses.has(status as RunStatus) ||
+      !isCanonicalUtcTimestamp(createdAt) || !nullableTimestamp(startedAt) || !nullableTimestamp(completedAt) ||
+      !nullableDuration(durationMs) || !nullableDuration(networkDurationMs)) throw new Error("Invalid Run response");
+  return { id, projectId, connectionId, tabId, toolName, toolSnapshotId, idempotencyKey, status: status as RunStatus,
+    createdAt, startedAt, completedAt, durationMs, networkDurationMs };
+}
+
+export function decodeRunEvent(value: unknown, runId: string): RunEvent {
+  if (!isObject(value) || value.runId !== runId || !Number.isSafeInteger(value.sequence) || (value.sequence as number) < 1 ||
+      typeof value.kind !== "string" || value.kind.length === 0 || !isCanonicalUtcTimestamp(value.occurredAt)) {
+    throw new Error("Invalid Run event");
+  }
+  return { runId, sequence: value.sequence as number, kind: value.kind, occurredAt: value.occurredAt as string, payload: value.payload };
+}
+
+function decodeRunDetail(value: unknown, projectId: string): RunDetail {
+  if (!isObject(value) || !isObject(value.run)) throw new Error("Invalid Run response");
+  const raw = value.run; const base = decodeRunSummary(raw, projectId);
+  if (typeof raw.toolSnapshotHash !== "string" || !/^[a-f0-9]{64}$/.test(raw.toolSnapshotHash) ||
+      !(raw.protocolVersion === null || typeof raw.protocolVersion === "string") || !isNullableObject(raw.serverInfo) ||
+      !isObject(raw.clientInfo) || !isObject(raw.request) || !isObject(raw.request.arguments) ||
+      !("jsonrpc" in raw.request) || !("http" in raw.request) || !Array.isArray(raw.events)) throw new Error("Invalid Run response");
+  const events = raw.events.map((event) => decodeRunEvent(event, base.id));
+  if (events.some((event, index) => index > 0 && event.sequence <= events[index - 1]!.sequence)) throw new Error("Invalid Run response");
+  let response: RunDetail["response"] = null;
+  if (raw.response !== null) {
+    if (!isObject(raw.response) || typeof raw.response.truncated !== "boolean" ||
+        !(raw.response.originalBytes === null || (Number.isSafeInteger(raw.response.originalBytes) && (raw.response.originalBytes as number) >= 0)) ||
+        !(raw.response.error === null || (isObject(raw.response.error) && typeof raw.response.error.code === "string" && typeof raw.response.error.message === "string"))) {
+      throw new Error("Invalid Run response");
+    }
+    response = { result: raw.response.result ?? null,
+      error: raw.response.error === null ? null : { code: raw.response.error.code as string, message: raw.response.error.message as string },
+      truncated: raw.response.truncated, originalBytes: raw.response.originalBytes as number | null };
+  }
+  return { ...base, toolSnapshotHash: raw.toolSnapshotHash, protocolVersion: raw.protocolVersion as string | null,
+    serverInfo: raw.serverInfo as Record<string, unknown> | null, clientInfo: raw.clientInfo,
+    request: { arguments: raw.request.arguments, jsonrpc: raw.request.jsonrpc, http: raw.request.http ?? null }, response, events };
+}
+
+function decodeRunPage(value: unknown, projectId: string): RunPage {
+  if (!isObject(value) || !Array.isArray(value.runs) || !(value.nextCursor === null || typeof value.nextCursor === "string")) {
+    throw new Error("Invalid Run response");
+  }
+  const runs = value.runs.map((run) => decodeRunSummary(run, projectId));
+  if (runs.some((run, index) => index > 0 && (run.createdAt > runs[index - 1]!.createdAt ||
+      (run.createdAt === runs[index - 1]!.createdAt && run.id >= runs[index - 1]!.id)))) throw new Error("Invalid Run response");
+  return { runs, nextCursor: value.nextCursor as string | null };
+}
+
 export function createApiClient(sessionToken: string): InspectorApiClient {
   const headers = {
     "Content-Type": "application/json",
@@ -468,6 +561,34 @@ export function createApiClient(sessionToken: string): InspectorApiClient {
     async closeTabsRight(projectId, tabId) {
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tabs/${encodeURIComponent(tabId)}/close-right`, { method: "POST", headers });
       return decodeTabs(await decodeResponse<unknown>(response), projectId);
+    },
+    async startRun(projectId, tabId, idempotencyKey, args) {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/runs`, {
+        method: "POST", headers, body: JSON.stringify({ tabId, idempotencyKey, arguments: args }),
+      });
+      const value = await decodeResponse<unknown>(response);
+      if (!isObject(value) || !("run" in value)) throw new Error("Invalid Run response");
+      const run = decodeRunSummary(value.run, projectId);
+      if (run.tabId !== tabId || run.idempotencyKey !== idempotencyKey) throw new Error("Invalid Run response");
+      return run;
+    },
+    async getRun(projectId, runId) {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/runs/${encodeURIComponent(runId)}`, { headers });
+      const run = decodeRunDetail(await decodeResponse<unknown>(response), projectId);
+      if (run.id !== runId) throw new Error("Invalid Run response");
+      return run;
+    },
+    async listRuns(projectId, cursor) {
+      const query = cursor === undefined ? "" : `?cursor=${encodeURIComponent(cursor)}`;
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/runs${query}`, { headers });
+      return decodeRunPage(await decodeResponse<unknown>(response), projectId);
+    },
+    async openRunEventStream(projectId, runId, after, signal) {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/runs/${encodeURIComponent(runId)}/events?after=${after}`, {
+        headers: { "X-DSers-Inspector-Session": sessionToken, Accept: "text/event-stream" }, signal,
+      });
+      if (!response.ok) await decodeResponse<never>(response);
+      return response;
     },
   };
 }

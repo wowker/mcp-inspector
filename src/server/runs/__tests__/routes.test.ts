@@ -13,7 +13,7 @@ const summary: RunSummary = { id: runId, projectId, connectionId: "00000000-0000
   tabId, toolName: "sum", toolSnapshotId: "00000000-0000-4000-8000-000000000705", idempotencyKey: "submit",
   status: "queued", createdAt: "2026-08-17T00:00:00.000Z", startedAt: null, completedAt: null,
   durationMs: null, networkDurationMs: null };
-const detail: RunDetail = { ...summary, protocolVersion: null, serverInfo: null, clientInfo: {},
+const detail: RunDetail = { ...summary, toolSnapshotHash: "a".repeat(64), protocolVersion: null, serverInfo: null, clientInfo: {},
   request: { arguments: { a: 1 }, jsonrpc: {}, http: null }, response: null, events: [] };
 
 function fake(overrides: Partial<RunServiceWithEvents> = {}): RunServiceWithEvents {
