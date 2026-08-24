@@ -118,7 +118,7 @@ export interface InspectorApiClient {
   closeTabsRight(projectId: string, tabId: string): Promise<DebugTabSummary[]>;
   startRun(projectId: string, tabId: string, idempotencyKey: string, args: Record<string, unknown>): Promise<RunSummary>;
   getRun(projectId: string, runId: string): Promise<RunDetail>;
-  listRuns(projectId: string, cursor?: string): Promise<RunPage>;
+  listRuns(projectId: string, cursor?: string, tabId?: string): Promise<RunPage>;
   openRunEventStream(projectId: string, runId: string, after: number, signal: AbortSignal): Promise<Response>;
 }
 
@@ -427,10 +427,12 @@ function decodeRunDetail(value: unknown, projectId: string): RunDetail {
 }
 
 function decodeRunPage(value: unknown, projectId: string): RunPage {
-  if (!isObject(value) || !Array.isArray(value.runs) || !(value.nextCursor === null || typeof value.nextCursor === "string")) {
+  if (!isObject(value) || !Array.isArray(value.runs) || !(value.nextCursor === null ||
+      (typeof value.nextCursor === "string" && value.nextCursor.length > 0 && value.nextCursor.length <= 4096 && /^[A-Za-z0-9_-]+$/.test(value.nextCursor)))) {
     throw new Error("Invalid Run response");
   }
   const runs = value.runs.map((run) => decodeRunSummary(run, projectId));
+  if (new Set(runs.map(({ id }) => id)).size !== runs.length) throw new Error("Invalid Run response");
   if (runs.some((run, index) => index > 0 && (run.createdAt > runs[index - 1]!.createdAt ||
       (run.createdAt === runs[index - 1]!.createdAt && run.id >= runs[index - 1]!.id)))) throw new Error("Invalid Run response");
   return { runs, nextCursor: value.nextCursor as string | null };
@@ -578,8 +580,9 @@ export function createApiClient(sessionToken: string): InspectorApiClient {
       if (run.id !== runId) throw new Error("Invalid Run response");
       return run;
     },
-    async listRuns(projectId, cursor) {
-      const query = cursor === undefined ? "" : `?cursor=${encodeURIComponent(cursor)}`;
+    async listRuns(projectId, cursor, tabId) {
+      const search = new URLSearchParams(); if (cursor !== undefined) search.set("cursor", cursor); if (tabId !== undefined) search.set("tabId", tabId);
+      const query = search.size === 0 ? "" : `?${search.toString()}`;
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/runs${query}`, { headers });
       return decodeRunPage(await decodeResponse<unknown>(response), projectId);
     },

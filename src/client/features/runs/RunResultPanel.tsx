@@ -31,8 +31,8 @@ function JsonSubtrees({ value, path = "$" }: { value: unknown; path?: string }) 
       ? <JsonSubtrees value={child} path={`${path}/${key.replaceAll("~", "~0").replaceAll("/", "~1")}`} /> : <span>{json(child)}</span>}</li>)}</ul>}</div>;
 }
 
-function JsonValue({ value, label = "JSON" }: { value: unknown; label?: string }) {
-  return <section className="json-block"><div className="block-toolbar"><strong>{label}</strong><CopyButton value={value} /></div><pre>{json(value)}</pre>
+function JsonValue({ value, label = "JSON", copyLabel = "复制" }: { value: unknown; label?: string; copyLabel?: string }) {
+  return <section className="json-block"><div className="block-toolbar"><strong>{label}</strong><CopyButton value={value} label={copyLabel} /></div><pre>{json(value)}</pre>
     {typeof value === "object" && value !== null && <details><summary>JSON 子树</summary><JsonSubtrees value={value} /></details>}</section>;
 }
 
@@ -119,6 +119,9 @@ export function RunResultPanel({ run }: { run: RunDetail }) {
   const result = run.response?.result;
   const resultRecord = typeof result === "object" && result !== null && !Array.isArray(result) ? result as Record<string, unknown> : null;
   const content = Array.isArray(resultRecord?.content) ? resultRecord.content : [];
+  const requestHttp = typeof run.request.http === "object" && run.request.http !== null && !Array.isArray(run.request.http)
+    ? run.request.http as Record<string, unknown> : null;
+  const safeRequestHttp = requestHttp === null ? null : { ...requestHttp, headers: redactHeaders(requestHttp.headers) };
   const labels: Array<[View, string]> = [["formatted", "格式化结果"], ["raw", "Raw"], ["rpc", "RPC"], ["http", "HTTP"], ["timeline", "时间线"]];
   const origin = Date.parse(run.createdAt);
   return <article className="run-result" aria-label={`运行 ${run.id} 详情`}>
@@ -126,6 +129,11 @@ export function RunResultPanel({ run }: { run: RunDetail }) {
       <CopyButton value={run.response} label="复制全部结果" /></header>
     {run.response?.truncated && <p role="status" className="truncated-warning">结果已截断（原始大小 {run.response.originalBytes ?? "未知"} bytes），以下仅为安全预览。</p>}
     <dl className="run-metadata">{metadata(run).map(([name, value]) => <div key={name}><dt>{name}</dt><dd>{value}</dd></div>)}</dl>
+    <section className="historical-request" aria-labelledby={`request-title-${run.id}`}><h2 id={`request-title-${run.id}`}>不可变历史请求</h2>
+      <JsonValue value={run.request.arguments} label="arguments" copyLabel="复制 arguments" />
+      <JsonValue value={run.request.jsonrpc} label="完整 JSON-RPC" copyLabel="复制 JSON-RPC" />
+      <JsonValue value={safeRequestHttp} label="安全 HTTP 摘要" copyLabel="复制 HTTP 摘要" />
+    </section>
     <div role="tablist" aria-label="运行结果视图" className="result-tabs" onKeyDown={(event) => {
       if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
       const index = labels.findIndex(([id]) => id === view); const next = event.key === "Home" ? 0 : event.key === "End" ? labels.length - 1
@@ -133,7 +141,7 @@ export function RunResultPanel({ run }: { run: RunDetail }) {
       event.preventDefault(); const target = labels[next]?.[0]; if (target !== undefined) { setView(target); queueMicrotask(() => document.getElementById(`result-tab-${target}-${run.id}`)?.focus()); }
     }}>{labels.map(([id, label]) => <button id={`result-tab-${id}-${run.id}`} key={id} type="button" role="tab" tabIndex={view === id ? 0 : -1}
       aria-selected={view === id} aria-controls={`result-${id}-${run.id}`} onClick={() => setView(id)}>{label}</button>)}</div>
-    <section id={`result-${view}-${run.id}`} role="tabpanel" className="result-view">
+    <section id={`result-${view}-${run.id}`} role="tabpanel" aria-labelledby={`result-tab-${view}-${run.id}`} className="result-view">
       {view === "formatted" && <>{run.response === null ? <p role="status">等待运行结果…</p> : <>
         {run.response.error !== null && <JsonValue value={run.response.error} label="错误" />}
         {resultRecord !== null && "structuredContent" in resultRecord && <JsonValue value={resultRecord.structuredContent} label="结构化内容" />}

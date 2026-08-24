@@ -63,6 +63,7 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
   const intentQueue = useRef<Promise<void>>(Promise.resolve());
   const workspaceGeneration = useRef(0);
   const starts = useRef(new Set<string>());
+  const launchedRuns = useRef(new Map<string, string>());
 
   function assign(next: DebugTabSummary[]): void {
     tabsRef.current = next; setTabs(next);
@@ -147,7 +148,8 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
   useEffect(() => {
     if (observed.run?.tabId === null || observed.run === null) return;
     const id = observed.run.tabId; const running = !["succeeded", "failed", "cancelled", "interrupted"].includes(observed.run.status);
-    setStartingIds((current) => { const next = new Set(current); if (running) next.add(id); else { next.delete(id); starts.current.delete(id); } return next; });
+    if (launchedRuns.current.get(id) !== observed.run.id) return;
+    setStartingIds((current) => { const next = new Set(current); if (running) next.add(id); else { next.delete(id); launchedRuns.current.delete(id); } return next; });
   }, [observed.run]);
   useEffect(() => {
     setBoundDetail(null);
@@ -180,7 +182,20 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
     }).catch((error: unknown) => { if (workspaceGeneration.current === scope) setMessage(error instanceof Error ? error.message : "无法打开 Tool Tab"); });
   }, [api, flush, projectId, tabs, toolIntent]);
 
-  async function select(id: string): Promise<void> { if (!(await flush(activeRef.current ?? undefined))) return; activate(id); setView("debug"); }
+  async function reconcileLaunch(id: string): Promise<boolean> {
+    const runId = launchedRuns.current.get(id); if (runId === undefined) return true;
+    try {
+      const run = await api.getRun(projectId, runId);
+      if (!["succeeded", "failed", "cancelled", "interrupted"].includes(run.status)) return false;
+      if (launchedRuns.current.get(id) === run.id) {
+        launchedRuns.current.delete(id); setStartingIds((current) => { const next = new Set(current); next.delete(id); return next; });
+      }
+      return true;
+    } catch (error) { setMessage(error instanceof Error ? error.message : "检查运行状态失败"); return false; }
+  }
+  async function select(id: string): Promise<void> {
+    if (!(await flush(activeRef.current ?? undefined))) return; await reconcileLaunch(id); activate(id); setView("debug");
+  }
   async function openHistory(run: RunSummary): Promise<void> {
     if (!(await flush(activeRef.current ?? undefined))) return;
     const origin = tabsRef.current.find(({ id }) => id === run.tabId);
@@ -220,9 +235,13 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
   }
   async function execute(): Promise<void> {
     if (active === null || starts.current.has(active.id)) return;
-    starts.current.add(active.id); setStartingIds((current) => new Set(current).add(active.id)); setMessage(null);
-    let launched = false;
+    // Acquire the per-Tab lock before the first await so rapid clicks cannot
+    // both pass the gate while launch reconciliation is in flight.
+    starts.current.add(active.id);
+    let launched = false; let markedStarting = false;
     try {
+      if (!(await reconcileLaunch(active.id))) return;
+      markedStarting = true; setStartingIds((current) => new Set(current).add(active.id)); setMessage(null);
       if (!(await flush(active.id))) return;
       const latest = tabsRef.current.find(({ id }) => id === active.id); if (latest === undefined) return;
       const parsed = parseRawArguments(latest.rawText);
@@ -230,10 +249,11 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
       if (onExecute !== undefined) { onExecute(latest); return; }
       const run = await api.startRun(projectId, latest.id, crypto.randomUUID(), parsed.value);
       launched = true;
+      launchedRuns.current.set(latest.id, run.id);
       setSelectedRuns((current) => ({ ...current, [latest.id]: run.id }));
       schedule(latest.id, { lastRunId: run.id }); setView("debug");
     } catch (error) { setMessage(error instanceof Error ? error.message : "启动运行失败"); }
-    finally { if (!launched) { starts.current.delete(active.id); setStartingIds((current) => { const next = new Set(current); next.delete(active.id); return next; }); } }
+    finally { starts.current.delete(active.id); if (markedStarting && !launched) setStartingIds((current) => { const next = new Set(current); next.delete(active.id); return next; }); }
   }
 
   const detail = active !== null && boundDetail?.tabId === active.id && boundDetail.connectionId === active.connectionId &&
@@ -249,8 +269,16 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
       onDuplicate={(id) => void duplicate(id)} onPin={(id, pinned) => schedule(id, { pinned })}
       onMove={(id, offset) => void move(id, offset)}
       onCloseOthers={(id) => void bulk(id, "others")} onCloseRight={(id) => void bulk(id, "right")} />
-    {readOnlyTabs.length > 0 && <div className="history-tabs" role="tablist" aria-label="只读运行 Tabs">{readOnlyTabs.map((run) => <span key={run.id}>
-      <button id={`history-tab-${run.id}`} aria-controls={`history-panel-${run.id}`} type="button" role="tab" tabIndex={activeReadOnlyId === run.id ? 0 : -1}
+    {readOnlyTabs.length > 0 && <div className="history-tabs" role="tablist" aria-label="只读运行 Tabs" onKeyDown={(event) => {
+      if (!(event.target instanceof HTMLElement) || event.target.getAttribute("role") !== "tab" ||
+          !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')]; const index = buttons.indexOf(event.target as HTMLButtonElement);
+      const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : event.key === "ArrowRight"
+        ? (index + 1) % buttons.length : (index - 1 + buttons.length) % buttons.length;
+      const target = buttons[next]; if (target !== undefined) { event.preventDefault(); target.focus(); target.click(); }
+    }}>{readOnlyTabs.map((run, index) => <span key={run.id}>
+      <button id={`history-tab-${run.id}`} aria-controls={`history-panel-${run.id}`} type="button" role="tab"
+        tabIndex={activeReadOnlyId === run.id || (activeReadOnlyId === null && index === 0) ? 0 : -1}
         aria-selected={activeReadOnlyId === run.id} onClick={() => { activeRef.current = null; setActiveId(null); setActiveReadOnlyId(run.id); setView("debug"); }}>只读 · {run.toolName} · {run.id.slice(0, 8)}</button>
       <button type="button" aria-label={`关闭只读运行 ${run.id}`} onClick={() => closeReadOnly(run.id)}>×</button></span>)}</div>}
     {view === "global-history" ? <RunHistory api={api} projectId={projectId} onOpen={(run) => void openHistory(run)} />

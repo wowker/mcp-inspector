@@ -45,6 +45,13 @@ describe("run routes", () => {
     expect((await createRunRoutes(fake({ get: () => { throw new RunNotFoundError(); } }))
       .request(`/${projectId}/runs/${runId}`)).status).toBe(404);
     expect((await createRunRoutes(fake()).request(`/${projectId}/runs/${runId}/events?after=-1`)).status).toBe(400);
+    expect((await createRunRoutes(fake()).request(`/${projectId}/runs?tabId=bad`)).status).toBe(400);
+  });
+
+  it("passes a validated Tab filter to the project-scoped history service", async () => {
+    const list = vi.fn(() => ({ runs: [summary], nextCursor: null }));
+    const response = await createRunRoutes(fake({ list })).request(`/${projectId}/runs?tabId=${tabId}&cursor=opaque`);
+    expect(response.status).toBe(200); expect(list).toHaveBeenCalledWith(projectId, "opaque", tabId);
   });
 
   it("subscribes before backlog, deduplicates the race, and releases the subscription on abort", async () => {

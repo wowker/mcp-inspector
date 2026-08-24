@@ -17,17 +17,25 @@ export async function consumeRunEventStream(response: Response, runId: string, s
   onEvent: (event: RunEvent) => void): Promise<void> {
   if (response.body === null) throw new Error("Run event stream has no body");
   const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = "";
+  const normalize = (final = false) => {
+    const trailingCr = !final && buffer.endsWith("\r");
+    const source = trailingCr ? buffer.slice(0, -1) : buffer;
+    buffer = source.replace(/\r\n?/g, "\n") + (trailingCr ? "\r" : "");
+  };
+  const dispatch = () => {
+    let boundary = buffer.indexOf("\n\n");
+    while (boundary >= 0) {
+      const frame = buffer.slice(0, boundary); buffer = buffer.slice(boundary + 2);
+      const data = frame.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).replace(/^ /, "")).join("\n");
+      if (data.length > 0) onEvent(decodeRunEvent(JSON.parse(data) as unknown, runId));
+      boundary = buffer.indexOf("\n\n");
+    }
+  };
   try {
     while (!signal.aborted) {
-      const chunk = await reader.read(); if (chunk.done) break;
-      buffer += decoder.decode(chunk.value, { stream: true }); buffer = buffer.replaceAll("\r\n", "\n");
-      let boundary = buffer.indexOf("\n\n");
-      while (boundary >= 0) {
-        const frame = buffer.slice(0, boundary); buffer = buffer.slice(boundary + 2);
-        const data = frame.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).replace(/^ /, "")).join("\n");
-        if (data.length > 0) onEvent(decodeRunEvent(JSON.parse(data) as unknown, runId));
-        boundary = buffer.indexOf("\n\n");
-      }
+      const chunk = await reader.read();
+      if (chunk.done) { buffer += decoder.decode(); normalize(true); dispatch(); break; }
+      buffer += decoder.decode(chunk.value, { stream: true }); normalize(); dispatch();
     }
   } finally { try { await reader.cancel(); } catch { /* already closed */ } }
 }
@@ -42,7 +50,16 @@ export function useRunEvents(api: InspectorApiClient, projectId: string, runId: 
     void (async () => {
       let cursor = 0; let attempt = 0;
       try {
-        let authoritative = await api.getRun(projectId, runId); if (!current) return;
+        let authoritative: RunDetail | null = null;
+        while (current && authoritative === null) {
+          try { authoritative = await api.getRun(projectId, runId); }
+          catch (cause) {
+            if (!current || controller.signal.aborted) return;
+            setState({ run: null, error: cause instanceof Error ? cause.message : "加载运行失败", observing: true });
+            await wait(delays[Math.min(attempt, delays.length - 1)]!, controller.signal); attempt += 1;
+          }
+        }
+        if (authoritative === null || !current) return; attempt = 0;
         cursor = authoritative.events.at(-1)?.sequence ?? 0; setState({ run: authoritative, error: null, observing: !terminal.has(authoritative.status) });
         while (current && !terminal.has(authoritative.status)) {
           const streamController = new AbortController();
@@ -55,7 +72,7 @@ export function useRunEvents(api: InspectorApiClient, projectId: string, runId: 
             cursor = Math.max(cursor, authoritative.events.at(-1)?.sequence ?? 0);
             setState({ run: authoritative, error: null, observing: !terminal.has(authoritative.status) });
             if (terminal.has(authoritative.status)) { controller.abort(); return; }
-            await consumeRunEventStream(response, runId, controller.signal, (event) => {
+            await consumeRunEventStream(response, runId, streamController.signal, (event) => {
               if (!current || event.sequence <= cursor) return; cursor = event.sequence;
               const payload = typeof event.payload === "object" && event.payload !== null && !Array.isArray(event.payload)
                 ? event.payload as Record<string, unknown> : null;

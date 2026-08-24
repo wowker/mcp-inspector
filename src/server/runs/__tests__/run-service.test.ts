@@ -476,4 +476,24 @@ describe("RunService", () => {
       }
     } finally { projects.close(); }
   });
+
+  it("paginates current-Tab history independently and binds its cursor to that Tab", () => {
+    const { projects, service, tabA, tabB } = fixture();
+    try {
+      for (let index = 0; index < 52; index += 1) {
+        const tab = index % 2 === 0 ? tabA : tabB;
+        const run = service.start({ projectId, tabId: tab.id, idempotencyKey: `tab-page-${index}`, arguments: { a: index } });
+        service.cancel(projectId, run.id);
+      }
+      const first = service.list(projectId, undefined, tabA.id);
+      expect(first.runs).toHaveLength(26); expect(first.runs.every(({ tabId }) => tabId === tabA.id)).toBe(true);
+      expect(first.nextCursor).toBeNull();
+      expect(() => service.list(projectId, undefined, "00000000-0000-4000-8000-000000000799")).toThrow(/Tab not found/i);
+      const repository = new RunRepository(projects.open(projectId), service.eventBus);
+      const small = repository.list(projectId, undefined, 10, tabA.id);
+      expect(small.runs).toHaveLength(10); expect(small.nextCursor).not.toBeNull();
+      expect(repository.list(projectId, small.nextCursor!, 10, tabA.id).runs).toHaveLength(10);
+      expect(() => repository.list(projectId, small.nextCursor!, 10, tabB.id)).toThrow(/cursor/i);
+    } finally { projects.close(); }
+  });
 });

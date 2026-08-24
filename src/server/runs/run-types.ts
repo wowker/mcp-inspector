@@ -33,7 +33,7 @@ export interface RunPage { runs: RunSummary[]; nextCursor: string | null }
 export interface RunService {
   start(input: StartRunInput): RunSummary;
   cancel(projectId: string, runId: string): boolean;
-  list(projectId: string, cursor?: string): RunPage;
+  list(projectId: string, cursor?: string, tabId?: string): RunPage;
   get(projectId: string, runId: string): RunDetail;
   events(projectId: string, runId: string, after?: number, limit?: number): RunEvent[];
 }

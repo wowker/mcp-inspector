@@ -20,11 +20,12 @@ describe("RunHistory", () => {
     const newest = item("00000000-0000-4000-8000-000000000815", "2026-08-17T00:00:02.000Z", tabId);
     const other = item("00000000-0000-4000-8000-000000000816", "2026-08-17T00:00:01.000Z", null);
     const older = item("00000000-0000-4000-8000-000000000817", "2026-08-17T00:00:00.000Z", tabId);
-    const listRuns = vi.fn(async (_project: string, cursor?: string) => cursor === undefined
-      ? { runs: [newest, other], nextCursor: "next" } : { runs: [older], nextCursor: null });
+    const listRuns = vi.fn(async (_project: string, cursor?: string, requestedTabId?: string) => cursor === undefined
+      ? { runs: [newest], nextCursor: "next" } : { runs: [older], nextCursor: null });
     render(<RunHistory api={{ listRuns } as unknown as InspectorApiClient} projectId={projectId} tabId={tabId} onOpen={vi.fn()} />);
     expect(await screen.findByText(newest.id)).toBeVisible();
     expect(screen.queryByText(other.id)).not.toBeInTheDocument();
+    expect(listRuns).toHaveBeenCalledWith(projectId, undefined, tabId);
     fireEvent.click(screen.getByRole("button", { name: "加载更多" }));
     expect(await screen.findByText(older.id)).toBeVisible();
     expect(screen.getAllByRole("button", { name: /打开运行/ }).map((button) => button.getAttribute("aria-label"))).toEqual([

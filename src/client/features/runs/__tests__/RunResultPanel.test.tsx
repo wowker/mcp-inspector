@@ -40,6 +40,18 @@ describe("RunResultPanel", () => {
     expect(screen.getByText(/audio\/wav/)).toBeInTheDocument();
   });
 
+  it("shows the immutable request needed to reproduce the historical call", () => {
+    const writeText = vi.fn().mockRejectedValue(new Error("denied"));
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    render(<RunResultPanel run={{ ...run, request: { arguments: { value: 5 }, jsonrpc: { jsonrpc: "2.0", method: "tools/call", params: { name: "inspect" } },
+      http: { method: "POST", url: "https://example.test/mcp", headers: { authorization: "Bearer secret", accept: "application/json" }, body: { safe: true } } } }} />);
+    expect(screen.getByRole("heading", { name: "不可变历史请求" })).toBeVisible();
+    expect(screen.getByText(/"value": 5/)).toBeVisible(); expect(screen.getByText(/"name": "inspect"/)).toBeVisible();
+    expect(screen.getAllByText(/\[REDACTED\]/).length).toBeGreaterThan(0); expect(screen.queryByText(/Bearer secret/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "复制 arguments" }));
+    return screen.findByRole("alert").then((alert) => expect(alert).toHaveTextContent("复制失败"));
+  });
+
   it("filters RPC, groups HTTP with redacted headers, and orders the timeline", () => {
     render(<RunResultPanel run={run} />);
     fireEvent.click(screen.getByRole("tab", { name: "RPC" }));
@@ -53,6 +65,11 @@ describe("RunResultPanel", () => {
     expect(screen.getAllByTestId("timeline-sequence").map((node) => node.textContent)).toEqual(["#2", "#3", "#4", "#5"]);
   });
 
+  it("links every result tabpanel back to its selected tab", () => {
+    render(<RunResultPanel run={run} />); const tab = screen.getByRole("tab", { name: "格式化结果" });
+    expect(screen.getByRole("tabpanel")).toHaveAttribute("aria-labelledby", tab.id);
+  });
+
   it("labels truncated output and surfaces clipboard failures", async () => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn().mockRejectedValue(new Error("denied")) } });
     render(<RunResultPanel run={{ ...run, response: { ...run.response!, truncated: true, originalBytes: 12345 } }} />);
@@ -62,16 +79,21 @@ describe("RunResultPanel", () => {
   });
 
   it("creates and revokes Blob URLs only for supported image MIME types", async () => {
-    const create = vi.fn(() => "blob:image"); const revoke = vi.fn();
+    const create = vi.fn().mockReturnValueOnce("blob:image-1").mockReturnValueOnce("blob:image-2"); const revoke = vi.fn();
     Object.defineProperty(URL, "createObjectURL", { configurable: true, value: create });
     Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: revoke });
     const view = render(<RunResultPanel run={{ ...run, response: { result: { content: [
       { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
       { type: "image", mimeType: "image/svg+xml", data: "PHN2Zz4=" },
     ] }, error: null, truncated: false, originalBytes: 20 } }} />);
-    expect(await screen.findByRole("img", { name: "MCP 返回图片" })).toHaveAttribute("src", "blob:image");
+    expect(await screen.findByRole("img", { name: "MCP 返回图片" })).toHaveAttribute("src", "blob:image-1");
     expect(create).toHaveBeenCalledTimes(1);
     expect(screen.getByText(/image\/svg\+xml/)).toBeInTheDocument();
-    view.unmount(); await waitFor(() => expect(revoke).toHaveBeenCalledWith("blob:image"));
+    view.rerender(<RunResultPanel run={{ ...run, response: { result: { content: [
+      { type: "image", mimeType: "image/jpeg", data: "/9j/4AAQSkZJRg==" },
+    ] }, error: null, truncated: false, originalBytes: 14 } }} />);
+    expect(await screen.findByRole("img", { name: "MCP 返回图片" })).toHaveAttribute("src", "blob:image-2");
+    expect(revoke).toHaveBeenCalledWith("blob:image-1");
+    view.unmount(); await waitFor(() => expect(revoke).toHaveBeenCalledWith("blob:image-2"));
   });
 });

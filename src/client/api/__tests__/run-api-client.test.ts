@@ -31,4 +31,15 @@ describe("Run API client", () => {
       request: { arguments: {}, jsonrpc: {}, http: null }, response: null, events: [] } }), { status: 200 }));
     await expect(createApiClient("session").getRun(projectId, run.id)).rejects.toThrow("Invalid Run response");
   });
+
+  it("requests server-filtered Tab history and rejects duplicate IDs or malformed cursors", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ runs: [run], nextCursor: "next_page" }), { status: 200 }));
+    const api = createApiClient("session");
+    await expect(api.listRuns(projectId, undefined, tabId)).resolves.toEqual({ runs: [run], nextCursor: "next_page" });
+    expect(fetchMock).toHaveBeenLastCalledWith(`/api/projects/${projectId}/runs?tabId=${tabId}`, expect.anything());
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ runs: [run, run], nextCursor: null }), { status: 200 }));
+    await expect(api.listRuns(projectId)).rejects.toThrow("Invalid Run response");
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ runs: [run], nextCursor: "not a cursor" }), { status: 200 }));
+    await expect(api.listRuns(projectId)).rejects.toThrow("Invalid Run response");
+  });
 });

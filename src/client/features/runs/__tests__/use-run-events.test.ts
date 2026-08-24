@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { InspectorApiClient, RunDetail } from "../../../api/api-client.js";
 import { consumeRunEventStream, useRunEvents } from "../use-run-events.js";
@@ -13,6 +13,15 @@ describe("consumeRunEventStream", () => {
     const response = new Response(new ReadableStream({ start(controller) { for (const chunk of chunks) controller.enqueue(encoder.encode(chunk)); controller.close(); } }));
     const seen: number[] = []; await consumeRunEventStream(response, runId, new AbortController().signal, (event) => seen.push(event.sequence));
     expect(seen).toEqual([1]);
+  });
+
+  it("accepts LF, CRLF, lone CR, and a CRLF split between chunks", async () => {
+    const runId = "00000000-0000-4000-8000-000000000821"; const encoder = new TextEncoder();
+    const line = (sequence: number) => `data: ${JSON.stringify({ runId, sequence, kind: "rpc-in", occurredAt: `2026-08-17T00:00:0${sequence}.000Z`, payload: {} })}`;
+    const chunks = [`${line(1)}\n\n${line(2)}\r\n\r`, `\n${line(3)}\r\r${line(4)}\r`, `\n\r\n`];
+    const response = new Response(new ReadableStream({ start(controller) { for (const chunk of chunks) controller.enqueue(encoder.encode(chunk)); controller.close(); } }));
+    const seen: number[] = []; await consumeRunEventStream(response, runId, new AbortController().signal, (event) => seen.push(event.sequence));
+    expect(seen).toEqual([1, 2, 3, 4]);
   });
 
   it("rejects a foreign Run event", async () => {
@@ -43,6 +52,49 @@ describe("consumeRunEventStream", () => {
     expect(openRunEventStream.mock.calls.map((call) => call[2])).toEqual([1, 1]);
     expect(hook.result.current.run?.events.map(({ sequence }) => sequence)).toEqual([1, 2]);
     expect(client.startRun).not.toHaveBeenCalled(); hook.unmount();
+  });
+
+  it("retries an initial detail failure with bounded backoff before opening at the authoritative cursor", async () => {
+    const runId = "00000000-0000-4000-8000-000000000821"; const projectId = "00000000-0000-4000-8000-000000000822";
+    const finished = { id: runId, projectId, connectionId: "00000000-0000-4000-8000-000000000823", tabId: null, toolName: "sum",
+      toolSnapshotId: "00000000-0000-4000-8000-000000000824", toolSnapshotHash: "a".repeat(64), idempotencyKey: "once", status: "succeeded" as const,
+      createdAt: "2026-08-17T00:00:00.000Z", startedAt: "2026-08-17T00:00:00.000Z", completedAt: "2026-08-17T00:00:01.000Z",
+      durationMs: 1_000, networkDurationMs: 900, protocolVersion: null, serverInfo: null, clientInfo: {}, request: { arguments: {}, jsonrpc: {}, http: null },
+      response: { result: {}, error: null, truncated: false, originalBytes: 2 }, events: [{ runId, sequence: 7, kind: "run-status", occurredAt: "2026-08-17T00:00:01.000Z", payload: { status: "succeeded" } }] } satisfies RunDetail;
+    const getRun = vi.fn().mockRejectedValueOnce(new Error("detail offline")).mockResolvedValueOnce(finished);
+    const client = { getRun, openRunEventStream: vi.fn(), startRun: vi.fn() } as unknown as InspectorApiClient;
+    const hook = renderHook(() => useRunEvents(client, projectId, runId));
+    await waitFor(() => expect(hook.result.current.error).toContain("detail offline"));
+    await waitFor(() => expect(hook.result.current.run?.status).toBe("succeeded"));
+    expect(getRun).toHaveBeenCalledTimes(2); expect(client.openRunEventStream).not.toHaveBeenCalled(); expect(client.startRun).not.toHaveBeenCalled();
+    hook.unmount();
+  });
+
+  it("cancels a pending initial-detail retry timer on unmount", async () => {
+    vi.useFakeTimers();
+    const getRun = vi.fn().mockRejectedValue(new Error("offline"));
+    const client = { getRun, openRunEventStream: vi.fn(), startRun: vi.fn() } as unknown as InspectorApiClient;
+    const hook = renderHook(() => useRunEvents(client, "00000000-0000-4000-8000-000000000822", "00000000-0000-4000-8000-000000000821"));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(getRun).toHaveBeenCalledTimes(1); hook.unmount();
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(getRun).toHaveBeenCalledTimes(1); expect(client.openRunEventStream).not.toHaveBeenCalled();
+  });
+
+  it("aborts an active stream reader on unmount", async () => {
+    const runId = "00000000-0000-4000-8000-000000000821"; const projectId = "00000000-0000-4000-8000-000000000822";
+    const running = { id: runId, projectId, connectionId: "00000000-0000-4000-8000-000000000823", tabId: null, toolName: "sum",
+      toolSnapshotId: "00000000-0000-4000-8000-000000000824", toolSnapshotHash: "a".repeat(64), idempotencyKey: "once", status: "running" as const,
+      createdAt: "2026-08-17T00:00:00.000Z", startedAt: "2026-08-17T00:00:00.000Z", completedAt: null, durationMs: null,
+      networkDurationMs: null, protocolVersion: null, serverInfo: null, clientInfo: {}, request: { arguments: {}, jsonrpc: {}, http: null },
+      response: null, events: [] } satisfies RunDetail;
+    let streamSignal: AbortSignal | undefined;
+    const client = { getRun: vi.fn(async () => running), openRunEventStream: vi.fn((_project: string, _run: string, _after: number, signal: AbortSignal) => {
+      streamSignal = signal; return new Promise<Response>((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }));
+    }), startRun: vi.fn() } as unknown as InspectorApiClient;
+    const hook = renderHook(() => useRunEvents(client, projectId, runId));
+    await waitFor(() => expect(streamSignal).toBeDefined()); hook.unmount();
+    expect(streamSignal?.aborted).toBe(true); expect(client.startRun).not.toHaveBeenCalled();
   });
 
   it("aborts the authenticated stream when project selection changes", async () => {

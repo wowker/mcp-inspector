@@ -55,7 +55,9 @@ export function createRunRoutes(runs: RunServiceWithEvents): Hono {
     } catch (error) { return errorResponse(c, error); }
   });
   routes.get("/:projectId/runs", (c) => {
-    try { return c.json(runs.list(c.req.param("projectId"), c.req.query("cursor"))); }
+    const tabId = c.req.query("tabId");
+    if (tabId !== undefined && !uuid.safeParse(tabId).success) return c.json(errors.invalid, 400);
+    try { return c.json(runs.list(c.req.param("projectId"), c.req.query("cursor"), tabId)); }
     catch (error) { return errorResponse(c, error); }
   });
   routes.get("/:projectId/runs/:runId", (c) => {

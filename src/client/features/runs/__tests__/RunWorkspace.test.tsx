@@ -81,5 +81,35 @@ describe("Run workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "运行历史" }));
     fireEvent.click(await screen.findByRole("button", { name: `打开运行 ${secondId}` }));
     await waitFor(() => expect(screen.getAllByRole("tab", { name: /只读 · sum/ })).toHaveLength(2));
+    const historyTabs = screen.getAllByRole("tab", { name: /只读 · sum/ }); historyTabs[0]!.focus();
+    fireEvent.keyDown(historyTabs[0]!, { key: "End" }); expect(historyTabs[1]).toHaveFocus();
+    await waitFor(() => expect(historyTabs[1]).toHaveAttribute("aria-selected", "true"));
+  });
+
+  it("keeps the launched Run gate when inspecting an older terminal Run while another Tab remains executable", async () => {
+    const secondTabId = "00000000-0000-4000-8000-000000000847";
+    const liveRunId = "00000000-0000-4000-8000-000000000848"; const secondRunId = "00000000-0000-4000-8000-000000000849";
+    const secondTab = { ...tab, id: secondTabId, title: "sum (2)", position: 1 };
+    const liveSummary = { ...summary, id: liveRunId, idempotencyKey: "live" };
+    const liveDetail = { ...detail(), ...liveSummary, status: "running" as const, completedAt: null, durationMs: null, response: null };
+    const oldSummary = { ...summary, id: runId, idempotencyKey: "old" };
+    const startRun = vi.fn(async (_project: string, owner: string) => owner === tabId ? liveSummary : { ...summary, id: secondRunId, tabId: secondTabId, idempotencyKey: "second" });
+    const openRunEventStream = vi.fn((_project: string, _run: string, _after: number, signal: AbortSignal) =>
+      new Promise<Response>((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true })));
+    const client = api({ listTabs: vi.fn(async () => [tab, secondTab]), startRun,
+      updateTab: vi.fn(async (_project, id, patch) => ({ ...([tab, secondTab].find((item) => item.id === id)!), ...patch })),
+      getRun: vi.fn(async (_project, id) => id === liveRunId ? liveDetail : { ...detail(), id }), openRunEventStream,
+      listRuns: vi.fn(async () => ({ runs: [oldSummary], nextCursor: null })) });
+    render(<DebugWorkspace api={client} projectId={projectId} />); await screen.findByLabelText("a");
+    fireEvent.click(screen.getByRole("button", { name: "执行" })); await waitFor(() => expect(startRun).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByRole("button", { name: "执行中…" })).toBeDisabled());
+    fireEvent.click(screen.getByRole("button", { name: "当前 Tab 历史" }));
+    fireEvent.click(await screen.findByRole("button", { name: `打开运行 ${runId}` })); await screen.findByText(/"answer": 2/);
+    fireEvent.keyDown(screen.getByLabelText("a"), { key: "Enter", ctrlKey: true });
+    expect(startRun).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("tab", { name: "sum (2)" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "sum (2)" })).toHaveAttribute("aria-selected", "true"));
+    fireEvent.click(await screen.findByRole("button", { name: "执行" }));
+    await waitFor(() => expect(startRun).toHaveBeenCalledTimes(2)); expect(startRun.mock.calls[1]?.[1]).toBe(secondTabId);
   });
 });
