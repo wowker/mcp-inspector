@@ -7,6 +7,7 @@ import {
 } from "../api/api-client.js";
 import { ProjectPicker } from "../features/projects/ProjectPicker.js";
 import { ConnectionPanel } from "../features/connections/ConnectionPanel.js";
+import { DebugWorkspace, type ToolOpenIntent } from "../features/tabs/DebugWorkspace.js";
 import { consumeBootstrapSession } from "./bootstrap-session.js";
 
 const SESSION_HEADER = "X-DSers-Inspector-Session";
@@ -36,6 +37,7 @@ export function App() {
   const [health, setHealth] = useState<HealthState>({ status: "checking" });
   const [api, setApi] = useState<InspectorApiClient | null>(null);
   const [activeProject, setActiveProject] = useState<ProjectSummary | null>(null);
+  const [toolIntent, setToolIntent] = useState<ToolOpenIntent | null>(null);
 
   useEffect(() => {
     const session = consumeBootstrapSession();
@@ -103,7 +105,12 @@ export function App() {
           <section className="active-project" aria-labelledby="active-project-name">
             <p className="eyebrow">当前项目</p>
             <h2 id="active-project-name">{activeProject.name}</h2>
-            {api !== null && <ConnectionPanel api={api} projectId={activeProject.id} />}
+            {api !== null && <div className="inspector-layout">
+              <aside><ConnectionPanel api={api} projectId={activeProject.id}
+                onSelectTool={(tool) => setToolIntent((current) => ({ sequence: (current?.sequence ?? 0) + 1, tool, newTab: false }))}
+                onOpenTool={(tool) => setToolIntent((current) => ({ sequence: (current?.sequence ?? 0) + 1, tool, newTab: true }))} /></aside>
+              <DebugWorkspace api={api} projectId={activeProject.id} toolIntent={toolIntent} />
+            </div>}
           </section>
         )}
       </section>

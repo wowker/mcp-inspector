@@ -111,13 +111,17 @@ describe("App", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ connections: [] }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ tabs: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
       }));
 
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Supplier Tools" })).toBeVisible();
     expect(await screen.findByRole("heading", { name: "连接管理" })).toBeVisible();
-    expect(fetchMock).toHaveBeenLastCalledWith(
+    expect(fetchMock).toHaveBeenCalledWith(
       `/api/projects/${project.id}/connections`,
       expect.objectContaining({
         headers: expect.objectContaining({ "X-DSers-Inspector-Session": "test-session" }),

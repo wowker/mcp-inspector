@@ -54,6 +54,24 @@ export interface ToolDetailSummary {
   snapshots: ToolSnapshotSummary[];
 }
 
+export interface DebugTabSummary {
+  id: string;
+  projectId: string;
+  connectionId: string;
+  toolName: string;
+  title: string;
+  position: number;
+  pinned: boolean;
+  inputMode: "form" | "raw";
+  arguments: Record<string, unknown>;
+  rawText: string;
+  viewState: { editorScrollTop: number; resultScrollTop: number; splitRatio: number };
+  lastRunId: string | null;
+}
+
+export type UpdateDebugTabRequest = Partial<Pick<DebugTabSummary,
+  "title" | "pinned" | "inputMode" | "arguments" | "rawText" | "viewState" | "lastRunId">>;
+
 export interface InspectorApiClient {
   listProjects(): Promise<ProjectSummary[]>;
   createProject(name: string): Promise<ProjectSummary>;
@@ -66,6 +84,15 @@ export interface InspectorApiClient {
   listTools(projectId: string, connectionId: string): Promise<CatalogToolSummary[]>;
   refreshTools(projectId: string, connectionId: string): Promise<CatalogToolSummary[]>;
   getTool(projectId: string, connectionId: string, toolName: string): Promise<ToolDetailSummary>;
+  listTabs(projectId: string): Promise<DebugTabSummary[]>;
+  openTab(projectId: string, connectionId: string, toolName: string): Promise<DebugTabSummary>;
+  replaceTabTool(projectId: string, tabId: string, connectionId: string, toolName: string): Promise<DebugTabSummary>;
+  updateTab(projectId: string, tabId: string, patch: UpdateDebugTabRequest): Promise<DebugTabSummary>;
+  duplicateTab(projectId: string, tabId: string): Promise<DebugTabSummary>;
+  reorderTabs(projectId: string, tabIds: string[]): Promise<DebugTabSummary[]>;
+  closeTab(projectId: string, tabId: string): Promise<void>;
+  closeOtherTabs(projectId: string, tabId: string): Promise<DebugTabSummary[]>;
+  closeTabsRight(projectId: string, tabId: string): Promise<DebugTabSummary[]>;
 }
 
 interface ApiErrorBody {
@@ -282,6 +309,40 @@ function decodeToolDetail(value: unknown, projectId: string, connectionId: strin
   return { tool, snapshots };
 }
 
+function decodeTab(value: unknown, projectId: string): DebugTabSummary {
+  if (!isObject(value)) throw new Error("Invalid Tab response");
+  const { id, projectId: owner, connectionId, toolName, title, position, pinned, inputMode,
+    arguments: args, rawText, viewState, lastRunId } = value;
+  if (typeof id !== "string" || !uuidPattern.test(id) || owner !== projectId ||
+      typeof connectionId !== "string" || !uuidPattern.test(connectionId) || typeof toolName !== "string" ||
+      typeof title !== "string" || !Number.isInteger(position) || (position as number) < 0 ||
+      typeof pinned !== "boolean" || (inputMode !== "form" && inputMode !== "raw") || !isObject(args) ||
+      typeof rawText !== "string" || !isObject(viewState) ||
+      typeof viewState.editorScrollTop !== "number" || !Number.isFinite(viewState.editorScrollTop) || viewState.editorScrollTop < 0 ||
+      typeof viewState.resultScrollTop !== "number" || !Number.isFinite(viewState.resultScrollTop) || viewState.resultScrollTop < 0 ||
+      typeof viewState.splitRatio !== "number" || !Number.isFinite(viewState.splitRatio) || viewState.splitRatio < 0.2 || viewState.splitRatio > 0.8 ||
+      !(lastRunId === null || (typeof lastRunId === "string" && uuidPattern.test(lastRunId)))) {
+    throw new Error("Invalid Tab response");
+  }
+  return { id, projectId, connectionId, toolName, title, position: position as number, pinned, inputMode,
+    arguments: args, rawText, viewState: { editorScrollTop: viewState.editorScrollTop,
+      resultScrollTop: viewState.resultScrollTop, splitRatio: viewState.splitRatio }, lastRunId };
+}
+
+function decodeTabs(value: unknown, projectId: string): DebugTabSummary[] {
+  if (!isObject(value) || !Array.isArray(value.tabs)) throw new Error("Invalid Tab response");
+  const tabs = value.tabs.map((item) => decodeTab(item, projectId));
+  if (new Set(tabs.map(({ id }) => id)).size !== tabs.length || tabs.some((tab, index) => tab.position !== index)) {
+    throw new Error("Invalid Tab response");
+  }
+  return tabs;
+}
+
+function decodeTabEnvelope(value: unknown, projectId: string): DebugTabSummary {
+  if (!isObject(value) || !("tab" in value)) throw new Error("Invalid Tab response");
+  return decodeTab(value.tab, projectId);
+}
+
 export function createApiClient(sessionToken: string): InspectorApiClient {
   const headers = {
     "Content-Type": "application/json",
@@ -363,6 +424,50 @@ export function createApiClient(sessionToken: string): InspectorApiClient {
         { headers },
       );
       return decodeToolDetail(await decodeResponse<unknown>(response), projectId, connectionId, toolName);
+    },
+    async listTabs(projectId) {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tabs`, { headers });
+      return decodeTabs(await decodeResponse<unknown>(response), projectId);
+    },
+    async openTab(projectId, connectionId, toolName) {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tabs`, {
+        method: "POST", headers, body: JSON.stringify({ connectionId, toolName }),
+      });
+      return decodeTabEnvelope(await decodeResponse<unknown>(response), projectId);
+    },
+    async replaceTabTool(projectId, tabId, connectionId, toolName) {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tabs/${encodeURIComponent(tabId)}/tool`, {
+        method: "PUT", headers, body: JSON.stringify({ connectionId, toolName }),
+      });
+      return decodeTabEnvelope(await decodeResponse<unknown>(response), projectId);
+    },
+    async updateTab(projectId, tabId, patch) {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tabs/${encodeURIComponent(tabId)}`, {
+        method: "PATCH", headers, body: JSON.stringify(patch),
+      });
+      return decodeTabEnvelope(await decodeResponse<unknown>(response), projectId);
+    },
+    async duplicateTab(projectId, tabId) {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tabs/${encodeURIComponent(tabId)}/duplicate`, { method: "POST", headers });
+      return decodeTabEnvelope(await decodeResponse<unknown>(response), projectId);
+    },
+    async reorderTabs(projectId, tabIds) {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tabs/reorder`, {
+        method: "PUT", headers, body: JSON.stringify({ tabIds }),
+      });
+      return decodeTabs(await decodeResponse<unknown>(response), projectId);
+    },
+    async closeTab(projectId, tabId) {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tabs/${encodeURIComponent(tabId)}`, { method: "DELETE", headers });
+      if (!response.ok) await decodeResponse<never>(response);
+    },
+    async closeOtherTabs(projectId, tabId) {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tabs/${encodeURIComponent(tabId)}/close-others`, { method: "POST", headers });
+      return decodeTabs(await decodeResponse<unknown>(response), projectId);
+    },
+    async closeTabsRight(projectId, tabId) {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tabs/${encodeURIComponent(tabId)}/close-right`, { method: "POST", headers });
+      return decodeTabs(await decodeResponse<unknown>(response), projectId);
     },
   };
 }
