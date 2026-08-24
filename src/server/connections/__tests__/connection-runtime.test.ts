@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { ProtocolError } from "@modelcontextprotocol/client";
 import { FakeMcpSession } from "../../../../test-support/fake-mcp-session.js";
 import {
   CallCancelledError,
@@ -160,6 +161,28 @@ describe("ConnectionRuntime", () => {
     expect(persistFailure).not.toHaveBeenCalled();
   });
 
+  it("propagates an invalidated session close failure through disconnect and clears state", async () => {
+    const session = new FakeMcpSession();
+    session.close = async () => { throw new Error("close socket failed"); };
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const persistFailure = vi.fn();
+    const runtime = createConnectionRuntime({
+      resolveConnection: () => connection,
+      persistFailure,
+      factory: async () => { await gate; return session; },
+    });
+    const connecting = runtime.connect(connection.id);
+    const disconnecting = runtime.disconnect(connection.id);
+    release();
+
+    await expect(connecting).rejects.toThrow(/disconnect/i);
+    await expect(disconnecting).rejects.toThrow(/disconnect/i);
+    expect(runtime.get(connection.id)).toBeUndefined();
+    expect(runtime.status(connection.id)).toBe("disconnected");
+    expect(persistFailure).not.toHaveBeenCalled();
+  });
+
   it("isolates observers for concurrent calls on a shared session", async () => {
     const session = new FakeMcpSession();
     session.call = async ({ name, observe }) => {
@@ -210,6 +233,68 @@ describe("ConnectionRuntime", () => {
 });
 
 describe("createStreamableMcpSessionFactory", () => {
+  it("sends tools/call exactly once through the low-level request path", async () => {
+    const callTool = vi.fn(async () => { throw new Error("HEADER_MISMATCH would retry"); });
+    const request = vi.fn(async (
+      _request: unknown,
+      _resultSchema: unknown,
+      _options?: unknown,
+    ) => ({ content: [{ type: "text" as const, text: "ok" }] }));
+    const factory = createStreamableMcpSessionFactory({
+      createClient: () => ({
+        connect: async () => undefined,
+        getServerVersion: () => undefined,
+        listTools: async () => ({ tools: [] }),
+        callTool,
+        request,
+        close: async () => undefined,
+      }),
+      createTransport: () => ({
+        start: async () => undefined,
+        send: async () => undefined,
+        close: async () => undefined,
+      }),
+    });
+    const session = await factory(connection, () => undefined);
+
+    await expect(session.callTool({ name: "once", arguments: { value: 1 } }))
+      .resolves.toEqual({ content: [{ type: "text", text: "ok" }] });
+    expect(request).toHaveBeenCalledOnce();
+    expect(request.mock.calls[0]?.[0]).toEqual({
+      method: "tools/call",
+      params: { name: "once", arguments: { value: 1 } },
+    });
+    expect(callTool).not.toHaveBeenCalled();
+  });
+
+  it("does not refresh or resend tools/call after HEADER_MISMATCH", async () => {
+    const listTools = vi.fn(async () => ({ tools: [] }));
+    const request = vi.fn(async () => {
+      throw new ProtocolError(-32020, "HEADER_MISMATCH");
+    });
+    const factory = createStreamableMcpSessionFactory({
+      createClient: () => ({
+        connect: async () => undefined,
+        getServerVersion: () => undefined,
+        listTools,
+        callTool: async () => ({ content: [] }),
+        request,
+        close: async () => undefined,
+      }),
+      createTransport: () => ({
+        start: async () => undefined,
+        send: async () => undefined,
+        close: async () => undefined,
+      }),
+    });
+    const session = await factory(connection, () => undefined);
+
+    await expect(session.callTool({ name: "once", arguments: { value: 1 } }))
+      .rejects.toMatchObject({ code: -32020 });
+    expect(request).toHaveBeenCalledOnce();
+    expect(listTools).not.toHaveBeenCalled();
+  });
+
   it("closes a partially initialized client when connect fails", async () => {
     const close = vi.fn(async () => undefined);
     const factory = createStreamableMcpSessionFactory({
@@ -218,6 +303,7 @@ describe("createStreamableMcpSessionFactory", () => {
         getServerVersion: () => undefined,
         listTools: async () => ({ tools: [] }),
         callTool: async () => ({ content: [] }),
+        request: async () => ({ content: [] }),
         close,
       }),
       createTransport: () => ({
@@ -251,6 +337,15 @@ describe("createStreamableMcpSessionFactory", () => {
         getServerVersion: () => ({ name: "fake", version: "1" }),
         listTools: async () => ({ tools: [] }),
         callTool: async ({ name }) => {
+          await observedFetch("http://127.0.0.1/mcp", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ jsonrpc: "2.0", id: name, method: "tools/call" }),
+          });
+          return { content: [] };
+        },
+        request: async ({ params }) => {
+          const name = params.name;
           await observedFetch("http://127.0.0.1/mcp", {
             method: "POST",
             headers: { "content-type": "application/json" },

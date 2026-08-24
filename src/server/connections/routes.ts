@@ -9,7 +9,7 @@ import {
   InvalidProjectStorageError,
   ProjectNotFoundError,
 } from "../projects/project-service.js";
-import { McpConnectError } from "./connection-runtime.js";
+import { McpConnectError, McpDisconnectError } from "./connection-runtime.js";
 
 const createConnectionBodySchema = z.object({
   name: z.string(),
@@ -85,9 +85,9 @@ export function createConnectionRoutes(connections: ConnectionService): Hono {
     }
   });
 
-  routes.delete("/:projectId/connections/:connectionId", (context) => {
+  routes.delete("/:projectId/connections/:connectionId", async (context) => {
     try {
-      connections.delete(
+      await connections.delete(
         context.req.param("projectId"),
         context.req.param("connectionId"),
       );
@@ -95,6 +95,9 @@ export function createConnectionRoutes(connections: ConnectionService): Hono {
     } catch (error) {
       if (error instanceof ConnectionNotFoundError) {
         return context.json(errors.connectionNotFound, 404);
+      }
+      if (error instanceof McpDisconnectError) {
+        return context.json(errors.disconnectFailed, 502);
       }
       return projectError(context, error);
     }
@@ -130,7 +133,10 @@ export function createConnectionRoutes(connections: ConnectionService): Hono {
       if (error instanceof InvalidProjectStorageError || error instanceof ProjectNotFoundError) {
         return projectError(context, error);
       }
-      return context.json(errors.disconnectFailed, 502);
+      if (error instanceof McpDisconnectError) {
+        return context.json(errors.disconnectFailed, 502);
+      }
+      throw error;
     }
   });
 

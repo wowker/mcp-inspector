@@ -22,10 +22,78 @@ function headersObject(headers: Headers): Record<string, string> {
   ]));
 }
 
-function boundedText(text: string): { text: string; truncated: boolean } {
-  return text.length <= OBSERVATION_TEXT_LIMIT
-    ? { text, truncated: false }
-    : { text: `${text.slice(0, OBSERVATION_TEXT_LIMIT)}…`, truncated: true };
+interface BodyCapture {
+  bytes: Uint8Array;
+  capturedBytes: number;
+  truncated: boolean;
+}
+
+interface TextMetadata {
+  text: string;
+  capturedBytes: number;
+  truncated: boolean;
+}
+
+function textMetadata(capture: BodyCapture): TextMetadata {
+  const decoder = new TextDecoder();
+  return {
+    text: capture.truncated
+      ? decoder.decode(capture.bytes, { stream: true })
+      : decoder.decode(capture.bytes),
+    capturedBytes: capture.capturedBytes,
+    truncated: capture.truncated,
+  };
+}
+
+async function readBodyBounded(
+  body: ReadableStream<Uint8Array> | null,
+  onChunk?: (chunk: Uint8Array, final: boolean) => void,
+): Promise<BodyCapture> {
+  if (body === null) return { bytes: new Uint8Array(), capturedBytes: 0, truncated: false };
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let capturedBytes = 0;
+  let truncated = false;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        onChunk?.(new Uint8Array(), true);
+        break;
+      }
+      const remaining = OBSERVATION_TEXT_LIMIT - capturedBytes;
+      if (value.byteLength > remaining) {
+        const captured = value.subarray(0, remaining);
+        if (captured.byteLength > 0) {
+          chunks.push(captured);
+          capturedBytes += captured.byteLength;
+          onChunk?.(captured, false);
+        }
+        truncated = true;
+        onChunk?.(new Uint8Array(), true);
+        void reader.cancel().catch(() => undefined);
+        break;
+      }
+      chunks.push(value);
+      capturedBytes += value.byteLength;
+      onChunk?.(value, false);
+      if (capturedBytes === OBSERVATION_TEXT_LIMIT) {
+        truncated = true;
+        void reader.cancel().catch(() => undefined);
+        onChunk?.(new Uint8Array(), true);
+        break;
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(capturedBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { bytes, capturedBytes, truncated };
 }
 
 function parseJson(text: string): unknown | undefined {
@@ -40,12 +108,11 @@ async function observeRequest(
   let body: unknown = null;
   if (request.body !== null) {
     try {
-      const text = await request.clone().text();
-      body = text.length <= OBSERVATION_TEXT_LIMIT
-        ? parseJson(text) ?? boundedText(text)
-        : boundedText(text);
+      const capture = await readBodyBounded(request.clone().body);
+      const metadata = textMetadata(capture);
+      body = capture.truncated ? metadata : parseJson(metadata.text) ?? metadata;
     } catch {
-      body = { text: "[unavailable]", truncated: false };
+      body = { text: "[unavailable]", capturedBytes: 0, truncated: false };
     }
   }
   emit(observer, {
@@ -103,28 +170,14 @@ async function observeSseResponse(
   response: Response,
   observer: Observer,
   now: () => Date,
-): Promise<void> {
+): Promise<TextMetadata> {
   const body = response.clone().body;
-  if (body === null) return;
-  const reader = body.getReader();
   const decoder = new TextDecoder();
   const parser = createSseParser(observer, now);
-  let remaining = OBSERVATION_TEXT_LIMIT;
-  try {
-    while (remaining > 0) {
-      const { done, value } = await reader.read();
-      if (done) {
-        parser.push(decoder.decode(), true);
-        return;
-      }
-      const captured = value.byteLength <= remaining ? value : value.subarray(0, remaining);
-      remaining -= captured.byteLength;
-      parser.push(decoder.decode(captured, { stream: true }));
-    }
-    await reader.cancel();
-  } finally {
-    reader.releaseLock();
-  }
+  const capture = await readBodyBounded(body, (chunk, final) => {
+    parser.push(decoder.decode(chunk, { stream: !final }), final);
+  });
+  return textMetadata(capture);
 }
 
 async function observeResponseBody(
@@ -134,16 +187,17 @@ async function observeResponseBody(
   now: () => Date,
 ): Promise<{ body: unknown; rpc?: unknown }> {
   try {
-    const text = await response.clone().text();
-    const parsed = contentType.includes("application/json") && text.length <= OBSERVATION_TEXT_LIMIT
-      ? parseJson(text)
+    const capture = await readBodyBounded(response.clone().body);
+    const metadata = textMetadata(capture);
+    const parsed = contentType.includes("application/json") && !capture.truncated
+      ? parseJson(metadata.text)
       : undefined;
     if (parsed !== undefined) {
       return { body: parsed, rpc: parsed };
     }
-    return { body: boundedText(text) };
+    return { body: metadata };
   } catch {
-    return { body: { text: "[unavailable]", truncated: false } };
+    return { body: { text: "[unavailable]", capturedBytes: 0, truncated: false } };
   }
 }
 
@@ -155,7 +209,7 @@ export function createObservedFetch(
   const now = options.now ?? (() => new Date());
   return async (input, init) => {
     const request = new Request(input, init);
-    await observeRequest(request, observer, now().toISOString());
+    void observeRequest(request, observer, now().toISOString()).catch(() => undefined);
     const response = await baseFetch(input, init);
     const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
     const responseEvent = {
@@ -166,17 +220,22 @@ export function createObservedFetch(
       body: null as unknown,
     };
     if (contentType.includes("text/event-stream")) {
-      responseEvent.body = { stream: true };
-      emit(observer, responseEvent);
-      void observeSseResponse(response, observer, now).catch(() => undefined);
+      void observeSseResponse(response, observer, now)
+        .then((body) => emit(observer, { ...responseEvent, body }))
+        .catch(() => emit(observer, {
+          ...responseEvent,
+          body: { text: "[unavailable]", capturedBytes: 0, truncated: false },
+        }));
       return response;
     }
-    const observedBody = await observeResponseBody(response, contentType, observer, now);
-    responseEvent.body = observedBody.body;
-    emit(observer, responseEvent);
-    if (observedBody.rpc !== undefined) {
-      emit(observer, { kind: "rpc-in", at: now().toISOString(), message: observedBody.rpc });
-    }
+    void observeResponseBody(response, contentType, observer, now)
+      .then((observedBody) => {
+        emit(observer, { ...responseEvent, body: observedBody.body });
+        if (observedBody.rpc !== undefined) {
+          emit(observer, { kind: "rpc-in", at: now().toISOString(), message: observedBody.rpc });
+        }
+      })
+      .catch(() => undefined);
     return response;
   };
 }

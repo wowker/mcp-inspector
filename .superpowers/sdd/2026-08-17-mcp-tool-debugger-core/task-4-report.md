@@ -28,11 +28,19 @@ Implemented a project-scoped, unauthenticated Streamable HTTP MCP runtime using 
 
 ## Verification
 
-- Focused: `npx vitest run src/server/connections test-support` — 32 tests passed.
-- Full: `npm test` — 104 tests passed across 15 files.
+- Focused: `npx vitest run src/server/connections test-support` — 41 tests passed.
+- Full: `npm test` — 113 tests passed across 15 files.
 - `npm run typecheck` — passed.
 - `npm run build` — passed (Vite client and Node 22 tsup server bundle).
 - `git diff --check` — passed.
 - The real loopback test completed cleanly without open-handle warnings.
 
 All Node/npm/npx commands used the mandated bundled Node v24.19.0 PATH. No external network was used.
+
+## Review fixes
+
+- Replaced the SDK `callTool()` helper with the official low-level `request()` and `CallToolResult` schema, preserving timeout/cancellation while guaranteeing a single `tools/call` send even for `HEADER_MISMATCH`.
+- Changed request, response, and SSE observation to detached clone-stream reads capped at 64 KiB of UTF-8 bytes. Metadata now records `capturedBytes` and `truncated`, clone readers are cancelled at the cap, parser failures are contained, and the original streams remain untouched and promptly available.
+- Made connection deletion await runtime disconnect before the SQLite delete. Close failures now retain the saved configuration and return the stable `MCP_DISCONNECT_FAILED` route error.
+- Propagated failures from closing a session invalidated during connection, while still clearing the runtime entry and avoiding a false persisted connect failure.
+- Bounded unknown-dialect warning values and replaced control characters to prevent log forging or unbounded diagnostic text.

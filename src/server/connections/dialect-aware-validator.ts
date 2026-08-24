@@ -16,6 +16,14 @@ function normalizedDialect(schema: JsonSchemaType): string | undefined {
   return declared.trim().toLowerCase().replace(/#$/, "");
 }
 
+function dialectForWarning(dialect: string): string {
+  const sanitized = dialect.replace(/[\u0000-\u001f\u007f-\u009f]/g, "?");
+  const maxLength = 200;
+  return sanitized.length <= maxLength
+    ? sanitized
+    : `${sanitized.slice(0, maxLength)}…`;
+}
+
 export class DialectAwareJsonSchemaValidator implements jsonSchemaValidator {
   private readonly draft2020: AjvJsonSchemaValidator;
   private readonly draft07: AjvJsonSchemaValidator;
@@ -45,7 +53,9 @@ export class DialectAwareJsonSchemaValidator implements jsonSchemaValidator {
     ) {
       return this.draft07.getValidator<T>(schema);
     }
-    this.warn(`Unsupported JSON Schema dialect '${dialect}'; accepting without validation`);
+    this.warn(
+      `Unsupported JSON Schema dialect '${dialectForWarning(dialect)}'; accepting without validation`,
+    );
     return (input: unknown) => ({
       valid: true as const,
       data: input as T,

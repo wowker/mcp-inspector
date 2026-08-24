@@ -114,7 +114,7 @@ describe("ConnectionService", () => {
     expect(createConnectionService(projects).list(project.id)).toEqual([created]);
   });
 
-  it("deletes only from the owning project and rejects unknown IDs", () => {
+  it("deletes only from the owning project and rejects unknown IDs", async () => {
     const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-connections-"));
     dataRoots.push(dataRoot);
     projects = createProjectService({ dataRoot });
@@ -132,11 +132,56 @@ describe("ConnectionService", () => {
     service.create(firstProject.id, input);
     service.create(secondProject.id, input);
 
-    service.delete(firstProject.id, sharedId);
+    await service.delete(firstProject.id, sharedId);
     expect(service.list(firstProject.id)).toEqual([]);
     expect(service.list(secondProject.id)).toHaveLength(1);
-    expect(() => service.delete(firstProject.id, sharedId)).toThrow(/not found/i);
-    expect(() => service.delete(secondProject.id, "not-a-uuid")).toThrow(/not found/i);
+    await expect(service.delete(firstProject.id, sharedId)).rejects.toThrow(/not found/i);
+    await expect(service.delete(secondProject.id, "not-a-uuid")).rejects.toThrow(/not found/i);
+  });
+
+  it("disconnects an active session before deleting its configuration", async () => {
+    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-connections-"));
+    dataRoots.push(dataRoot);
+    projects = createProjectService({ dataRoot });
+    const project = projects.create("Supplier Tools");
+    const id = "00000000-0000-4000-8000-000000000207";
+    const session = new FakeMcpSession();
+    const service = createConnectionService(projects, {
+      createId: () => id,
+      sessionFactory: async () => session,
+    });
+    service.create(project.id, {
+      name: "MCP", url: "http://127.0.0.1:1/mcp", transport: "streamable-http",
+      authMode: "none", timeoutMs: 100,
+    });
+    await service.connect(project.id, id);
+
+    await service.delete(project.id, id);
+
+    expect(session.closeCount).toBe(1);
+    expect(service.list(project.id)).toEqual([]);
+  });
+
+  it("keeps configuration when closing its active session fails", async () => {
+    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-connections-"));
+    dataRoots.push(dataRoot);
+    projects = createProjectService({ dataRoot });
+    const project = projects.create("Supplier Tools");
+    const id = "00000000-0000-4000-8000-000000000208";
+    const session = new FakeMcpSession();
+    session.close = async () => { throw new Error("remote close detail"); };
+    const service = createConnectionService(projects, {
+      createId: () => id,
+      sessionFactory: async () => session,
+    });
+    service.create(project.id, {
+      name: "MCP", url: "http://127.0.0.1:1/mcp", transport: "streamable-http",
+      authMode: "none", timeoutMs: 100,
+    });
+    await service.connect(project.id, id);
+
+    await expect(service.delete(project.id, id)).rejects.toThrow(/disconnect/i);
+    expect(service.list(project.id)).toHaveLength(1);
   });
 
   it("decodes malformed observation JSON defensively", () => {

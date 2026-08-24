@@ -31,4 +31,16 @@ describe("DialectAwareJsonSchemaValidator", () => {
     expect(validator(42)).toEqual({ valid: true, data: 42, errorMessage: undefined });
     expect(warn).toHaveBeenCalledOnce();
   });
+
+  it("bounds and strips control characters from unknown dialect warnings", () => {
+    const warn = vi.fn();
+    new DialectAwareJsonSchemaValidator({ warn }).getValidator({
+      $schema: `https://example.test/${"x".repeat(500)}\nforged-log`,
+      type: "string",
+    });
+
+    const message = String(warn.mock.calls[0]?.[0]);
+    expect(message.length).toBeLessThanOrEqual(280);
+    expect(message).not.toMatch(/[\r\n\t]/);
+  });
 });

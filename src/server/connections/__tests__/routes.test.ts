@@ -164,6 +164,37 @@ describe("connection routes", () => {
       .resolves.toEqual({ connections: [] });
   });
 
+  it("keeps an active connection configuration when delete cannot close its session", async () => {
+    const project = projects.create("Supplier Tools");
+    const connectionId = "00000000-0000-4000-8000-000000000301";
+    const session = new FakeMcpSession();
+    session.close = async () => { throw new Error("remote close detail"); };
+    const connections = createConnectionService(projects, {
+      createId: () => connectionId,
+      sessionFactory: async () => session,
+    });
+    connections.create(project.id, {
+      name: "MCP", url: "http://127.0.0.1:1/mcp", transport: "streamable-http",
+      authMode: "none", timeoutMs: 100,
+    });
+    await connections.connect(project.id, connectionId);
+    const runtimeApp = createApp({
+      sessionToken: "test-session", allowedOrigin: "http://127.0.0.1:5173",
+      version: "0.1.0", projects, connections,
+    });
+
+    const response = await runtimeApp.request(
+      `/api/projects/${project.id}/connections/${connectionId}`,
+      { method: "DELETE", headers },
+    );
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({
+      error: { code: "MCP_DISCONNECT_FAILED", message: "Unable to disconnect MCP server" },
+    });
+    expect(connections.list(project.id)).toHaveLength(1);
+  });
+
   it("preserves the stable project-storage error when database ownership is corrupted", async () => {
     const project = projects.create("Supplier Tools");
     projects.open(project.id).database

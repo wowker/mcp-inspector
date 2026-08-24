@@ -6,6 +6,7 @@ import {
   type FetchLike,
   type Tool,
   type Transport,
+  specTypeSchemas,
 } from "@modelcontextprotocol/client";
 import { DialectAwareJsonSchemaValidator } from "./dialect-aware-validator.js";
 import { createObservedFetch } from "./observed-fetch.js";
@@ -25,6 +26,11 @@ interface ClientLike {
     input: { name: string; arguments?: Record<string, unknown> },
     options?: { signal?: AbortSignal; timeout?: number },
   ): Promise<CallToolResult>;
+  request(
+    request: { method: "tools/call"; params: { name: string; arguments?: Record<string, unknown> } },
+    resultSchema: typeof specTypeSchemas.CallToolResult,
+    options?: { signal?: AbortSignal; timeout?: number },
+  ): Promise<CallToolResult>;
   close(): Promise<void>;
 }
 
@@ -38,7 +44,7 @@ export function createStreamableMcpSessionFactory(options: {
 } = {}): McpSessionFactory {
   const observerContext = new AsyncLocalStorage<Observer | undefined>();
   const baseFetch: FetchLike = options.fetch ?? globalThis.fetch;
-  const createClient = options.createClient ?? (() => new Client(
+  const createClient: () => ClientLike = options.createClient ?? (() => new Client(
     { name: "dsers-mcp-inspector", version: options.appVersion ?? "0.1.0" },
     { capabilities: {}, jsonSchemaValidator: new DialectAwareJsonSchemaValidator() },
   ));
@@ -68,8 +74,12 @@ export function createStreamableMcpSessionFactory(options: {
         return { tools: result.tools, nextCursor: result.nextCursor };
       },
       callTool(input) {
-        return observerContext.run(input.observe, () => client.callTool(
-          { name: input.name, arguments: input.arguments },
+        return observerContext.run(input.observe, () => client.request(
+          {
+            method: "tools/call",
+            params: { name: input.name, arguments: input.arguments },
+          },
+          specTypeSchemas.CallToolResult,
           { signal: input.signal, timeout: connection.timeoutMs },
         ));
       },

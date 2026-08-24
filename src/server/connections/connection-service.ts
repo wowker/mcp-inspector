@@ -55,7 +55,7 @@ function normalizeUrl(raw: string): string {
 export interface ConnectionService {
   create(projectId: string, input: CreateConnectionInput): ConnectionRecord;
   list(projectId: string): ConnectionRecord[];
-  delete(projectId: string, connectionId: string): void;
+  delete(projectId: string, connectionId: string): Promise<void>;
   connect(projectId: string, connectionId: string): Promise<ConnectionRecord>;
   disconnect(projectId: string, connectionId: string): Promise<ConnectionRecord>;
   runtime(projectId: string): ConnectionRuntime;
@@ -136,10 +136,9 @@ export function createConnectionService(projects: ProjectService, options: {
       }));
     },
 
-    delete(projectId, connectionId) {
-      if (!connectionIdSchema.safeParse(connectionId).success) {
-        throw new ConnectionNotFoundError();
-      }
+    async delete(projectId, connectionId) {
+      find(projectId, connectionId);
+      await runtime(projectId).disconnect(connectionId);
       if (!repository(projectId).delete(projectId, connectionId)) {
         throw new ConnectionNotFoundError();
       }

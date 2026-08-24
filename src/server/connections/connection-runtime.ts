@@ -49,6 +49,13 @@ export class McpNotConnectedError extends Error {
   }
 }
 
+export class McpDisconnectError extends Error {
+  constructor() {
+    super("Unable to disconnect MCP server");
+    this.name = "McpDisconnectError";
+  }
+}
+
 export class CallTimeoutError extends Error {
   constructor() {
     super("MCP Tool call timed out");
@@ -77,6 +84,7 @@ const connectFailure: ConnectionError = {
 };
 
 class ConnectInvalidatedError extends Error {}
+class InvalidatedSessionCloseError extends Error {}
 
 function isAborted(signal: AbortSignal | undefined): boolean {
   return signal?.aborted === true;
@@ -124,7 +132,11 @@ export function createConnectionRuntime(options: {
         .then(() => options.factory(connection, connectionObserver))
         .then(async (session) => {
           if (entry.generation !== generation) {
-            await session.close();
+            try {
+              await session.close();
+            } catch {
+              throw new InvalidatedSessionCloseError();
+            }
             throw new ConnectInvalidatedError();
           }
           try {
@@ -144,6 +156,10 @@ export function createConnectionRuntime(options: {
           if (error instanceof ConnectInvalidatedError) {
             entry.status = "disconnected";
             throw new McpConnectError();
+          }
+          if (error instanceof InvalidatedSessionCloseError) {
+            entry.status = "disconnected";
+            throw new McpDisconnectError();
           }
           entry.status = "failed";
           try { options.persistFailure?.(connectionId, connectFailure); } catch { /* Keep public errors normalized. */ }
@@ -198,12 +214,24 @@ export function createConnectionRuntime(options: {
       entry.status = "disconnected";
       const pending = entry.connect;
       const operation = (async () => {
+        let pendingCloseError: McpDisconnectError | undefined;
         if (pending !== undefined) {
-          try { await pending; } catch { /* A failed or invalidated connect has nothing left to close. */ }
+          try {
+            await pending;
+          } catch (error) {
+            if (error instanceof McpDisconnectError) pendingCloseError = error;
+          }
         }
         const session = entry.session;
         entry.session = undefined;
-        if (session !== undefined) await session.close();
+        if (session !== undefined) {
+          try {
+            await session.close();
+          } catch {
+            throw new McpDisconnectError();
+          }
+        }
+        if (pendingCloseError !== undefined) throw pendingCloseError;
       })().finally(() => {
         entries.delete(connectionId);
       });
