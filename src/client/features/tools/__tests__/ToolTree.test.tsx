@@ -55,6 +55,18 @@ describe("ToolTree", () => {
     expect(screen.queryByRole("treeitem", { name: /sum/ })).not.toBeInTheDocument();
   });
 
+  it("shows a clean catalog summary instead of raw description markup", () => {
+    render(<ToolTree
+      connections={[first]}
+      catalogs={{ [first.id]: [catalog(first.id, "mapping/apply",
+        "**\\[Store Products\\]** **\\[What it does\\]** Applies a **confirmed** product mapping. **\\[When to use\\]** After review.", "current")] }}
+      onRefresh={vi.fn()} onSelectTool={vi.fn()} onOpenTool={vi.fn()}
+    />);
+
+    expect(screen.getByText("Store Products · Applies a confirmed product mapping.")).toBeVisible();
+    expect(screen.queryByText(/\*\*|\\\[/)).not.toBeInTheDocument();
+  });
+
   it("exposes manual refresh and keeps single-click separate from a real double-click", async () => {
     const onRefresh = vi.fn();
     const onSelectTool = vi.fn();

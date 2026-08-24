@@ -63,6 +63,18 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     const tabList = page.getByRole("tablist", { name: "Tool 调试 Tabs" });
     await expect(tabList.getByRole("tab")).toHaveCount(8);
 
+    await page.getByRole("tab", { name: "sum", exact: true }).click();
+    await page.getByRole("tab", { name: "Raw JSON" }).click();
+    await page.getByLabel("完整 arguments JSON").fill("{}");
+    await page.getByRole("tab", { name: "Form" }).click();
+    await expect(page.getByRole("tab", { name: "Form" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByLabel(/^a（必填）$/)).toBeVisible();
+    await page.getByRole("button", { name: "Tool 定义" }).click();
+    const definition = page.locator("article.tool-definition");
+    await expect(definition.getByText("Add two numbers")).toBeVisible();
+    await expect(definition.getByRole("table", { name: "Input Schema 字段" })).toContainText("a");
+    await page.getByRole("button", { name: "调试" }).click();
+
     const inputs = Array.from({ length: 8 }, (_, index) => ({
       a: 100 + index,
       b: 1000 + index,

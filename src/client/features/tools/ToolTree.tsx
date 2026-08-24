@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import type { CatalogToolSummary, ConnectionSummary } from "../../api/api-client.js";
+import { summarizeToolDescription } from "./tool-description.js";
 
 interface ToolTreeProps {
   connections: ConnectionSummary[];
@@ -165,7 +166,7 @@ export function ToolTree({
                         <span className="tool-item__copy">
                           <strong>{tool.name}</strong>
                           {typeof tool.currentSnapshot.definition.description === "string" && (
-                            <span>{tool.currentSnapshot.definition.description}</span>
+                            <span>{summarizeToolDescription(tool.currentSnapshot.definition.description)}</span>
                           )}
                         </span>
                         <span className={`tool-status tool-status--${tool.status}`}>

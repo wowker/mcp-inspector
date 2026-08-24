@@ -35,13 +35,13 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, executing = 
   const validation = validateJsonSchema(schema, tab.inputMode === "raw" && parsed.ok ? parsed.value : tab.arguments);
   const fields = useMemo(() => fieldsFromSchema(schema, tab.arguments), [schema, tab.arguments]);
   const canExecute = parsed.ok && validation.issues.length === 0;
+  const rawErrorId = `raw-${tab.id}-error`;
 
   function commitRaw(): boolean {
     const current = parseRawArguments(tab.rawText);
     if (!current.ok) { setRawTouched(true); return false; }
-    const result = validateJsonSchema(schema, current.value);
     onChange({ arguments: current.value, rawText: tab.rawText });
-    return result.issues.length === 0;
+    return true;
   }
   function mode(mode: "form" | "raw"): boolean {
     if (mode === "form" && !commitRaw()) return false;
@@ -64,25 +64,31 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, executing = 
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); execute(); }
   }}>
     <div className="editor-toolbar">
-      <div role="tablist" aria-label="参数输入模式" onKeyDown={(event) => {
-        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-        const nextMode = event.key === "Home" ? "form" : event.key === "End" ? "raw" : tab.inputMode === "form" ? "raw" : "form";
-        event.preventDefault(); if (mode(nextMode)) queueMicrotask(() => document.getElementById(`mode-${nextMode}-${tab.id}`)?.focus());
-      }}>
-        <button id={`mode-form-${tab.id}`} aria-controls={`panel-form-${tab.id}`} type="button" role="tab" tabIndex={tab.inputMode === "form" ? 0 : -1} aria-selected={tab.inputMode === "form"} onClick={() => mode("form")}>Form</button>
-        <button id={`mode-raw-${tab.id}`} aria-controls={`panel-raw-${tab.id}`} type="button" role="tab" tabIndex={tab.inputMode === "raw" ? 0 : -1} aria-selected={tab.inputMode === "raw"} onClick={() => mode("raw")}>Raw JSON</button>
+      <div className="editor-mode-group"><span>参数输入</span>
+        <div role="tablist" aria-label="参数输入模式" onKeyDown={(event) => {
+          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+          const nextMode = event.key === "Home" ? "form" : event.key === "End" ? "raw" : tab.inputMode === "form" ? "raw" : "form";
+          event.preventDefault(); if (mode(nextMode)) queueMicrotask(() => document.getElementById(`mode-${nextMode}-${tab.id}`)?.focus());
+        }}>
+          <button id={`mode-form-${tab.id}`} aria-controls={`panel-form-${tab.id}`} type="button" role="tab" tabIndex={tab.inputMode === "form" ? 0 : -1} aria-selected={tab.inputMode === "form"} onClick={() => mode("form")}>Form</button>
+          <button id={`mode-raw-${tab.id}`} aria-controls={`panel-raw-${tab.id}`} type="button" role="tab" tabIndex={tab.inputMode === "raw" ? 0 : -1} aria-selected={tab.inputMode === "raw"} onClick={() => mode("raw")}>Raw JSON</button>
+        </div>
       </div>
-      <button type="button" onClick={() => void navigator.clipboard?.writeText(
+      <div className="editor-actions"><button type="button" onClick={() => void navigator.clipboard?.writeText(
         tab.inputMode === "raw" && parsed.ok ? formatRawArguments(parsed.value) : formatRawArguments(tab.arguments))}>复制参数</button>
-      <button type="button" disabled={!canExecute || executing} onClick={execute}>{executing ? "执行中…" : "执行"}</button>
+        <button type="button" className="editor-execute" disabled={!canExecute || executing} onClick={execute}>{executing ? "执行中…" : "执行"}</button></div>
     </div>
-    {validation.warning !== null && <p role="status">{validation.warning}</p>}
-    {tab.inputMode === "raw" ? <div id={`panel-raw-${tab.id}`} role="tabpanel" aria-labelledby={`mode-raw-${tab.id}`}>
-      <label htmlFor={`raw-${tab.id}`}>完整 arguments JSON</label>
+    {validation.warning !== null && <p role="status" className="editor-warning">{validation.warning}</p>}
+    {tab.inputMode === "raw" ? <div id={`panel-raw-${tab.id}`} role="tabpanel" aria-labelledby={`mode-raw-${tab.id}`} className="raw-arguments-panel">
+      <div className="raw-arguments-heading"><label htmlFor={`raw-${tab.id}`}>完整 arguments JSON</label><span>JSON Object</span></div>
       <textarea id={`raw-${tab.id}`} value={tab.rawText} onChange={(event) => rawChanged(event.target.value)}
-        onBlur={() => commitRaw()} aria-invalid={!parsed.ok || validation.issues.length > 0} />
-      {!parsed.ok && (rawTouched || tab.inputMode === "raw") && <p role="alert">{parsed.message}{parsed.offset === null ? "" : `（位置 ${parsed.offset}）`}</p>}
-      {parsed.ok && validation.issues.map((item) => <p role="alert" key={`${item.path}:${item.keyword}`}>{item.path || "/"}：{item.message}</p>)}
+        onBlur={() => commitRaw()} aria-invalid={!parsed.ok || validation.issues.length > 0}
+        aria-describedby={!parsed.ok || validation.issues.length > 0 ? rawErrorId : undefined} />
+      {!parsed.ok && (rawTouched || tab.inputMode === "raw") && <p id={rawErrorId} role="alert">{parsed.message}{parsed.offset === null ? "" : `（位置 ${parsed.offset}）`}</p>}
+      {parsed.ok && validation.issues.length > 0 && <div id={rawErrorId} className="validation-summary" role="alert"><strong>参数尚未满足 Tool Schema</strong>
+        <p>可以继续在 Form 或 Raw JSON 中修改，满足全部约束后即可执行。</p>
+        <ul>{validation.issues.map((item) => <li key={`${item.path}:${item.keyword}`}><code>{item.path || "/"}</code><span>{item.message}</span></li>)}</ul>
+      </div>}
     </div> : <div id={`panel-form-${tab.id}`} role="tabpanel" aria-labelledby={`mode-form-${tab.id}`} className="schema-fields">
       {wholeFallback && <div className="schema-field">
         <label htmlFor={`${tab.id}-whole`}>完整 arguments（复杂 Schema）</label>

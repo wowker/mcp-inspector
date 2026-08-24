@@ -90,6 +90,22 @@ describe("DebugWorkspace", () => {
     expect(onExecute).not.toHaveBeenCalled();
   });
 
+  it("switches from valid Raw JSON to Form even when required Schema fields are missing", () => {
+    const onChange = vi.fn();
+    const rawTab = { ...tab("00000000-0000-4000-8000-000000000614", "sum", {}),
+      inputMode: "raw" as const, rawText: "{}" };
+    const requiredSchema = { type: "object", properties: { a: { type: "number" } }, required: ["a"] };
+    render(<ParameterEditor tab={rawTab} schema={requiredSchema} onChange={onChange} />);
+
+    const rawInput = screen.getByLabelText("完整 arguments JSON");
+    expect(rawInput).toHaveAttribute("aria-describedby", screen.getByRole("alert").id);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Form" }));
+
+    expect(onChange).toHaveBeenCalledWith({ arguments: {}, rawText: "{}" });
+    expect(onChange).toHaveBeenCalledWith({ inputMode: "form" });
+  });
+
   it("debounces draft persistence for 300ms", async () => {
     vi.useFakeTimers();
     const saved = tab("00000000-0000-4000-8000-000000000620", "sum", { a: 1 });

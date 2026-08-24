@@ -6,6 +6,7 @@ import { RunResultPanel } from "../runs/RunResultPanel.js";
 import { useRunEvents, useRunPolling } from "../runs/use-run-events.js";
 import { ParameterEditor } from "./ParameterEditor.js";
 import { TabStrip } from "./TabStrip.js";
+import { ToolDefinitionView } from "./ToolDefinitionView.js";
 
 export interface ToolOpenIntent { sequence: number; tool: CatalogToolSummary; newTab: boolean }
 interface Props {
@@ -32,23 +33,6 @@ function ActiveRunObserver({ api, projectId, tabId, runId, selected, onUpdate }:
   useEffect(() => { onUpdate(tabId, runId, { run: observation.run, error: observation.error }); },
     [observation.error, observation.run, onUpdate, runId, tabId]);
   return null;
-}
-
-function SchemaPanel({ title, schema }: { title: string; schema: unknown }) {
-  const record = typeof schema === "object" && schema !== null && !Array.isArray(schema)
-    ? schema as Record<string, unknown> : {};
-  const properties = typeof record.properties === "object" && record.properties !== null && !Array.isArray(record.properties)
-    ? record.properties as Record<string, unknown> : {};
-  return <section><h3>{title}</h3>
-    <details open><summary>树形视图</summary>
-      <ul className="schema-tree">{Object.entries(properties).map(([name, value]) => {
-        const field = typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
-        return <li key={name}><strong>{name}</strong> · {Array.isArray(field.type) ? field.type.join(" | ") : String(field.type ?? "复杂结构")}
-          {typeof field.description === "string" && <span> — {field.description}</span>}</li>;
-      })}</ul>
-    </details>
-    <details><summary>Raw JSON</summary><pre>{JSON.stringify(schema ?? {}, null, 2)}</pre></details>
-  </section>;
 }
 
 export function DebugWorkspace(props: Props) {
@@ -369,16 +353,7 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
           {selectedRunId === null ? <><h3>调用结果</h3><p>执行 Tool 后在这里查看结果与完整协议轨迹。</p></>
             : observed.run === null ? <p role="status">正在加载运行详情…</p> : <RunResultPanel run={observed.run} />}</div>
       </div>}
-      {view === "definition" && detail !== null && <article className="tool-definition">
-        <h2>{detail.tool.name}</h2><p>{detail.tool.currentSnapshot.definition.description ?? "暂无描述"}</p>
-        <dl><div><dt>Schema 哈希</dt><dd>{detail.tool.currentSnapshot.contentHash}</dd></div>
-          <div><dt>快照时间</dt><dd>{detail.tool.currentSnapshot.createdAt}</dd></div></dl>
-        <h3>Annotations</h3><pre>{JSON.stringify(detail.tool.currentSnapshot.definition.annotations ?? {}, null, 2)}</pre>
-        <SchemaPanel title="Input Schema" schema={detail.tool.currentSnapshot.definition.inputSchema} />
-        <SchemaPanel title="Output Schema" schema={detail.tool.currentSnapshot.definition.outputSchema ?? {}} />
-        <button type="button" onClick={() => void navigator.clipboard?.writeText(JSON.stringify(detail.tool.currentSnapshot.definition, null, 2))}>复制原始 Tool 定义</button>
-        <h3>历史快照</h3><ul>{detail.snapshots.map((snapshot) => <li key={snapshot.id}>{snapshot.createdAt} · {snapshot.contentHash}</li>)}</ul>
-      </article>}
+      {view === "definition" && detail !== null && <ToolDefinitionView detail={detail} />}
       {view === "history" && <RunHistory api={api} projectId={projectId} tabId={active.id} onOpen={(run) => void openHistory(run)} />}
     </div>}
     <span className="sr-only" role="status" aria-live="polite">{queues.current.size > 0 ? "正在保存 Tab" : pending.current.size > 0 ? "Tab 有待保存更改" : "Tab 已保存"}</span>
