@@ -1,13 +1,13 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Worker } from "node:worker_threads";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CallToolResult } from "@modelcontextprotocol/client";
 import { FakeMcpSession } from "../../../../test-support/fake-mcp-session.js";
 import { createConnectionService } from "../../connections/connection-service.js";
 import { CallTimeoutError } from "../../connections/connection-runtime.js";
 import { createProjectService } from "../../projects/project-service.js";
-import { ProjectStore } from "../../projects/project-store.js";
 import { createTabService } from "../../tabs/tab-service.js";
 import { ToolRepository } from "../../tools/tool-repository.js";
 import { createToolService } from "../../tools/tool-service.js";
@@ -73,25 +73,48 @@ describe("RunService", () => {
     } finally { projects.close(); }
   });
 
-  it("makes duplicate inserts race-safe across independent SQLite handles", async () => {
+  it("makes genuinely overlapping duplicate inserts race-safe across worker SQLite handles", async () => {
     const { dataRoot, projects, tabA } = fixture();
     const project = projects.list()[0];
-    const secondStore = new ProjectStore({ databasePath: join(dataRoot, "projects", projectId, "project.sqlite"), project });
     try {
-      const firstStore = projects.open(projectId); const bus = new RunEventBus();
+      const firstStore = projects.open(projectId);
       const snapshot = firstStore.database.prepare("SELECT id FROM tool_snapshots LIMIT 1").get() as { id: string };
       const input = { projectId, connectionId, tabId: tabA.id, toolName: "sum", toolSnapshotId: snapshot.id,
         idempotencyKey: "parallel", canonicalArguments: '{"a":1}', jsonrpc: { method: "tools/call" }, clientInfo: {},
         createdAt: "2026-08-17T00:00:00.000Z" };
-      const [left, right] = await Promise.all([
-        Promise.resolve().then(() => new RunRepository(firstStore, bus).create({ ...input, id: "00000000-0000-4000-8000-000000000981" })),
-        Promise.resolve().then(() => new RunRepository(secondStore, bus).create({ ...input, id: "00000000-0000-4000-8000-000000000982" })),
-      ]);
-      expect([left.created, right.created].sort()).toEqual([false, true]);
-      expect(left.run.id).toBe(right.run.id);
+      const barrier = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT);
+      const state = new Int32Array(barrier);
+      const runWorker = (id: string) => {
+        let readyResolve!: () => void; let resultResolve!: (value: { ok: boolean; created?: boolean; runId?: string; error?: string }) => void;
+        const ready = new Promise<void>((resolve) => { readyResolve = resolve; });
+        const result = new Promise<{ ok: boolean; created?: boolean; runId?: string; error?: string }>((resolve) => { resultResolve = resolve; });
+        const worker = new Worker(new URL("../../../../test-support/run-create-worker.mjs", import.meta.url), {
+          workerData: { databasePath: join(dataRoot, "projects", projectId, "project.sqlite"), project,
+            input: { ...input, id }, barrier },
+        });
+        worker.on("message", (message: { type: string; ok?: boolean; created?: boolean; runId?: string; error?: string }) => {
+          if (message.type === "ready") readyResolve();
+          else resultResolve({ ok: message.ok === true, created: message.created, runId: message.runId, error: message.error });
+        });
+        worker.once("error", (error) => resultResolve({ ok: false, error: error.message }));
+        return { ready, result };
+      };
+      const left = runWorker("00000000-0000-4000-8000-000000000981");
+      const right = runWorker("00000000-0000-4000-8000-000000000982");
+      await Promise.all([left.ready, right.ready]);
+      Atomics.store(state, 0, 1); Atomics.notify(state, 0, 2);
+      const outcomes = await Promise.all([left.result, right.result]);
+      expect(outcomes.every(({ ok }) => ok)).toBe(true);
+      expect(outcomes.map(({ created }) => created).sort()).toEqual([false, true]);
+      expect(outcomes[0].runId).toBe(outcomes[1].runId);
+      expect(JSON.stringify(outcomes)).not.toContain("SQLITE_BUSY");
       expect(firstStore.database.prepare("SELECT count(*) AS count FROM runs WHERE idempotency_key = 'parallel'").get())
         .toEqual({ count: 1 });
-    } finally { secondStore.close(); projects.close(); }
+      expect(firstStore.database.prepare("SELECT count(*) AS count FROM run_requests WHERE run_id IN (SELECT id FROM runs WHERE idempotency_key = 'parallel')").get())
+        .toEqual({ count: 1 });
+      expect(firstStore.database.prepare("SELECT count(*) AS count FROM run_events WHERE run_id IN (SELECT id FROM runs WHERE idempotency_key = 'parallel')").get())
+        .toEqual({ count: 1 });
+    } finally { projects.close(); }
   });
 
   it("schedules exactly one execution for duplicate submissions", async () => {
@@ -262,11 +285,15 @@ describe("RunService", () => {
       projects.open(projectId).database.exec(`CREATE TRIGGER reject_success_event BEFORE INSERT ON run_events
         WHEN NEW.kind = 'run-status' AND NEW.payload_json LIKE '%succeeded%' BEGIN SELECT RAISE(ABORT, 'terminal event failed'); END`);
       const run = service.start({ projectId, tabId: tabA.id, idempotencyKey: "terminal-event-fail", arguments: { a: 1 } });
+      const live: unknown[] = []; const unsubscribe = service.eventBus.subscribe(run.id, (event) => live.push(event.payload));
       const detail = await terminal(service, run.id);
+      unsubscribe();
       expect(detail.status).toBe("failed");
       expect(detail.response?.error?.code).toBe("TRACE_PERSIST_FAILED");
       expect(detail.response?.result).toEqual({ content: [{ type: "text", text: "sum" }] });
       expect(detail.events.some(({ payload }) => JSON.stringify(payload).includes("succeeded"))).toBe(false);
+      expect(detail.events.at(-1)?.payload).toEqual({ status: "failed" });
+      expect(live).toContainEqual({ status: "failed" });
     } finally { projects.close(); }
   });
 
@@ -279,14 +306,37 @@ describe("RunService", () => {
       await vi.waitFor(() => expect(service.get(projectId, run.id).status).toBe("running"));
       projects.open(projectId).database.exec(`CREATE TRIGGER reject_cancel_event BEFORE INSERT ON run_events
         WHEN NEW.kind = 'run-status' AND NEW.payload_json LIKE '%cancelled%' BEGIN SELECT RAISE(ABORT, 'terminal event failed'); END`);
-      expect(service.cancel(projectId, run.id)).toBe(true);
+      const live: unknown[] = []; const unsubscribe = service.eventBus.subscribe(run.id, (event) => live.push(event.payload));
+      expect(service.cancel(projectId, run.id)).toBe(true); unsubscribe();
       const detail = service.get(projectId, run.id);
       expect(detail.status).toBe("failed");
       expect(detail.response?.error?.code).toBe("TRACE_PERSIST_FAILED");
       expect(detail.events.some(({ payload }) => JSON.stringify(payload).includes("cancelled"))).toBe(false);
+      expect(detail.events.at(-1)?.payload).toEqual({ status: "failed" });
+      expect(live).toContainEqual({ status: "failed" });
       late.resolve({ content: [{ type: "text", text: "late" }] });
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(service.get(projectId, run.id).status).toBe("failed");
+    } finally { projects.close(); }
+  });
+
+  it("publishes a synthetic failed event when terminal events remain unavailable", async () => {
+    const result = deferred<CallToolResult>();
+    const { projects, connections, service, tabA } = fixture(async () => result.promise);
+    try {
+      await connections.connect(projectId, connectionId);
+      const run = service.start({ projectId, tabId: tabA.id, idempotencyKey: "persistent-event-fail", arguments: { a: 1 } });
+      await vi.waitFor(() => expect(service.get(projectId, run.id).status).toBe("running"));
+      projects.open(projectId).database.exec(`CREATE TRIGGER reject_every_terminal_event BEFORE INSERT ON run_events
+        WHEN NEW.kind = 'run-status' BEGIN SELECT RAISE(ABORT, 'event store unavailable'); END`);
+      const live: Array<{ payload: unknown }> = [];
+      const unsubscribe = service.eventBus.subscribe(run.id, (event) => live.push(event));
+      result.resolve({ content: [{ type: "text", text: "completed" }] });
+      const detail = await terminal(service, run.id); unsubscribe();
+      expect(detail.status).toBe("failed");
+      expect(detail.response?.error?.code).toBe("TRACE_PERSIST_FAILED");
+      expect(detail.events.at(-1)?.payload).toEqual({ status: "running" });
+      expect(live.at(-1)?.payload).toEqual({ status: "failed", synthetic: true, code: "TRACE_PERSIST_FAILED" });
     } finally { projects.close(); }
   });
 
@@ -305,6 +355,7 @@ describe("RunService", () => {
       expect(detail.response?.truncated).toBe(true);
       expect(detail.response?.originalBytes).toBe(new TextEncoder().encode(JSON.stringify(result)).byteLength);
       expect(detail.response?.result).toMatchObject({ truncated: true, originalBytes: expect.any(Number), sha256: expect.stringMatching(/^[a-f0-9]{64}$/) });
+      expect(detail.response?.result).toMatchObject({ isError: true });
       expect(() => JSON.stringify(detail.response?.result)).not.toThrow();
     } finally { base.projects.close(); }
   });

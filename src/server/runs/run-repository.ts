@@ -54,14 +54,18 @@ export class RunRepository {
 
   create(input: NewRun): { run: RunSummary; created: boolean; identity: ExistingIdentity } {
     const operation = this.store.database.transaction(() => {
-      const previous = this.byIdempotency(input.projectId, input.idempotencyKey);
-      if (previous !== null) return { run: previous.run, created: false, identity: previous.identity, queuedEvent: null };
-      this.store.database.prepare(`INSERT INTO runs
+      const inserted = this.store.database.prepare(`INSERT INTO runs
         (id, project_id, connection_id, tab_id, tool_name, tool_snapshot_id, idempotency_key,
          status, created_at, client_info_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)`)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)
+        ON CONFLICT(project_id, idempotency_key) DO NOTHING`)
         .run(input.id, input.projectId, input.connectionId, input.tabId, input.toolName,
           input.toolSnapshotId, input.idempotencyKey, input.createdAt, JSON.stringify(input.clientInfo));
+      if (inserted.changes === 0) {
+        const previous = this.byIdempotency(input.projectId, input.idempotencyKey);
+        if (previous === null) throw new Error("Conflicting Run could not be read");
+        return { run: previous.run, created: false, identity: previous.identity, queuedEvent: null };
+      }
       this.store.database.prepare(`INSERT INTO run_requests (run_id, arguments_json, jsonrpc_json, http_json)
         VALUES (?, ?, ?, NULL)`).run(input.id, input.canonicalArguments, JSON.stringify(input.jsonrpc));
       const queuedEvent: RunEvent = { runId: input.id, sequence: 1, kind: "run-status",
@@ -73,18 +77,9 @@ export class RunRepository {
       return { run: created, created: true,
         identity: { tabId: input.tabId, toolSnapshotId: input.toolSnapshotId, canonicalArguments: input.canonicalArguments }, queuedEvent };
     });
-    try {
-      const result = operation();
-      if (result.queuedEvent !== null) this.bus.publish(result.queuedEvent);
-      return { run: result.run, created: result.created, identity: result.identity };
-    }
-    catch (error) {
-      if (error instanceof Error && /unique constraint/i.test(error.message)) {
-        const existing = this.byIdempotency(input.projectId, input.idempotencyKey);
-        if (existing !== null) return { run: existing.run, created: false, identity: existing.identity };
-      }
-      throw error;
-    }
+    const result = operation();
+    if (result.queuedEvent !== null) this.bus.publish(result.queuedEvent);
+    return { run: result.run, created: result.created, identity: result.identity };
   }
 
   private byIdempotency(projectId: string, key: string): { run: RunSummary; identity: ExistingIdentity } | null {
@@ -157,7 +152,9 @@ export class RunRepository {
     }
     const originalBytes = Buffer.byteLength(json, "utf8");
     if (originalBytes <= this.maxResponseBytes) return { resultJson: json, truncated: 0, originalBytes };
-    const descriptor = { truncated: true, originalBytes,
+    const isError = typeof result === "object" && result !== null && !Array.isArray(result) &&
+      (result as Record<string, unknown>).isError === true;
+    const descriptor = { ...(isError ? { isError: true } : {}), truncated: true, originalBytes,
       sha256: createHash("sha256").update(json).digest("hex"),
       preview: Array.from(json).slice(0, 256).join("") };
     return { resultJson: JSON.stringify(descriptor), truncated: 1, originalBytes };
@@ -194,21 +191,40 @@ export class RunRepository {
   failRecording(projectId: string, runId: string, at: string, durationMs: number,
     networkDurationMs: number | null, result?: unknown): boolean {
     const stored = this.responseRecord(result);
-    return this.store.database.transaction(() => {
+    const error = { code: "TRACE_PERSIST_FAILED", message: "Tool call completed but trace persistence failed" };
+    const persist = (withEvent: boolean) => this.store.database.transaction(() => {
       const placeholders = active.map(() => "?").join(",");
       const changed = this.store.database.prepare(`UPDATE runs SET status = 'failed', completed_at = ?, duration_ms = ?, network_duration_ms = ?
         WHERE project_id = ? AND id = ? AND status IN (${placeholders})`)
         .run(at, durationMs, networkDurationMs, projectId, runId, ...active).changes;
-      if (changed !== 1) return false;
+      if (changed !== 1) return null;
       this.store.database.prepare(`INSERT INTO run_responses
         (run_id, result_json, error_json, truncated, original_bytes) VALUES (?, ?, ?, ?, ?)`)
-        .run(runId, stored.resultJson, JSON.stringify({ code: "TRACE_PERSIST_FAILED",
-          message: "Tool call completed but trace persistence failed" }), stored.truncated, stored.originalBytes);
+        .run(runId, stored.resultJson, JSON.stringify(error), stored.truncated, stored.originalBytes);
       this.store.database.prepare(`UPDATE debug_tabs SET last_run_id = ?, updated_at = ?
         WHERE project_id = ? AND id = (SELECT tab_id FROM runs WHERE id = ?)`)
         .run(runId, at, projectId, runId);
-      return true;
+      const row = this.store.database.prepare("SELECT COALESCE(MAX(sequence), 0) + 1 AS sequence FROM run_events WHERE run_id = ?")
+        .get(runId) as { sequence: number };
+      const failureEvent: RunEvent = { runId, sequence: row.sequence, kind: "run-status", occurredAt: at,
+        payload: withEvent ? { status: "failed" } : { status: "failed", synthetic: true, code: error.code } };
+      if (withEvent) {
+        this.store.database.prepare(`INSERT INTO run_events (run_id, sequence, kind, occurred_at, payload_json)
+          VALUES (?, ?, 'run-status', ?, ?)`).run(runId, row.sequence, at, JSON.stringify(failureEvent.payload));
+      }
+      return failureEvent;
     })();
+    try {
+      const persisted = persist(true);
+      if (persisted === null) return false;
+      this.bus.publish(persisted);
+      return true;
+    } catch {
+      const lastResort = persist(false);
+      if (lastResort === null) return false;
+      this.bus.publish(lastResort);
+      return true;
+    }
   }
 
   append(runId: string, kind: string, occurredAt: string, payload: unknown): RunEvent {
