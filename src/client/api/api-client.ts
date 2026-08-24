@@ -314,10 +314,10 @@ function decodeTab(value: unknown, projectId: string): DebugTabSummary {
   const { id, projectId: owner, connectionId, toolName, title, position, pinned, inputMode,
     arguments: args, rawText, viewState, lastRunId } = value;
   if (typeof id !== "string" || !uuidPattern.test(id) || owner !== projectId ||
-      typeof connectionId !== "string" || !uuidPattern.test(connectionId) || typeof toolName !== "string" ||
-      typeof title !== "string" || !Number.isInteger(position) || (position as number) < 0 ||
+      typeof connectionId !== "string" || !uuidPattern.test(connectionId) || typeof toolName !== "string" || toolName.length === 0 ||
+      typeof title !== "string" || title.trim().length === 0 || title.length > 180 || !Number.isInteger(position) || (position as number) < 0 ||
       typeof pinned !== "boolean" || (inputMode !== "form" && inputMode !== "raw") || !isObject(args) ||
-      typeof rawText !== "string" || !isObject(viewState) ||
+      typeof rawText !== "string" || rawText.length > 2_000_000 || !isObject(viewState) ||
       typeof viewState.editorScrollTop !== "number" || !Number.isFinite(viewState.editorScrollTop) || viewState.editorScrollTop < 0 ||
       typeof viewState.resultScrollTop !== "number" || !Number.isFinite(viewState.resultScrollTop) || viewState.resultScrollTop < 0 ||
       typeof viewState.splitRatio !== "number" || !Number.isFinite(viewState.splitRatio) || viewState.splitRatio < 0.2 || viewState.splitRatio > 0.8 ||

@@ -11,6 +11,8 @@ interface Props {
 
 type WorkspaceView = "debug" | "definition" | "history";
 const PERSIST_DELAY = 300;
+interface PendingSave { revision: number; patch: Partial<DebugTabSummary> }
+interface BoundToolDetail { tabId: string; connectionId: string; toolName: string; value: ToolDetailSummary }
 
 function SchemaPanel({ title, schema }: { title: string; schema: unknown }) {
   const record = typeof schema === "object" && schema !== null && !Array.isArray(schema)
@@ -36,38 +38,64 @@ export function DebugWorkspace(props: Props) {
 function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Props) {
   const [tabs, setTabs] = useState<DebugTabSummary[] | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<ToolDetailSummary | null>(null);
+  const [boundDetail, setBoundDetail] = useState<BoundToolDetail | null>(null);
   const [view, setView] = useState<WorkspaceView>("debug");
   const [message, setMessage] = useState<string | null>(null);
+  const [subtreeDrafts, setSubtreeDrafts] = useState<Record<string, Record<string, string>>>({});
   const tabsRef = useRef<DebugTabSummary[]>([]);
   const activeRef = useRef<string | null>(null);
-  const pending = useRef(new Map<string, Partial<DebugTabSummary>>());
+  const pending = useRef(new Map<string, PendingSave>());
+  const revisions = useRef(new Map<string, number>());
+  const queues = useRef(new Map<string, Promise<void>>());
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const [, renderDirtyState] = useState(0);
   const loadGeneration = useRef(0);
   const handledIntent = useRef(0);
 
   function assign(next: DebugTabSummary[]): void { tabsRef.current = next; setTabs(next); }
   function activate(id: string | null): void { activeRef.current = id; setActiveId(id); }
 
-  const flush = useCallback(async (tabId?: string): Promise<void> => {
-    const ids = tabId === undefined ? [...pending.current.keys()] : [tabId];
-    for (const id of ids) {
-      const patch = pending.current.get(id); if (patch === undefined) continue;
-      pending.current.delete(id); const timer = timers.current.get(id); if (timer !== undefined) clearTimeout(timer);
-      timers.current.delete(id);
-      try {
-        const saved = await api.updateTab(projectId, id, patch);
-        if (pending.current.has(id)) continue;
-        assign(tabsRef.current.map((tab) => tab.id === id ? saved : tab));
-      } catch (error) { setMessage(error instanceof Error ? error.message : "保存 Tab 失败"); }
+  const flush = useCallback(async (tabId?: string): Promise<boolean> => {
+    async function drain(id: string): Promise<boolean> {
+      const activeQueue = queues.current.get(id);
+      if (activeQueue !== undefined) { try { await activeQueue; } catch { /* retry pending below */ } }
+      while (true) {
+        const captured = pending.current.get(id); if (captured === undefined) return true;
+        if (pending.current.get(id) === captured) pending.current.delete(id);
+        renderDirtyState((value) => value + 1);
+        const previous = queues.current.get(id);
+        const request = (previous?.catch(() => undefined) ?? Promise.resolve()).then(async () => {
+          try {
+            const saved = await api.updateTab(projectId, id, captured.patch);
+            if (!pending.current.has(id)) {
+              assign(tabsRef.current.map((tab) => tab.id === id ? saved : tab));
+            }
+          } catch (error) {
+            const newer = pending.current.get(id);
+            pending.current.set(id, { revision: Math.max(captured.revision, newer?.revision ?? 0),
+              patch: { ...captured.patch, ...(newer?.patch ?? {}) } });
+            renderDirtyState((value) => value + 1);
+            setMessage(error instanceof Error ? error.message : "保存 Tab 失败");
+            throw error;
+          }
+        });
+        queues.current.set(id, request);
+        void request.then(() => { if (queues.current.get(id) === request) queues.current.delete(id); },
+          () => { if (queues.current.get(id) === request) queues.current.delete(id); });
+        try { await request; } catch { return false; }
+      }
     }
+    const ids = tabId === undefined ? [...new Set([...pending.current.keys(), ...queues.current.keys()])] : [tabId];
+    return (await Promise.all(ids.map(drain))).every(Boolean);
   }, [api, projectId]);
 
   function schedule(tabId: string, patch: Partial<DebugTabSummary>): void {
     const tab = tabsRef.current.find(({ id }) => id === tabId); if (tab === undefined) return;
     const nextTab = { ...tab, ...patch };
     assign(tabsRef.current.map((item) => item.id === tabId ? nextTab : item));
-    pending.current.set(tabId, { ...pending.current.get(tabId), ...patch });
+    const revision = (revisions.current.get(tabId) ?? 0) + 1; revisions.current.set(tabId, revision);
+    pending.current.set(tabId, { revision, patch: { ...(pending.current.get(tabId)?.patch ?? {}), ...patch } });
+    renderDirtyState((value) => value + 1);
     const old = timers.current.get(tabId); if (old !== undefined) clearTimeout(old);
     timers.current.set(tabId, setTimeout(() => void flush(tabId), PERSIST_DELAY));
   }
@@ -83,11 +111,14 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
 
   const active = tabs?.find(({ id }) => id === activeId) ?? null;
   useEffect(() => {
-    if (active === null) { setDetail(null); return; }
+    setBoundDetail(null);
+    if (active === null) return;
     const generation = ++loadGeneration.current;
     void api.getTool(projectId, active.connectionId, active.toolName).then((value) => {
-      if (loadGeneration.current === generation && activeRef.current === active.id) setDetail(value);
-    }).catch((error: unknown) => { if (loadGeneration.current === generation) setMessage(error instanceof Error ? error.message : "加载 Tool 失败"); });
+      if (loadGeneration.current === generation && activeRef.current === active.id) setBoundDetail({
+        tabId: active.id, connectionId: active.connectionId, toolName: active.toolName, value,
+      });
+    }).catch((error: unknown) => { if (loadGeneration.current === generation) { setBoundDetail(null); setMessage(error instanceof Error ? error.message : "加载 Tool 失败"); } });
   }, [active?.connectionId, active?.id, active?.toolName, api, projectId]);
 
   useEffect(() => {
@@ -107,6 +138,7 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
 
   async function select(id: string): Promise<void> { await flush(activeRef.current ?? undefined); activate(id); setView("debug"); }
   async function close(id: string): Promise<void> {
+    if (tabsRef.current.find((tab) => tab.id === id)?.pinned === true) return;
     await flush(id); await api.closeTab(projectId, id); const previous = tabsRef.current; const closedIndex = previous.findIndex((tab) => tab.id === id);
     const next = previous.filter((tab) => tab.id !== id); assign(next);
     if (activeRef.current === id) activate(next[Math.max(0, closedIndex - 1)]?.id ?? null);
@@ -123,9 +155,12 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
     assign(await api.reorderTabs(projectId, ordered.map((tab) => tab.id)));
   }
   async function execute(): Promise<void> {
-    if (active === null) return; await flush(active.id);
+    if (active === null || !(await flush(active.id))) return;
     const latest = tabsRef.current.find(({ id }) => id === active.id); if (latest !== undefined) onExecute?.(latest);
   }
+
+  const detail = active !== null && boundDetail?.tabId === active.id && boundDetail.connectionId === active.connectionId &&
+    boundDetail.toolName === active.toolName ? boundDetail.value : null;
 
   if (tabs === null) return <p role="status">正在恢复调试 Tabs…</p>;
   return <section className="debug-workspace" aria-label="Tool 调试工作台">
@@ -134,7 +169,7 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
       onDuplicate={(id) => void duplicate(id)} onPin={(id, pinned) => schedule(id, { pinned })}
       onMove={(id, offset) => void move(id, offset)}
       onCloseOthers={(id) => void bulk(id, "others")} onCloseRight={(id) => void bulk(id, "right")} />
-    {active === null ? <div className="workspace-empty"><h2>选择一个 Tool 开始调试</h2><p>单击复用当前未固定 Tab，双击打开新 Tab。</p></div> : <>
+    {active === null ? <div className="workspace-empty"><h2>选择一个 Tool 开始调试</h2><p>单击复用当前未固定 Tab，双击打开新 Tab。</p></div> : <div id={`tabpanel-${active.id}`} role="tabpanel" aria-labelledby={`tab-${active.id}`}>
       <nav className="workspace-nav" aria-label="当前 Tab 视图">
         {(["debug", "definition", "history"] as const).map((item) => <button type="button" key={item}
           aria-current={view === item ? "page" : undefined} onClick={() => setView(item)}>
@@ -145,6 +180,9 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
         <div className="request-pane" ref={(node) => { if (node !== null && node.scrollTop !== active.viewState.editorScrollTop) node.scrollTop = active.viewState.editorScrollTop; }}
           onScroll={(event) => schedule(active.id, { viewState: { ...active.viewState, editorScrollTop: event.currentTarget.scrollTop } })}>
           <ParameterEditor tab={active} schema={detail.tool.currentSnapshot.definition.inputSchema}
+            subtreeDrafts={subtreeDrafts[active.id]}
+            onSubtreeDraftChange={(path, text) => setSubtreeDrafts((current) => ({ ...current,
+              [active.id]: { ...(current[active.id] ?? {}), [path]: text } }))}
             onChange={(patch) => schedule(active.id, patch)} onExecute={() => void execute()} />
         </div>
         <label className="split-control">请求区高度
@@ -166,7 +204,7 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
         <h3>历史快照</h3><ul>{detail.snapshots.map((snapshot) => <li key={snapshot.id}>{snapshot.createdAt} · {snapshot.contentHash}</li>)}</ul>
       </article>}
       {view === "history" && <div className="history-placeholder"><h2>当前 Tab 历史</h2><p>运行历史将在下一阶段接入。</p></div>}
-    </>}
+    </div>}
     <span className="sr-only" role="status" aria-live="polite">{pending.current.size > 0 ? "Tab 有待保存更改" : "Tab 已保存"}</span>
   </section>;
 }

@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import type { DebugTabSummary } from "../../api/api-client.js";
 
 interface Props {
@@ -10,7 +11,17 @@ interface Props {
 
 export function TabStrip({ tabs, activeId, onSelect, onClose, onDuplicate, onPin, onCloseOthers, onCloseRight, onMove,
   dirtyIds = new Set(), runningIds = new Set() }: Props) {
-  return <div className="debug-tabs" role="tablist" aria-label="Tool 调试 Tabs" onKeyDown={(event) => {
+  const strip = useRef<HTMLDivElement>(null);
+  const previousActive = useRef<string | null>(activeId);
+  useEffect(() => {
+    if (previousActive.current !== null && previousActive.current !== activeId) {
+      const candidate = document.getElementById(`tab-${activeId ?? ""}`);
+      if (candidate instanceof HTMLButtonElement && strip.current?.contains(candidate)) candidate.focus();
+    }
+    previousActive.current = activeId;
+  }, [activeId]);
+  return <div ref={strip} className="debug-tabs" role="tablist" aria-label="Tool 调试 Tabs" onKeyDown={(event) => {
+    if (!(event.target instanceof HTMLElement) || event.target.getAttribute("role") !== "tab") return;
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
     const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
     const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
@@ -19,7 +30,7 @@ export function TabStrip({ tabs, activeId, onSelect, onClose, onDuplicate, onPin
     const next = buttons[index]; if (next !== undefined) { event.preventDefault(); next.focus(); next.click(); }
   }}>
     {tabs.map((tab) => <div className="debug-tab" key={tab.id}>
-      <button type="button" role="tab" aria-selected={tab.id === activeId} tabIndex={tab.id === activeId ? 0 : -1}
+      <button id={`tab-${tab.id}`} aria-controls={`tabpanel-${tab.id}`} type="button" role="tab" aria-selected={tab.id === activeId} tabIndex={tab.id === activeId ? 0 : -1}
         onClick={() => onSelect(tab.id)}>{tab.pinned ? "固定 " : ""}{tab.title}
         {dirtyIds.has(tab.id) && <span aria-label="未保存"> *</span>}
         {runningIds.has(tab.id) && <span aria-label="运行中"> ⟳</span>}</button>

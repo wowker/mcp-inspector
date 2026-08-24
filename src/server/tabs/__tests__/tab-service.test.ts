@@ -33,7 +33,7 @@ describe("TabService", () => {
       id: ids(), name: "sum", contentHash: "a".repeat(64),
       definitionJson: JSON.stringify({ name: "sum", inputSchema: { type: "object" } }),
     }], "2026-08-17T00:00:00.000Z");
-    return { projects, service: createTabService(projects, connections, { createId: ids,
+    return { dataRoot, projects, service: createTabService(projects, connections, { createId: ids,
       now: () => new Date("2026-08-17T00:00:00.000Z") }) };
   }
 
@@ -114,5 +114,26 @@ describe("TabService", () => {
       expect(() => service.get(projectId, "00000000-0000-4000-8000-000000000999")).toThrow(/not found/i);
       expect(service.get(projectId, opened.id).id).toBe(opened.id);
     } finally { projects.close(); }
+  });
+
+  it("applies migrations 1-4 once and enforces Tab foreign keys", () => {
+    const { dataRoot, projects } = fixture();
+    const store = projects.open(projectId);
+    expect(store.database.prepare("SELECT version FROM schema_migrations ORDER BY version").all())
+      .toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }]);
+    expect(() => store.database.prepare(`INSERT INTO debug_tabs
+      (id, project_id, connection_id, tool_name, title, position, pinned, input_mode,
+       arguments_json, raw_text, view_state_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run("00000000-0000-4000-8000-000000000699", projectId,
+        "00000000-0000-4000-8000-000000000698", "sum", "sum", 0, 0, "form", "{}", "{}",
+        '{"editorScrollTop":0,"resultScrollTop":0,"splitRatio":0.5}',
+        "2026-08-17T00:00:00.000Z", "2026-08-17T00:00:00.000Z")).toThrow(/foreign key/i);
+    projects.close();
+    const reopened = createProjectService({ dataRoot });
+    try {
+      expect(reopened.open(projectId).database.prepare("SELECT count(*) AS count FROM schema_migrations WHERE version = 4").get())
+        .toEqual({ count: 1 });
+    } finally { reopened.close(); }
   });
 });

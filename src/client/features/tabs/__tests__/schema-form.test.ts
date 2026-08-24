@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fieldsFromSchema, valueFromInput } from "../schema-form.js";
+import { fieldsFromSchema, requiresWholeArgumentsFallback, valueFromInput } from "../schema-form.js";
 
 describe("schema form", () => {
   it("describes primitive fields, defaults, constraints and additional arguments", () => {
@@ -25,5 +25,7 @@ describe("schema form", () => {
     } }, { value: { nested: [1, 2] } });
     expect(field).toMatchObject({ kind: "json", value: { nested: [1, 2] } });
     expect(valueFromInput(field, '{"nested":[3]}')).toEqual({ ok: true, value: { nested: [3] } });
+    expect(requiresWholeArgumentsFallback({ oneOf: [{ type: "object" }, { type: "null" }] })).toBe(true);
+    expect(requiresWholeArgumentsFallback({ type: "object", properties: {} })).toBe(false);
   });
 });

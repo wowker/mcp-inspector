@@ -9,20 +9,7 @@ import {
   addFormats,
 } from "@modelcontextprotocol/client/validators/ajv";
 import { Ajv2020 } from "ajv/dist/2020.js";
-
-function normalizedDialect(schema: JsonSchemaType): string | undefined {
-  const declared = (schema as Record<string, unknown>).$schema;
-  if (typeof declared !== "string") return undefined;
-  return declared.trim().toLowerCase().replace(/#$/, "");
-}
-
-function dialectForWarning(dialect: string): string {
-  const sanitized = dialect.replace(/[\u0000-\u001f\u007f-\u009f]/g, "?");
-  const maxLength = 200;
-  return sanitized.length <= maxLength
-    ? sanitized
-    : `${sanitized.slice(0, maxLength)}…`;
-}
+import { resolveSchemaDialect } from "../../shared/schema-dialect.js";
 
 export class DialectAwareJsonSchemaValidator implements jsonSchemaValidator {
   private readonly draft2020: AjvJsonSchemaValidator;
@@ -40,21 +27,15 @@ export class DialectAwareJsonSchemaValidator implements jsonSchemaValidator {
   }
 
   getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T> {
-    const dialect = normalizedDialect(schema);
-    if (
-      dialect === undefined ||
-      dialect === "https://json-schema.org/draft/2020-12/schema"
-    ) {
+    const resolution = resolveSchemaDialect(schema as Record<string, unknown>);
+    if (resolution.dialect === "draft-2020-12") {
       return this.draft2020.getValidator<T>(schema);
     }
-    if (
-      dialect === "http://json-schema.org/draft-07/schema" ||
-      dialect === "https://json-schema.org/draft-07/schema"
-    ) {
+    if (resolution.dialect === "draft-07") {
       return this.draft07.getValidator<T>(schema);
     }
     this.warn(
-      `Unsupported JSON Schema dialect '${dialectForWarning(dialect)}'; accepting without validation`,
+      `${resolution.warning ?? "Unsupported JSON Schema dialect"}; accepting without validation`,
     );
     return (input: unknown) => ({
       valid: true as const,

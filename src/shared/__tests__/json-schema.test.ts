@@ -31,6 +31,14 @@ describe("JSON Schema validation", () => {
     const result = validateJsonSchema({ $schema: "https://example.test/custom", type: "object",
       required: ["x"] }, {});
     expect(result.warning).toMatch(/未知/);
-    expect(result.issues).toHaveLength(1);
+    expect(result.issues).toHaveLength(0);
+  });
+
+  it("bounds and sanitizes unknown dialect warnings", () => {
+    const result = validateJsonSchema({ $schema: `https://example.test/${"x".repeat(500)}\nforged`,
+      type: "string", futureKeyword: { impossible: true } }, 42 as unknown as Record<string, unknown>);
+    expect(result.issues).toEqual([]);
+    expect(result.warning?.length).toBeLessThan(240);
+    expect(result.warning).not.toMatch(/[\r\n\t]/);
   });
 });

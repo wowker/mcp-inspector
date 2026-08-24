@@ -14,6 +14,11 @@ function unsupported(schema: Record<string, unknown>): boolean {
     (schema.type === "array" && Array.isArray(schema.items));
 }
 
+export function requiresWholeArgumentsFallback(schema: Record<string, unknown>): boolean {
+  return unsupported(schema) || schema.type !== "object" ||
+    ("properties" in schema && !isObject(schema.properties));
+}
+
 function kind(schema: Record<string, unknown>): SchemaFieldKind {
   if (unsupported(schema)) return "json";
   if (Array.isArray(schema.enum)) return "enum";
