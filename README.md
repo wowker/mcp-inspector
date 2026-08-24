@@ -12,6 +12,21 @@ npm run build
 npm start
 ```
 
+也可以使用 Makefile 一键安装缺失依赖、重新编译并后台重启：
+
+```bash
+make
+# 等同于 make restart
+```
+
+常用进程管理命令：
+
+```bash
+make status   # 查看运行状态
+make logs     # 实时查看日志，按 Ctrl-C 退出
+make stop     # 优雅停止当前项目启动的 Inspector
+```
+
 服务只监听 `127.0.0.1`，启动后会打开本地浏览器。每次进程启动都会生成新的随机会话令牌；浏览器首次进入后会把令牌从地址栏移入当前标签页的 session storage。请勿把启动页面地址分享给其他人。
 
 项目、连接、调试 Tab、请求草稿、运行结果和协议事件保存在本机 SQLite 数据库中。
