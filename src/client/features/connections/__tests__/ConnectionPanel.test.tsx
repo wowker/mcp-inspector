@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CatalogToolSummary, InspectorApiClient } from "../../../api/api-client.js";
@@ -57,12 +57,41 @@ function api(overrides: Partial<InspectorApiClient> = {}): InspectorApiClient {
 afterEach(cleanup);
 
 describe("ConnectionPanel", () => {
+  it("presents saved connections in a table and opens an accessible add dialog", async () => {
+    const user = userEvent.setup();
+    render(<ConnectionPanel api={api()} projectId={projectId} />);
+
+    expect(await screen.findByRole("table", { name: "连接列表" })).toBeVisible();
+    expect(screen.getByRole("columnheader", { name: "连接名称" })).toBeVisible();
+    expect(screen.getByRole("columnheader", { name: "MCP URL" })).toBeVisible();
+    expect(screen.getByRole("columnheader", { name: "状态" })).toBeVisible();
+    expect(screen.getByRole("columnheader", { name: "请求超时" })).toBeVisible();
+    expect(screen.getByRole("columnheader", { name: "操作" })).toBeVisible();
+    expect(screen.queryByLabelText("连接名称")).not.toBeInTheDocument();
+
+    const addButton = screen.getByRole("button", { name: "添加连接" });
+    await user.click(addButton);
+    const dialog = screen.getByRole("dialog", { name: "添加连接" });
+    expect(dialog).toBeVisible();
+    expect(screen.getByLabelText("连接名称")).toHaveFocus();
+    const closeButton = screen.getByRole("button", { name: "关闭添加连接弹窗" });
+    closeButton.focus();
+    fireEvent.keyDown(closeButton, { key: "Tab", shiftKey: true });
+    expect(screen.getByRole("button", { name: "保存连接" })).toHaveFocus();
+    fireEvent.keyDown(screen.getByRole("button", { name: "保存连接" }), { key: "Tab" });
+    expect(closeButton).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "添加连接" })).not.toBeInTheDocument();
+    expect(addButton).toHaveFocus();
+  });
+
   it("lists saved configurations as disconnected and presents fixed transport/auth modes", async () => {
     render(<ConnectionPanel api={api()} projectId={projectId} />);
 
     expect(await screen.findByRole("heading", { name: "连接管理" })).toBeVisible();
     expect(screen.getByText("Catalog MCP")).toBeVisible();
-    expect(screen.getByText(/disconnected.*未连接/i)).toBeVisible();
+    expect(screen.getByText("未连接")).toBeVisible();
     expect(screen.getByText("Streamable HTTP")).toBeVisible();
     expect(screen.getByText("无认证")).toBeVisible();
     expect(screen.getByRole("button", { name: "连接 Catalog MCP" })).toBeVisible();
@@ -93,7 +122,7 @@ describe("ConnectionPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "连接 Catalog MCP" }));
 
-    expect(await screen.findByText(/failed.*失败/i)).toBeVisible();
+    expect(await screen.findByText("失败")).toBeVisible();
     expect(screen.getAllByText("Unable to connect to MCP server")).toHaveLength(2);
     expect(screen.getByRole("button", { name: "编辑 Catalog MCP" })).toBeEnabled();
   });
@@ -189,11 +218,12 @@ describe("ConnectionPanel", () => {
     })} projectId={projectId} />);
 
     await screen.findByRole("heading", { name: "连接管理" });
+    await user.click(screen.getByRole("button", { name: "添加连接" }));
     await user.type(screen.getByLabelText("连接名称"), "Catalog MCP");
     await user.type(screen.getByLabelText("MCP URL"), "https://mcp.example.test/mcp");
     await user.clear(screen.getByLabelText("请求超时（毫秒）"));
     await user.type(screen.getByLabelText("请求超时（毫秒）"), "10000");
-    await user.click(screen.getByRole("button", { name: "保存配置" }));
+    await user.click(screen.getByRole("button", { name: "保存连接" }));
 
     expect(createConnection).toHaveBeenCalledWith(projectId, {
       name: "Catalog MCP",
@@ -202,7 +232,7 @@ describe("ConnectionPanel", () => {
       authMode: "none",
       timeoutMs: 10_000,
     });
-    expect(await screen.findByText(/disconnected.*未连接/i)).toBeVisible();
+    expect(await screen.findByText("未连接")).toBeVisible();
     expect(screen.queryByText(/已连接|连接成功/)).not.toBeInTheDocument();
   });
 
@@ -219,7 +249,7 @@ describe("ConnectionPanel", () => {
     await screen.findByText("Catalog MCP");
     expect(screen.getByText("Unable to connect to MCP server")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "编辑 Catalog MCP" }));
-    expect(screen.getByRole("heading", { name: "编辑连接配置" })).toBeVisible();
+    expect(screen.getByRole("dialog", { name: "编辑连接" })).toBeVisible();
     expect(screen.getByLabelText("连接名称")).toHaveValue("Catalog MCP");
     expect(screen.getByLabelText("MCP URL")).toHaveValue("https://mcp.example.test/mcp");
     await user.clear(screen.getByLabelText("连接名称"));
@@ -238,8 +268,8 @@ describe("ConnectionPanel", () => {
     });
     expect(await screen.findByText("Fixed MCP")).toBeVisible();
     expect(screen.getByText("https://fixed.example.test/mcp")).toBeVisible();
-    expect(screen.getByRole("heading", { name: "新建连接配置" })).toBeVisible();
-    expect(screen.getByLabelText("连接名称")).toHaveValue("");
+    expect(screen.queryByRole("dialog", { name: "编辑连接" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("连接名称")).not.toBeInTheDocument();
   });
 
   it("cancels editing without changing the saved connection", async () => {
@@ -250,12 +280,12 @@ describe("ConnectionPanel", () => {
     await user.click(screen.getByRole("button", { name: "编辑 Catalog MCP" }));
     await user.clear(screen.getByLabelText("连接名称"));
     await user.type(screen.getByLabelText("连接名称"), "Discard me");
-    await user.click(screen.getByRole("button", { name: "取消编辑" }));
+    await user.click(screen.getByRole("button", { name: "取消" }));
 
     expect(updateConnection).not.toHaveBeenCalled();
-    expect(screen.getByRole("heading", { name: "新建连接配置" })).toBeVisible();
+    expect(screen.queryByRole("dialog", { name: "编辑连接" })).not.toBeInTheDocument();
     expect(screen.getByText("Catalog MCP")).toBeVisible();
-    expect(screen.getByLabelText("连接名称")).toHaveValue("");
+    expect(screen.queryByLabelText("连接名称")).not.toBeInTheDocument();
   });
 
   it("requires confirmation before delete and keeps errors actionable", async () => {
@@ -282,7 +312,7 @@ describe("ConnectionPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "删除 Catalog MCP" }));
     expect(deleteConnection).not.toHaveBeenCalled();
-    expect(screen.getByText("确认删除 Catalog MCP？")).toBeVisible();
+    expect(screen.getByRole("dialog", { name: "删除连接" })).toHaveTextContent("确认删除 Catalog MCP？");
     await user.click(screen.getByRole("button", { name: "确认删除 Catalog MCP" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("database is busy");
     expect(screen.getByText("Catalog MCP")).toBeVisible();
@@ -355,6 +385,7 @@ describe("ConnectionPanel", () => {
     const user = userEvent.setup();
     const { rerender } = render(<ConnectionPanel api={client} projectId={projectId} />);
     await screen.findByText("Catalog MCP");
+    await user.click(screen.getByRole("button", { name: "添加连接" }));
     await user.type(screen.getByLabelText("连接名称"), "draft name");
     await user.type(screen.getByLabelText("MCP URL"), "https://draft.example/mcp");
     await user.click(screen.getByRole("button", { name: "删除 Catalog MCP" }));
@@ -365,10 +396,8 @@ describe("ConnectionPanel", () => {
     const newRegion = screen.getByRole("region", { name: "连接管理" });
     expect(newRegion).not.toBe(oldRegion);
     expect(screen.queryByText("Catalog MCP")).not.toBeInTheDocument();
-    expect(screen.queryByText("确认删除 Catalog MCP？")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("连接名称")).toHaveValue("");
-    expect(screen.getByLabelText("MCP URL")).toHaveValue("");
-    expect(screen.getByLabelText("请求超时（毫秒）")).toHaveValue(10000);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("连接名称")).not.toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("正在加载连接配置");
 
     await act(async () => newList.resolve([]));
@@ -391,15 +420,14 @@ describe("ConnectionPanel", () => {
     const user = userEvent.setup();
     const { rerender } = render(<ConnectionPanel api={client} projectId={projectId} />);
     await screen.findByText("还没有连接配置。");
+    await user.click(screen.getByRole("button", { name: "添加连接" }));
     await user.type(screen.getByLabelText("连接名称"), "Catalog MCP");
     await user.type(screen.getByLabelText("MCP URL"), "https://mcp.example.test/mcp");
-    await user.click(screen.getByRole("button", { name: "保存配置" }));
+    await user.click(screen.getByRole("button", { name: "保存连接" }));
 
     rerender(<ConnectionPanel api={client} projectId={secondProjectId} />);
     expect(await screen.findByText("Orders MCP")).toBeVisible();
-    expect(screen.getByLabelText("连接名称")).toHaveValue("");
-    expect(screen.getByLabelText("MCP URL")).toHaveValue("");
-    expect(screen.getByLabelText("请求超时（毫秒）")).toHaveValue(10000);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     await act(async () => pendingCreate.resolve(connection));
 
     await waitFor(() => expect(screen.queryByText("Catalog MCP")).not.toBeInTheDocument());
@@ -429,9 +457,10 @@ describe("ConnectionPanel", () => {
     const user = userEvent.setup();
     const { rerender } = render(<ConnectionPanel api={client} projectId={projectId} />);
     await screen.findByText("还没有连接配置。");
+    await user.click(screen.getByRole("button", { name: "添加连接" }));
     await user.type(screen.getByLabelText("连接名称"), "Catalog MCP");
     await user.type(screen.getByLabelText("MCP URL"), "https://mcp.example.test/mcp");
-    await user.click(screen.getByRole("button", { name: "保存配置" }));
+    await user.click(screen.getByRole("button", { name: "保存连接" }));
 
     rerender(<ConnectionPanel api={client} projectId={secondProjectId} />);
     expect(await screen.findByText("Orders MCP")).toBeVisible();
@@ -464,7 +493,7 @@ describe("ConnectionPanel", () => {
 
     rerender(<ConnectionPanel api={client} projectId={secondProjectId} />);
     expect(await screen.findByText("Orders MCP")).toBeVisible();
-    expect(screen.queryByText("确认删除 Orders MCP？")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "删除连接" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "删除 Orders MCP" })).toBeEnabled();
     await act(async () => pendingDelete.resolve());
 

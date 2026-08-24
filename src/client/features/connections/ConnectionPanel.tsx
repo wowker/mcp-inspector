@@ -5,6 +5,7 @@ import type {
   InspectorApiClient,
 } from "../../api/api-client.js";
 import { ToolTree } from "../tools/ToolTree.js";
+import { ConnectionFormDialog, DeleteConnectionDialog } from "./ConnectionDialogs.js";
 
 interface ConnectionPanelProps {
   api: InspectorApiClient;
@@ -33,7 +34,8 @@ function ProjectScopedConnectionPanel({
 }: ConnectionPanelProps) {
   const mounted = useRef(false);
   const submitLock = useRef(false);
-  const nameInput = useRef<HTMLInputElement>(null);
+  const dialogTrigger = useRef<HTMLButtonElement | null>(null);
+  const addButton = useRef<HTMLButtonElement>(null);
   const catalogGenerations = useRef(new Map<string, number>());
   const [connections, setConnections] = useState<ConnectionSummary[] | null>(null);
   const [catalogs, setCatalogs] = useState<Record<string, CatalogToolSummary[]>>({});
@@ -44,6 +46,7 @@ function ProjectScopedConnectionPanel({
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [timeoutMs, setTimeoutMs] = useState("10000");
+  const [formMode, setFormMode] = useState<"create" | "edit" | null>(null);
   const [editingConnectionId, setEditingConnectionId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
@@ -57,10 +60,6 @@ function ProjectScopedConnectionPanel({
       mounted.current = false;
     };
   }, []);
-
-  useEffect(() => {
-    if (editingConnectionId !== null) nameInput.current?.focus();
-  }, [editingConnectionId]);
 
   useEffect(() => {
     let active = true;
@@ -127,20 +126,35 @@ function ProjectScopedConnectionPanel({
     setConnections((current) => current?.map((item) => item.id === updated.id ? updated : item) ?? []);
   }
 
-  function resetForm(): void {
+  function closeForm(restoreFocus = true): void {
+    setFormMode(null);
     setEditingConnectionId(null);
     setName("");
     setUrl("");
     setTimeoutMs("10000");
+    setError(null);
+    if (restoreFocus) queueMicrotask(() => dialogTrigger.current?.focus());
   }
 
-  function beginEdit(connection: ConnectionSummary): void {
+  function beginCreate(trigger: HTMLButtonElement): void {
+    dialogTrigger.current = trigger;
+    setError(null);
+    setEditingConnectionId(null);
+    setName("");
+    setUrl("");
+    setTimeoutMs("10000");
+    setFormMode("create");
+  }
+
+  function beginEdit(connection: ConnectionSummary, trigger: HTMLButtonElement): void {
+    dialogTrigger.current = trigger;
     setError(null);
     setPendingDelete(null);
     setEditingConnectionId(connection.id);
     setName(connection.name);
     setUrl(connection.url);
     setTimeoutMs(String(connection.timeoutMs));
+    setFormMode("edit");
   }
 
   async function refresh(connectionId: string): Promise<void> {
@@ -218,7 +232,7 @@ function ProjectScopedConnectionPanel({
     submitLock.current = true;
     setError(null);
     setSubmitting(true);
-    const editingId = editingConnectionId;
+    const editingId = formMode === "edit" ? editingConnectionId : null;
     let generation: number | undefined;
     if (editingId !== null) {
       generation = invalidateConnection(editingId);
@@ -238,7 +252,7 @@ function ProjectScopedConnectionPanel({
           ...(current ?? []).filter(({ id }) => id !== created.id),
           created,
         ]);
-        resetForm();
+        closeForm();
       } else {
         const updated = await api.updateConnection(projectId, editingId, {
           name: name.trim(),
@@ -247,7 +261,7 @@ function ProjectScopedConnectionPanel({
         });
         if (!mounted.current || catalogGenerations.current.get(editingId) !== generation) return;
         updateConnection(updated);
-        resetForm();
+        closeForm();
       }
     } catch (cause) {
       if (mounted.current) setError(errorMessage(cause));
@@ -272,8 +286,9 @@ function ProjectScopedConnectionPanel({
         const next = { ...current }; delete next[connection.id]; return next;
       });
       catalogGenerations.current.delete(connection.id);
-      if (editingConnectionId === connection.id) resetForm();
+      if (editingConnectionId === connection.id) closeForm(false);
       setPendingDelete(null);
+      queueMicrotask(() => addButton.current?.focus());
     } catch (cause) {
       if (mounted.current) setError(errorMessage(cause));
     } finally {
@@ -287,11 +302,18 @@ function ProjectScopedConnectionPanel({
         <div>
           <p className="eyebrow">本地配置</p>
           <h2 id="connection-panel-title">连接管理</h2>
+          <p>集中管理 MCP Server，保存配置后再手动连接。</p>
         </div>
-        <p>保存配置不会连接 MCP Server。</p>
+        <button
+          ref={addButton}
+          type="button"
+          className="connection-add-button"
+          disabled={connections === null}
+          onClick={(event) => beginCreate(event.currentTarget)}
+        ><span aria-hidden="true">＋</span> 添加连接</button>
       </div>
 
-      {error !== null && (
+      {error !== null && formMode === null && pendingDelete === null && (
         <div className="connection-load-error">
           <p role="alert" className="connection-error">{error}</p>
           {connections === null && (
@@ -309,76 +331,87 @@ function ProjectScopedConnectionPanel({
 
       {connections === null && error === null ? (
         <p role="status" className="connection-loading">正在加载连接配置…</p>
-      ) : connections !== null && connections.length === 0 ? (
-        <p className="connection-empty">还没有连接配置。</p>
       ) : (
-        <ul className="connection-list" aria-label="连接配置列表">
-          {connections?.map((connection) => (
-            <li key={connection.id}>
-              <div className="connection-list__details">
-                <strong>{connection.name}</strong>
-                <span className="connection-url">{connection.url}</span>
-                <span className="connection-status">
-                  {connection.status}（{connectionStatusLabels[connection.status]}）
-                </span>
-                {connection.lastError !== null && (
-                  <span className="connection-last-error">{connection.lastError.message}</span>
-                )}
-              </div>
-              <div className="connection-actions">
-                {connection.status === "connected" ? (
-                  <button
-                    type="button"
-                    className="button-secondary"
-                    disabled={pendingConnectionIds.has(connection.id)}
-                    aria-label={`断开 ${connection.name}`}
-                    onClick={() => void disconnect(connection)}
-                  >断开</button>
-                ) : (
-                  <button
-                    type="button"
-                    disabled={pendingConnectionIds.has(connection.id)}
-                    aria-label={`连接 ${connection.name}`}
-                    onClick={() => void connect(connection)}
-                  >{pendingConnectionIds.has(connection.id) ? "连接中…" : "连接"}</button>
-                )}
-              <button
-                type="button"
-                className="button-secondary"
-                disabled={pendingConnectionIds.has(connection.id) || deleting}
-                aria-label={`编辑 ${connection.name}`}
-                onClick={() => beginEdit(connection)}
-              >编辑</button>
-              {pendingDelete === connection.id ? (
-                <div className="connection-delete-confirmation" role="group" aria-label={`确认删除 ${connection.name}`}>
-                  <span>确认删除 {connection.name}？</span>
-                  <button
-                    type="button"
-                    className="button-danger"
-                    disabled={deleting}
-                    aria-label={`确认删除 ${connection.name}`}
-                    onClick={() => void remove(connection)}
-                  >
-                    {deleting ? "正在删除…" : "确认删除"}
-                  </button>
-                  <button type="button" className="button-secondary" onClick={() => setPendingDelete(null)}>
-                    取消
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  className="button-secondary"
-                  aria-label={`删除 ${connection.name}`}
-                  onClick={() => setPendingDelete(connection.id)}
-                >
-                  删除
-                </button>
+        <div className="connection-table-wrap">
+          <table className="connection-table" aria-label="连接列表">
+            <thead>
+              <tr>
+                <th scope="col">连接名称</th>
+                <th scope="col">MCP URL</th>
+                <th scope="col">状态</th>
+                <th scope="col" aria-label="请求超时">超时</th>
+                <th scope="col" className="connection-table__actions-heading">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {connections?.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="connection-empty">
+                    <span>还没有连接配置。</span>
+                    <small>点击“添加连接”开始。</small>
+                  </td>
+                </tr>
               )}
-              </div>
-            </li>
-          ))}
-        </ul>
+              {connections?.map((connection) => (
+                <tr key={connection.id}>
+                  <td data-label="连接名称">
+                    <strong>{connection.name}</strong>
+                    <span className="connection-meta">
+                      <span>Streamable HTTP</span><span aria-hidden="true"> · </span><span>无认证</span>
+                    </span>
+                  </td>
+                  <td data-label="MCP URL"><span className="connection-url" title={connection.url}>{connection.url}</span></td>
+                  <td data-label="状态">
+                    <span className={`connection-status connection-status--${connection.status}`}>
+                      {connectionStatusLabels[connection.status]}
+                    </span>
+                    {connection.lastError !== null && (
+                      <span className="connection-last-error">{connection.lastError.message}</span>
+                    )}
+                  </td>
+                  <td data-label="请求超时"><span className="connection-timeout">{connection.timeoutMs.toLocaleString()} ms</span></td>
+                  <td data-label="操作">
+                    <div className="connection-actions">
+                      {connection.status === "connected" ? (
+                        <button
+                          type="button"
+                          className="button-secondary"
+                          disabled={pendingConnectionIds.has(connection.id)}
+                          aria-label={`断开 ${connection.name}`}
+                          onClick={() => void disconnect(connection)}
+                        >断开</button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={pendingConnectionIds.has(connection.id)}
+                          aria-label={`连接 ${connection.name}`}
+                          onClick={() => void connect(connection)}
+                        >{pendingConnectionIds.has(connection.id) ? "连接中…" : "连接"}</button>
+                      )}
+                      <button
+                        type="button"
+                        className="button-secondary"
+                        disabled={pendingConnectionIds.has(connection.id) || deleting}
+                        aria-label={`编辑 ${connection.name}`}
+                        onClick={(event) => beginEdit(connection, event.currentTarget)}
+                      >编辑</button>
+                      <button
+                        type="button"
+                        className="button-quiet-danger"
+                        aria-label={`删除 ${connection.name}`}
+                        onClick={(event) => {
+                          dialogTrigger.current = event.currentTarget;
+                          setError(null);
+                          setPendingDelete(connection.id);
+                        }}
+                      >删除</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {connections !== null && connections.length > 0 && (
@@ -394,46 +427,38 @@ function ProjectScopedConnectionPanel({
         />
       )}
 
-      <form className="connection-create-form" onSubmit={(event) => void save(event)}>
-        <h3>{editingConnectionId === null ? "新建连接配置" : "编辑连接配置"}</h3>
-        {editingConnectionId !== null && (
-          <p role="status" className="connection-edit-notice">保存修改会断开当前连接，请在保存后重新连接。</p>
-        )}
-        <div className="connection-fields">
-          <label>
-            <span>连接名称</span>
-            <input ref={nameInput} value={name} onChange={(event) => setName(event.target.value)} maxLength={120} required />
-          </label>
-          <label>
-            <span>MCP URL</span>
-            <input value={url} onChange={(event) => setUrl(event.target.value)} type="url" placeholder="https://example.com/mcp" required />
-          </label>
-          <label>
-            <span>请求超时（毫秒）</span>
-            <input
-              value={timeoutMs}
-              onChange={(event) => setTimeoutMs(event.target.value)}
-              type="number"
-              min={100}
-              max={600000}
-              step={1}
-              required
-            />
-          </label>
-        </div>
-        <dl className="connection-fixed-options">
-          <div><dt>传输方式</dt><dd>Streamable HTTP</dd></div>
-          <div><dt>认证方式</dt><dd>无认证</dd></div>
-        </dl>
-        <div className="connection-form-actions">
-          <button type="submit" disabled={submitting || connections === null}>
-            {submitting ? "正在保存…" : editingConnectionId === null ? "保存配置" : "保存修改"}
-          </button>
-          {editingConnectionId !== null && (
-            <button type="button" className="button-secondary" disabled={submitting} onClick={resetForm}>取消编辑</button>
-          )}
-        </div>
-      </form>
+      {formMode !== null && (
+        <ConnectionFormDialog
+          mode={formMode}
+          name={name}
+          url={url}
+          timeoutMs={timeoutMs}
+          submitting={submitting}
+          error={error}
+          onNameChange={setName}
+          onUrlChange={setUrl}
+          onTimeoutChange={setTimeoutMs}
+          onSubmit={(event) => void save(event)}
+          onClose={() => closeForm()}
+        />
+      )}
+
+      {pendingDelete !== null && connections !== null && (() => {
+        const connection = connections.find(({ id }) => id === pendingDelete);
+        return connection === undefined ? null : (
+          <DeleteConnectionDialog
+            connectionName={connection.name}
+            deleting={deleting}
+            error={error}
+            onConfirm={() => void remove(connection)}
+            onClose={() => {
+              setPendingDelete(null);
+              setError(null);
+              queueMicrotask(() => dialogTrigger.current?.focus());
+            }}
+          />
+        );
+      })()}
     </section>
   );
 }

@@ -38,10 +38,14 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     await page.getByRole("button", { name: "创建并打开" }).click();
     await expect(page.getByRole("heading", { name: "Core E2E" })).toBeVisible();
 
-    await page.getByLabel("连接名称").fill("Loopback MCP");
-    await page.getByLabel("MCP URL").fill(mcp.url);
-    await page.getByLabel("请求超时（毫秒）").fill("60000");
-    await page.getByRole("button", { name: "保存配置" }).click();
+    await page.getByRole("button", { name: "添加连接" }).click();
+    const connectionDialog = page.getByRole("dialog", { name: "添加连接" });
+    await expect(connectionDialog).toBeVisible();
+    await connectionDialog.getByLabel("连接名称").fill("Loopback MCP");
+    await connectionDialog.getByLabel("MCP URL").fill(mcp.url);
+    await connectionDialog.getByLabel("请求超时（毫秒）").fill("60000");
+    await connectionDialog.getByRole("button", { name: "保存连接" }).click();
+    await expect(connectionDialog).toBeHidden();
     await expect(page.getByText(mcp.url)).toBeVisible();
     await page.getByRole("button", { name: "连接 Loopback MCP" }).click();
     await expect(page.getByRole("treeitem", { name: "echo，当前" })).toBeVisible();
