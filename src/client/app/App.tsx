@@ -9,6 +9,22 @@ type HealthState =
   | { status: "ready"; version: string }
   | { status: "error"; message: string };
 
+interface HealthResponse {
+  ok: true;
+  version: string;
+}
+
+function isHealthResponse(value: unknown): value is HealthResponse {
+  if (typeof value !== "object" || value === null) return false;
+
+  const candidate = value as Record<string, unknown>;
+  return (
+    candidate.ok === true &&
+    typeof candidate.version === "string" &&
+    candidate.version.length > 0
+  );
+}
+
 export function App() {
   const [health, setHealth] = useState<HealthState>({ status: "checking" });
 
@@ -28,7 +44,11 @@ export function App() {
         if (!response.ok) {
           throw new Error(`Health check failed (${response.status})`);
         }
-        return (await response.json()) as { ok: boolean; version: string };
+        const payload: unknown = await response.json();
+        if (!isHealthResponse(payload)) {
+          throw new Error("Invalid health response");
+        }
+        return payload;
       })
       .then(({ version }) => setHealth({ status: "ready", version }))
       .catch((error: unknown) => {

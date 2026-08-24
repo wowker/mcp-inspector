@@ -50,6 +50,28 @@ describe("createApp", () => {
 
     expect(response.status).toBe(401);
   });
+
+  test("rejects an equal-length invalid session token", async () => {
+    const response = await app.request("/api/health", {
+      headers: {
+        Origin: "http://127.0.0.1:5173",
+        "X-DSers-Inspector-Session": "wrong-sessio",
+      },
+    });
+
+    expect(response.status).toBe(401);
+  });
+
+  test("rejects a foreign origin before checking an invalid token", async () => {
+    const response = await app.request("/api/health", {
+      headers: {
+        Origin: "https://malicious.example",
+        "X-DSers-Inspector-Session": "wrong-sessio",
+      },
+    });
+
+    expect(response.status).toBe(403);
+  });
 });
 
 describe("createRuntimeConfig", () => {
