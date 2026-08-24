@@ -22,6 +22,26 @@ function headersObject(headers: Headers): Record<string, string> {
   ]));
 }
 
+function forwardingInit(request: Request): RequestInit {
+  const init: RequestInit & { duplex?: "half" } = {
+    method: request.method,
+    headers: request.headers,
+    credentials: request.credentials,
+    integrity: request.integrity,
+    keepalive: request.keepalive,
+    mode: request.mode,
+    redirect: request.redirect,
+    referrer: request.referrer,
+    referrerPolicy: request.referrerPolicy,
+    signal: request.signal,
+  };
+  if (request.body !== null) {
+    init.body = request.body;
+    init.duplex = "half";
+  }
+  return init;
+}
+
 interface BodyCapture {
   bytes: Uint8Array;
   capturedBytes: number;
@@ -209,8 +229,8 @@ export function createObservedFetch(
   const now = options.now ?? (() => new Date());
   return async (input, init) => {
     const request = new Request(input, init);
-    void observeRequest(request, observer, now().toISOString()).catch(() => undefined);
-    const response = await baseFetch(input, init);
+    await observeRequest(request, observer, now().toISOString());
+    const response = await baseFetch(request.url, forwardingInit(request));
     const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
     const responseEvent = {
       kind: "http-response" as const,
@@ -220,22 +240,18 @@ export function createObservedFetch(
       body: null as unknown,
     };
     if (contentType.includes("text/event-stream")) {
-      void observeSseResponse(response, observer, now)
-        .then((body) => emit(observer, { ...responseEvent, body }))
-        .catch(() => emit(observer, {
-          ...responseEvent,
-          body: { text: "[unavailable]", capturedBytes: 0, truncated: false },
-        }));
+      emit(observer, {
+        ...responseEvent,
+        body: { stream: true, captureLimitBytes: OBSERVATION_TEXT_LIMIT },
+      });
+      void observeSseResponse(response, observer, now).catch(() => undefined);
       return response;
     }
-    void observeResponseBody(response, contentType, observer, now)
-      .then((observedBody) => {
-        emit(observer, { ...responseEvent, body: observedBody.body });
-        if (observedBody.rpc !== undefined) {
-          emit(observer, { kind: "rpc-in", at: now().toISOString(), message: observedBody.rpc });
-        }
-      })
-      .catch(() => undefined);
+    const observedBody = await observeResponseBody(response, contentType, observer, now);
+    emit(observer, { ...responseEvent, body: observedBody.body });
+    if (observedBody.rpc !== undefined) {
+      emit(observer, { kind: "rpc-in", at: now().toISOString(), message: observedBody.rpc });
+    }
     return response;
   };
 }

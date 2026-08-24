@@ -18,6 +18,7 @@ describe("createObservedFetch", () => {
   it("observes JSON request and response without consuming originals and redacts secrets", async () => {
     const events: WireObservation[] = [];
     const baseFetch = vi.fn(async (request: string | URL, init?: RequestInit) => {
+      expect(events.map((event) => event.kind)).toEqual(["http-request", "rpc-out"]);
       const received = new Request(request, init);
       expect(await received.clone().json()).toEqual({ jsonrpc: "2.0", id: 1, method: "tools/list" });
       return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { tools: [] } }), {
@@ -37,8 +38,8 @@ describe("createObservedFetch", () => {
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
     });
 
+    expect(events).toHaveLength(4);
     expect(await response.json()).toEqual({ jsonrpc: "2.0", id: 1, result: { tools: [] } });
-    await waitFor(() => events.length === 4);
     expect(events).toEqual([
       expect.objectContaining({ kind: "http-request", headers: expect.objectContaining({ authorization: "[REDACTED]", cookie: "[REDACTED]" }) }),
       expect.objectContaining({ kind: "rpc-out", message: { jsonrpc: "2.0", id: 1, method: "tools/list" } }),
@@ -65,7 +66,7 @@ describe("createObservedFetch", () => {
     ]);
   });
 
-  it("emits a complete SSE event before the original stream closes", async () => {
+  it("emits the SSE response before parsing a frame from a stream that stays open", async () => {
     const events: WireObservation[] = [];
     let close!: () => void;
     const body = new ReadableStream<Uint8Array>({
@@ -80,9 +81,14 @@ describe("createObservedFetch", () => {
     );
 
     const response = await observed("http://127.0.0.1/mcp");
-    await settleParser();
-    expect(events.some((event) => event.kind === "rpc-in" && "message" in event &&
-      JSON.stringify(event.message).includes("live"))).toBe(true);
+    const responseIndex = events.findIndex((event) => event.kind === "http-response");
+    expect(responseIndex).toBeGreaterThanOrEqual(0);
+    expect(events[responseIndex]).toEqual(expect.objectContaining({
+      body: { stream: true, captureLimitBytes: OBSERVATION_TEXT_LIMIT },
+    }));
+    await waitFor(() => events.some((event) => event.kind === "rpc-in"));
+    const rpcIndex = events.findIndex((event) => event.kind === "rpc-in");
+    expect(responseIndex).toBeLessThan(rpcIndex);
     close();
     await response.body?.cancel();
   });
@@ -109,8 +115,8 @@ describe("createObservedFetch", () => {
     const events: WireObservation[] = [];
     const text = "界".repeat(Math.ceil(OBSERVATION_TEXT_LIMIT / 3) + 20);
     const observed = createObservedFetch(
-      async (_url, init) => {
-        expect(await new Request("http://127.0.0.1/mcp", init).text()).toBe(text);
+      async (input, init) => {
+        expect(await new Request(input, init).text()).toBe(text);
         return new Response(text, { headers: { "content-type": "text/plain" } });
       },
       (event) => events.push(event),
@@ -132,7 +138,32 @@ describe("createObservedFetch", () => {
     }
   });
 
-  it("returns an unclosed SSE response immediately and reports truncation at the byte cap", async () => {
+  it("captures a non-closing request at the byte cap before fetching without locking its original", async () => {
+    const events: WireObservation[] = [];
+    const chunk = new Uint8Array(OBSERVATION_TEXT_LIMIT + 20).fill(120);
+    const body = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(chunk); } });
+    const baseFetch = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      expect(events.find((event) => event.kind === "http-request")).toEqual(expect.objectContaining({
+        body: expect.objectContaining({ capturedBytes: OBSERVATION_TEXT_LIMIT, truncated: true }),
+      }));
+      const request = new Request(input, init);
+      const original = await request.body?.getReader().read();
+      expect(original?.value?.byteLength).toBe(chunk.byteLength);
+      return new Response("ok", { headers: { "content-type": "text/plain" } });
+    });
+    const observed = createObservedFetch(baseFetch, (event) => events.push(event));
+
+    await observed("http://127.0.0.1/mcp", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+      duplex: "half",
+    } as RequestInit);
+
+    expect(baseFetch).toHaveBeenCalledOnce();
+  });
+
+  it("returns an unclosed SSE response immediately with one stream marker", async () => {
     const events: WireObservation[] = [];
     const prefix = new TextEncoder().encode("data: {\"jsonrpc\":\"2.0\",\"method\":\"early\"}\n\n");
     const padding = new Uint8Array(OBSERVATION_TEXT_LIMIT + 20).fill(120);
@@ -148,12 +179,44 @@ describe("createObservedFetch", () => {
     const response = await observed("http://127.0.0.1/mcp");
     const original = await response.body?.getReader().read();
     expect(original?.value?.byteLength).toBe(chunk.byteLength);
-    await waitFor(() => events.some((event) => event.kind === "http-response"));
+    expect(events.find((event) => event.kind === "http-response")).toEqual(expect.objectContaining({
+      body: { stream: true, captureLimitBytes: OBSERVATION_TEXT_LIMIT },
+    }));
+    await waitFor(() => events.some((event) => event.kind === "rpc-in"));
 
     expect(events.some((event) => event.kind === "rpc-in" && "message" in event &&
       JSON.stringify(event.message).includes("early"))).toBe(true);
+    expect(events.filter((event) => event.kind === "http-response")).toHaveLength(1);
+  });
+
+  it("returns a non-closing plain response after capturing the byte cap", async () => {
+    const events: WireObservation[] = [];
+    const chunk = new Uint8Array(OBSERVATION_TEXT_LIMIT + 20).fill(120);
+    const body = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(chunk); } });
+    const observed = createObservedFetch(async () => new Response(body, {
+      headers: { "content-type": "text/plain" },
+    }), (event) => events.push(event));
+
+    const response = await observed("http://127.0.0.1/mcp");
+
     expect(events.find((event) => event.kind === "http-response")).toEqual(expect.objectContaining({
       body: expect.objectContaining({ capturedBytes: OBSERVATION_TEXT_LIMIT, truncated: true }),
+    }));
+    const original = await response.body?.getReader().read();
+    expect(original?.value?.byteLength).toBe(chunk.byteLength);
+  });
+
+  it("emits unavailable response metadata before returning when cloning fails", async () => {
+    const events: WireObservation[] = [];
+    const consumed = new Response("used", { headers: { "content-type": "application/json" } });
+    await consumed.text();
+    const observed = createObservedFetch(async () => consumed, (event) => events.push(event));
+
+    const returned = await observed("http://127.0.0.1/mcp");
+
+    expect(returned).toBe(consumed);
+    expect(events.find((event) => event.kind === "http-response")).toEqual(expect.objectContaining({
+      body: { text: "[unavailable]", capturedBytes: 0, truncated: false },
     }));
   });
 });

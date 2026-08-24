@@ -322,7 +322,7 @@ describe("createStreamableMcpSessionFactory", () => {
     const connectionEvents: WireObservation[] = [];
     const factory = createStreamableMcpSessionFactory({
       fetch: async (_url, init) => {
-        const request = JSON.parse(String(init?.body)) as { id: string };
+        const request = await new Request(_url, init).json() as { id: string };
         await new Promise((resolve) => setTimeout(resolve, request.id === "slow" ? 8 : 1));
         return new Response(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: {} }), {
           headers: { "content-type": "application/json" },
@@ -366,6 +366,12 @@ describe("createStreamableMcpSessionFactory", () => {
     ]);
 
     expect(connectionEvents).toEqual([]);
+    expect(slow.map((event) => event.kind)).toEqual([
+      "http-request", "rpc-out", "http-response", "rpc-in",
+    ]);
+    expect(fast.map((event) => event.kind)).toEqual([
+      "http-request", "rpc-out", "http-response", "rpc-in",
+    ]);
     expect(JSON.stringify(slow)).toContain('"id":"slow"');
     expect(JSON.stringify(slow)).not.toContain('"id":"fast"');
     expect(JSON.stringify(fast)).toContain('"id":"fast"');
