@@ -33,12 +33,12 @@ Implemented a project-scoped MCP Tool catalog backed by immutable SQLite snapsho
 - Initial service RED failed because `tool-service.js` did not exist.
 - Initial route RED returned 404 for all Tool routes.
 - Initial UI RED failed because `ToolTree.js` did not exist and connection actions were absent.
-- Focused final suite: 84 Task 5/server-client boundary tests passed.
+- Focused final suite: 92 Task 5/server-client boundary tests passed.
 
 ## Verification
 
 - `npm run verify` — passed using bundled Node v24.19.0.
-- Full suite — 180 tests passed across 19 files, including the real loopback Streamable HTTP integration.
+- Full suite — 188 tests passed across 20 files, including the real loopback Streamable HTTP integration.
 - TypeScript client/server typecheck — passed.
 - Vite client and Node 22 tsup production build — passed.
 - `cmp src/server/projects/migrations/003_tools.sql dist/server/projects/migrations/003_tools.sql` — exact byte match.
@@ -64,3 +64,4 @@ All Node/npm/npx commands used the mandated bundled Node v24.19.0 PATH.
 - Added adapter-to-snapshot coverage for every currently known Tool field and nested/top-level future fields, adapter rejection coverage, and client malformed-response coverage for every known structured field.
 - Increased pointer click disambiguation to a documented 500 ms desktop double-click window. A fake-timer regression covers a slow double-click with no selection and a single click that selects exactly once; keyboard activation remains immediate.
 - Delete now advances the generation fence and clears transient refresh/readiness/error state immediately, but retains the offline Tool catalog unless deletion succeeds. A failed-delete regression verifies the saved catalog remains browsable.
+- Split Input and Output Schema validation at the shared boundary: Input Schema still requires an object root with `type: "object"`, while Output Schema accepts any JSON Schema object root. Array outputs, boolean subschemas in `items`/`anyOf`/`not`, and an empty schema now survive adapter validation, snapshot persistence, and client decoding; a boolean Output Schema root remains invalid.

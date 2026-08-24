@@ -111,9 +111,8 @@ describe("ToolService", () => {
         futureKeyword: { nested: ["a", "b"] },
       },
       outputSchema: {
-        type: "object",
-        properties: { result: { type: "boolean" } },
-        required: ["result"],
+        type: "array",
+        items: false,
         futureOutputKeyword: true,
       },
       annotations: {
@@ -135,9 +134,16 @@ describe("ToolService", () => {
       _meta: { vendor: { keep: true } },
       futureTopLevel: { keep: [1, 2, 3] },
     };
+    const definitions = [
+      definition,
+      { name: "future/any-of", inputSchema: { type: "object" },
+        outputSchema: { anyOf: [false, { type: "string" }] } },
+      { name: "future/not", inputSchema: { type: "object" }, outputSchema: { not: false } },
+      { name: "future/empty", inputSchema: { type: "object" }, outputSchema: {} },
+    ];
     const highLevelListTools = vi.fn(async () => ({ tools: [] }));
     const request = vi.fn(async (_request: unknown, schema: StandardSchemaV1) => {
-      const validated = await schema["~standard"].validate({ tools: [definition] });
+      const validated = await schema["~standard"].validate({ tools: definitions });
       if (validated.issues !== undefined) throw new Error("schema rejected controlled Tool");
       return validated.value;
     });
@@ -163,8 +169,9 @@ describe("ToolService", () => {
       transport: "streamable-http", authMode: "none", timeoutMs: 100,
     });
     await adapterConnections.connect(adapterProject.id, adapterConnectionId);
+    let snapshotIndex = 519;
     const adapterTools = createToolService(projects, adapterConnections, {
-      createId: () => "00000000-0000-4000-8000-000000000519",
+      createId: () => `00000000-0000-4000-8000-${String(snapshotIndex++).padStart(12, "0")}`,
     });
 
     await adapterTools.refresh(adapterProject.id, adapterConnectionId);
@@ -173,6 +180,10 @@ describe("ToolService", () => {
     expect(request).toHaveBeenCalledOnce();
     expect(adapterTools.get(adapterProject.id, adapterConnectionId, definition.name)
       .tool.currentSnapshot.definition).toEqual(definition);
+    for (const expected of definitions.slice(1)) {
+      expect(adapterTools.get(adapterProject.id, adapterConnectionId, expected.name)
+        .tool.currentSnapshot.definition).toEqual(expected);
+    }
   });
 
   it("rejects a Tool whose inputSchema properties is not an object", async () => {

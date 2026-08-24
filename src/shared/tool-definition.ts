@@ -16,9 +16,20 @@ const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
 const jsonObjectSchema: z.ZodType<JsonObject> = z.lazy(() =>
   z.record(z.string(), jsonValueSchema));
 
-const jsonSchemaObject = z.object({
+const inputSchemaObject = z.object({
   $schema: z.string().optional(),
   type: z.literal("object"),
+  properties: z.record(z.string(), jsonValueSchema).optional(),
+  required: z.array(z.string()).optional(),
+}).catchall(jsonValueSchema);
+
+const jsonSchemaType = z.enum([
+  "null", "boolean", "object", "array", "number", "string", "integer",
+]);
+
+const outputSchemaObject = z.object({
+  $schema: z.string().optional(),
+  type: z.union([jsonSchemaType, z.array(jsonSchemaType).min(1)]).optional(),
   properties: z.record(z.string(), jsonValueSchema).optional(),
   required: z.array(z.string()).optional(),
 }).catchall(jsonValueSchema);
@@ -52,8 +63,8 @@ export const toolDefinitionSchema = z.object({
   name: z.string().refine((name) => name.trim().length > 0),
   title: z.string().optional(),
   description: z.string().optional(),
-  inputSchema: jsonSchemaObject,
-  outputSchema: jsonSchemaObject.optional(),
+  inputSchema: inputSchemaObject,
+  outputSchema: outputSchemaObject.optional(),
   annotations: toolAnnotationsSchema.optional(),
   execution: toolExecutionSchema.optional(),
   icons: z.array(iconSchema).optional(),

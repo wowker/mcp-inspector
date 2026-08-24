@@ -57,6 +57,23 @@ describe("Tool API response decoding", () => {
   });
 
   it.each([
+    ["array output", { type: "array", items: false }],
+    ["boolean anyOf branch", { anyOf: [false, { type: "string" }] }],
+    ["boolean negation", { not: false }],
+    ["empty schema", {}],
+  ])("accepts a Tool detail with the legal %s JSON Schema object", async (_label, outputSchema) => {
+    const legalDefinition = { ...definition, outputSchema };
+    const legalSnapshot = { ...snapshot, definition: legalDefinition };
+    const legalTool = { ...tool, currentSnapshot: legalSnapshot };
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      detail: { tool: legalTool, snapshots: [legalSnapshot] },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    await expect(createApiClient("session").getTool(projectId, connectionId, definition.name))
+      .resolves.toEqual({ tool: legalTool, snapshots: [legalSnapshot] });
+  });
+
+  it.each([
     ["foreign project", { ...tool, projectId: "00000000-0000-4000-8000-000000000599" }],
     ["foreign connection", { ...tool, connectionId: "00000000-0000-4000-8000-000000000599" }],
     ["bad hash", { ...tool, currentSnapshot: { ...snapshot, contentHash: "bad" } }],
@@ -89,7 +106,7 @@ describe("Tool API response decoding", () => {
       ...snapshot, definition: { ...definition, inputSchema: { type: "object", required: [1] } },
     } }],
     ["non-object output root", { ...tool, currentSnapshot: {
-      ...snapshot, definition: { ...definition, outputSchema: { type: "array" } },
+      ...snapshot, definition: { ...definition, outputSchema: false },
     } }],
     ["malformed output properties", { ...tool, currentSnapshot: {
       ...snapshot, definition: { ...definition, outputSchema: { type: "object", properties: [] } },
