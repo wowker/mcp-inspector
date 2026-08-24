@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -6,6 +6,7 @@ import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
 import { createProjectService } from "../project-service.js";
 import { resolveDefaultMigrationsUrl } from "../project-store.js";
+import { ProjectStore } from "../project-store.js";
 
 describe("ProjectService", () => {
   const dataRoots: string[] = [];
@@ -81,17 +82,21 @@ describe("ProjectService", () => {
       join(migrationsRoot, "002_broken.sql"),
       "CREATE TABLE should_rollback (id TEXT); THIS IS NOT SQL;",
     );
-    const service = createProjectService({
-      dataRoot,
+    const projectId = "00000000-0000-4000-8000-000000000101";
+    const databasePath = join(dataRoot, "projects", projectId, "project.sqlite");
+    expect(() => new ProjectStore({
+      databasePath,
+      project: {
+        id: projectId,
+        name: "Broken migration project",
+        createdAt: "2026-08-17T00:00:00.000Z",
+        updatedAt: "2026-08-17T00:00:00.000Z",
+        lastOpenedAt: null,
+      },
       migrationsUrl: pathToFileURL(`${migrationsRoot}/`),
-    });
+    })).toThrow();
 
-    expect(() => service.create("Broken migration project")).toThrow();
-    service.close();
-
-    const projectsRoot = join(dataRoot, "projects");
-    const [projectId] = readdirSync(projectsRoot);
-    const database = new Database(join(projectsRoot, projectId, "project.sqlite"));
+    const database = new Database(databasePath);
     try {
       expect(
         database.prepare("SELECT version FROM schema_migrations ORDER BY version").all(),
@@ -104,6 +109,102 @@ describe("ProjectService", () => {
     } finally {
       database.close();
     }
+  });
+
+  it("removes registry and canonical project artifacts when initialization fails", () => {
+    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-projects-"));
+    const migrationsRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-migrations-"));
+    dataRoots.push(dataRoot, migrationsRoot);
+    writeFileSync(join(migrationsRoot, "001_broken.sql"), "THIS IS NOT SQL;");
+    const projectId = "00000000-0000-4000-8000-000000000102";
+    const service = createProjectService({
+      dataRoot,
+      createId: () => projectId,
+      migrationsUrl: pathToFileURL(`${migrationsRoot}/`),
+    });
+
+    expect(() => service.create("Broken project")).toThrow();
+    expect(service.list()).toEqual([]);
+    expect(existsSync(join(dataRoot, "projects", projectId))).toBe(false);
+    service.close();
+  });
+
+  it("does not claim or delete a pre-existing canonical project directory", () => {
+    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-projects-"));
+    dataRoots.push(dataRoot);
+    const projectId = "00000000-0000-4000-8000-000000000104";
+    const projectDirectory = join(dataRoot, "projects", projectId);
+    const marker = join(projectDirectory, "existing.txt");
+    mkdirSync(projectDirectory, { recursive: true });
+    writeFileSync(marker, "keep me");
+    const service = createProjectService({ dataRoot, createId: () => projectId });
+
+    expect(() => service.create("Collision")).toThrow(/storage already exists/i);
+    expect(service.list()).toEqual([]);
+    expect(existsSync(marker)).toBe(true);
+    service.close();
+  });
+
+  it.each([
+    { label: "gap", applied: [1, 3] },
+    { label: "unknown", applied: [1, 99] },
+    { label: "later migration with earlier pending", applied: [2, 3] },
+  ])("rejects $label migration history before executing pending SQL", ({ applied }) => {
+    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-projects-"));
+    const migrationsRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-migrations-"));
+    dataRoots.push(dataRoot, migrationsRoot);
+    for (const version of [1, 2, 3]) {
+      writeFileSync(
+        join(migrationsRoot, `00${version}_migration.sql`),
+        `CREATE TABLE migration_${version} (id TEXT);`,
+      );
+    }
+    const databasePath = join(dataRoot, "projects", "00000000-0000-4000-8000-000000000103", "project.sqlite");
+    mkdirSync(join(dataRoot, "projects", "00000000-0000-4000-8000-000000000103"), { recursive: true });
+    const database = new Database(databasePath);
+    database.exec("CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)");
+    const insert = database.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)");
+    for (const version of applied) insert.run(version, "2026-08-17T00:00:00.000Z");
+    database.close();
+
+    expect(() => new ProjectStore({
+      databasePath,
+      project: {
+        id: "00000000-0000-4000-8000-000000000103",
+        name: "Invalid history",
+        createdAt: "2026-08-17T00:00:00.000Z",
+        updatedAt: "2026-08-17T00:00:00.000Z",
+        lastOpenedAt: null,
+      },
+      migrationsUrl: pathToFileURL(`${migrationsRoot}/`),
+    })).toThrow(/migration history is invalid/i);
+
+    const inspection = new Database(databasePath);
+    try {
+      for (const version of [1, 2, 3]) {
+        expect(inspection.prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+        ).get(`migration_${version}`)).toBeUndefined();
+      }
+    } finally {
+      inspection.close();
+    }
+  });
+
+  it("rejects a registry database path that is not canonical", () => {
+    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-projects-"));
+    dataRoots.push(dataRoot);
+    const service = createProjectService({ dataRoot });
+    const created = service.create("Supplier Tools");
+    const registry = new Database(join(dataRoot, "registry.sqlite"));
+    registry.prepare("UPDATE project_registry SET database_path = ? WHERE id = ?").run(
+      join(dataRoot, "outside.sqlite"),
+      created.id,
+    );
+    registry.close();
+
+    expect(() => service.open(created.id)).toThrow(/storage metadata is invalid/i);
+    service.close();
   });
 
   it("rejects duplicate migration versions before applying them", () => {

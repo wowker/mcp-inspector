@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import {
+  InvalidProjectStorageError,
   ProjectNotFoundError,
   projectNameSchema,
   type ProjectService,
@@ -17,6 +18,13 @@ const invalidProject = {
 
 const projectNotFound = {
   error: { code: "PROJECT_NOT_FOUND", message: "Project not found" },
+} as const;
+
+const invalidProjectStorage = {
+  error: {
+    code: "INVALID_PROJECT_STORAGE",
+    message: "Project storage metadata is invalid",
+  },
 } as const;
 
 export function createProjectRoutes(projects: ProjectService): Hono {
@@ -46,6 +54,9 @@ export function createProjectRoutes(projects: ProjectService): Hono {
     } catch (error) {
       if (error instanceof ProjectNotFoundError) {
         return context.json(projectNotFound, 404);
+      }
+      if (error instanceof InvalidProjectStorageError) {
+        return context.json(invalidProjectStorage, 409);
       }
       throw error;
     }

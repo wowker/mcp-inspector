@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import type { InspectorApiClient, ProjectSummary } from "../../api/api-client.js";
 
 interface ProjectPickerProps {
@@ -17,11 +17,13 @@ export function ProjectPicker({ api, onProjectOpened }: ProjectPickerProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let active = true;
-    void api.listProjects()
+  const loadProjects = useCallback((isActive: () => boolean = () => true) => {
+    setError(null);
+    setBusyProject(null);
+    setProjects(null);
+    return api.listProjects()
       .then(async (items) => {
-        if (!active) return;
+        if (!isActive()) return;
         const recent = items
           .filter((project) => project.lastOpenedAt !== null)
           .sort((left, right) => right.lastOpenedAt!.localeCompare(left.lastOpenedAt!))[0];
@@ -29,21 +31,26 @@ export function ProjectPicker({ api, onProjectOpened }: ProjectPickerProps) {
           setProjects(items);
           setBusyProject(recent);
           const opened = await api.openProject(recent.id);
-          if (active) onProjectOpened(opened);
+          if (isActive()) onProjectOpened(opened);
           return;
         }
         setProjects(items);
       })
       .catch((cause: unknown) => {
-        if (active) {
+        if (isActive()) {
           setBusyProject(null);
           setError(errorMessage(cause));
         }
       });
+  }, [api, onProjectOpened]);
+
+  useEffect(() => {
+    let active = true;
+    void loadProjects(() => active);
     return () => {
       active = false;
     };
-  }, [api, onProjectOpened]);
+  }, [loadProjects]);
 
   async function open(project: ProjectSummary): Promise<void> {
     setError(null);
@@ -64,6 +71,10 @@ export function ProjectPicker({ api, onProjectOpened }: ProjectPickerProps) {
     setSubmitting(true);
     try {
       const created = await api.createProject(normalizedName);
+      setProjects((current) => {
+        const items = current ?? [];
+        return items.some(({ id }) => id === created.id) ? items : [...items, created];
+      });
       setBusyProject(created);
       onProjectOpened(await api.openProject(created.id));
     } catch (cause) {
@@ -75,7 +86,12 @@ export function ProjectPicker({ api, onProjectOpened }: ProjectPickerProps) {
   }
 
   if (error !== null && projects === null && busyProject === null) {
-    return <p role="alert" className="project-error">{error}</p>;
+    return (
+      <div className="project-load-error">
+        <p role="alert" className="project-error">{error}</p>
+        <button type="button" onClick={() => void loadProjects()}>重试</button>
+      </div>
+    );
   }
 
   if (projects === null || busyProject !== null) {

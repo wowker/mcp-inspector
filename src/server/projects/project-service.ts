@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { existsSync, rmSync } from "node:fs";
+import { dirname, relative, resolve } from "node:path";
 import { z } from "zod";
 import { resolveProjectDatabasePath } from "./project-paths.js";
 import { ProjectRegistry, type ProjectSummary } from "./project-registry.js";
@@ -16,6 +18,13 @@ export class ProjectNotFoundError extends Error {
   }
 }
 
+export class InvalidProjectStorageError extends Error {
+  constructor() {
+    super("Project storage metadata is invalid");
+    this.name = "InvalidProjectStorageError";
+  }
+}
+
 export interface ProjectService {
   create(name: string): ProjectSummary;
   list(): ProjectSummary[];
@@ -29,7 +38,8 @@ export function createProjectService(options: {
   createId?: () => string;
   migrationsUrl?: URL;
 }): ProjectService {
-  const registry = new ProjectRegistry(options.dataRoot);
+  const dataRoot = resolve(options.dataRoot);
+  const registry = new ProjectRegistry(dataRoot);
   const stores = new Map<string, ProjectStore>();
   const now = options.now ?? (() => new Date());
   const createId = options.createId ?? randomUUID;
@@ -43,6 +53,20 @@ export function createProjectService(options: {
     const parsed = projectIdSchema.safeParse(projectId);
     if (!parsed.success) throw new ProjectNotFoundError();
     return parsed.data;
+  }
+
+  function canonicalDatabasePath(projectId: string): string {
+    return resolveProjectDatabasePath(dataRoot, projectId);
+  }
+
+  function removeCanonicalProjectArtifacts(projectId: string): void {
+    const projectsRoot = resolve(dataRoot, "projects");
+    const projectDirectory = dirname(canonicalDatabasePath(projectId));
+    const childPath = relative(projectsRoot, projectDirectory);
+    if (childPath !== projectId || childPath.startsWith("..")) {
+      throw new Error("Refusing to clean invalid project storage");
+    }
+    rmSync(projectDirectory, { recursive: true, force: true });
   }
 
   return {
@@ -61,7 +85,10 @@ export function createProjectService(options: {
         updatedAt: timestamp,
         lastOpenedAt: null,
       };
-      const databasePath = resolveProjectDatabasePath(options.dataRoot, id);
+      const databasePath = canonicalDatabasePath(id);
+      if (existsSync(dirname(databasePath))) {
+        throw new Error("Project storage already exists");
+      }
       registry.create(project, databasePath);
       try {
         stores.set(id, new ProjectStore({
@@ -71,6 +98,7 @@ export function createProjectService(options: {
         }));
       } catch (error) {
         registry.remove(id);
+        removeCanonicalProjectArtifacts(id);
         throw error;
       }
       return project;
@@ -86,6 +114,9 @@ export function createProjectService(options: {
       const id = validatedId(projectId);
       const record = registry.get(id);
       if (record === null) throw new ProjectNotFoundError();
+      if (record.databasePath !== canonicalDatabasePath(id)) {
+        throw new InvalidProjectStorageError();
+      }
       let store = stores.get(id);
       if (store === undefined) {
         store = new ProjectStore({

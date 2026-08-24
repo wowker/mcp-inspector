@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../../app.js";
 import { createProjectService, type ProjectService } from "../project-service.js";
@@ -89,5 +90,29 @@ describe("project routes", () => {
     expect(await missing.json()).toEqual({
       error: { code: "PROJECT_NOT_FOUND", message: "Project not found" },
     });
+  });
+
+  it("returns a stable error without leaking a tampered database path", async () => {
+    const created = projects.create("Supplier Tools");
+    const registry = new Database(join(dataRoot, "registry.sqlite"));
+    registry.prepare("UPDATE project_registry SET database_path = ? WHERE id = ?").run(
+      "/sensitive/outside.sqlite",
+      created.id,
+    );
+    registry.close();
+
+    const response = await app().request(`/api/projects/${created.id}/open`, {
+      method: "POST",
+      headers,
+    });
+    const rawResponse = response.clone();
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "INVALID_PROJECT_STORAGE",
+        message: "Project storage metadata is invalid",
+      },
+    });
+    expect(await rawResponse.text()).not.toContain("/sensitive/outside.sqlite");
   });
 });

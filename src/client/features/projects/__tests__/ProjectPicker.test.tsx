@@ -92,4 +92,40 @@ describe("ProjectPicker", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("project is locked");
     expect(screen.getByRole("button", { name: "打开 Supplier Tools" })).toBeEnabled();
   });
+
+  it("keeps a newly created project visible when opening fails and allows retry", async () => {
+    const created = project();
+    const openProject = vi.fn()
+      .mockRejectedValueOnce(new Error("project is locked"))
+      .mockResolvedValueOnce(created);
+    const client = api({
+      createProject: vi.fn().mockResolvedValue(created),
+      openProject,
+    });
+    const onProjectOpened = vi.fn();
+    const user = userEvent.setup();
+    render(<ProjectPicker api={client} onProjectOpened={onProjectOpened} />);
+
+    await screen.findByRole("heading", { name: "选择项目" });
+    await user.type(screen.getByLabelText("项目名称"), "Supplier Tools");
+    await user.click(screen.getByRole("button", { name: "创建并打开" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("project is locked");
+    await user.click(screen.getByRole("button", { name: "打开 Supplier Tools" }));
+    expect(openProject).toHaveBeenCalledTimes(2);
+    expect(onProjectOpened).toHaveBeenCalledWith(created);
+  });
+
+  it("can retry the initial project list after an error", async () => {
+    const listProjects = vi.fn()
+      .mockRejectedValueOnce(new Error("database unavailable"))
+      .mockResolvedValueOnce([]);
+    const user = userEvent.setup();
+    render(<ProjectPicker api={api({ listProjects })} onProjectOpened={vi.fn()} />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("database unavailable");
+    await user.click(screen.getByRole("button", { name: "重试" }));
+    expect(await screen.findByRole("heading", { name: "选择项目" })).toBeVisible();
+    expect(listProjects).toHaveBeenCalledTimes(2);
+  });
 });

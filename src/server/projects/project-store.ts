@@ -94,14 +94,21 @@ export class ProjectStore {
         applied_at TEXT NOT NULL
       )
     `);
-    const appliedVersions = new Set(
-      (this.database.prepare("SELECT version FROM schema_migrations").all() as Array<{ version: number }>).map(
-        ({ version }) => version,
-      ),
-    );
+    const appliedVersions = (
+      this.database.prepare(
+        "SELECT version FROM schema_migrations ORDER BY version",
+      ).all() as Array<{ version: number }>
+    ).map(({ version }) => version);
+    const migrations = discoverMigrations(migrationsUrl);
 
-    for (const migration of discoverMigrations(migrationsUrl)) {
-      if (appliedVersions.has(migration.version)) continue;
+    const isOrderedPrefix =
+      appliedVersions.length <= migrations.length &&
+      appliedVersions.every((version, index) => migrations[index]?.version === version);
+    if (!isOrderedPrefix) {
+      throw new Error("Project migration history is invalid");
+    }
+
+    for (const migration of migrations.slice(appliedVersions.length)) {
       this.database.transaction(() => {
         this.database.exec(migration.sql);
         this.database.prepare(
