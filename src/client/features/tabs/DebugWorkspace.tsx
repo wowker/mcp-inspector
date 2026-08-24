@@ -155,7 +155,7 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
       const opened = intent.newTab || current === undefined || current.pinned
         ? await api.openTab(projectId, intent.tool.connectionId, intent.tool.name)
         : await api.replaceTabTool(projectId, current.id, intent.tool.connectionId, intent.tool.name);
-      if (workspaceGeneration.current !== scope || handledIntent.current > intent.sequence) return;
+      if (workspaceGeneration.current !== scope) return;
       const next = current !== undefined && !intent.newTab && !current.pinned
         ? tabsRef.current.map((item) => item.id === current.id ? opened : item)
         : [...tabsRef.current, opened];
@@ -165,22 +165,31 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
   }, [api, flush, projectId, tabs, toolIntent]);
 
   async function select(id: string): Promise<void> { if (!(await flush(activeRef.current ?? undefined))) return; activate(id); setView("debug"); }
+  function actionError(error: unknown): void { setMessage(error instanceof Error ? error.message : "Tab 操作失败"); }
   async function close(id: string): Promise<void> {
-    if (tabsRef.current.find((tab) => tab.id === id)?.pinned === true) return;
-    if (!(await flush(id))) return; await api.closeTab(projectId, id); const previous = tabsRef.current; const closedIndex = previous.findIndex((tab) => tab.id === id);
-    const next = previous.filter((tab) => tab.id !== id); assign(next);
-    if (activeRef.current === id) activate(next[Math.max(0, closedIndex - 1)]?.id ?? null);
+    try {
+      if (tabsRef.current.find((tab) => tab.id === id)?.pinned === true) return;
+      if (!(await flush(id))) return; await api.closeTab(projectId, id); const previous = tabsRef.current; const closedIndex = previous.findIndex((tab) => tab.id === id);
+      const next = previous.filter((tab) => tab.id !== id); assign(next);
+      if (activeRef.current === id) activate(next[Math.max(0, closedIndex - 1)]?.id ?? null);
+    } catch (error) { actionError(error); }
   }
-  async function duplicate(id: string): Promise<void> { if (!(await flush(id))) return; const copy = await api.duplicateTab(projectId, id); assign([...tabsRef.current, copy]); activate(copy.id); }
+  async function duplicate(id: string): Promise<void> { try {
+    if (!(await flush(id))) return; const copy = await api.duplicateTab(projectId, id); assign([...tabsRef.current, copy]); activate(copy.id);
+  } catch (error) { actionError(error); } }
   async function bulk(id: string, side: "others" | "right"): Promise<void> {
-    if (!(await flush())) return; const next = side === "others" ? await api.closeOtherTabs(projectId, id) : await api.closeTabsRight(projectId, id);
-    assign(next); if (!next.some((tab) => tab.id === activeRef.current)) activate(next.find((tab) => tab.id === id)?.id ?? next[0]?.id ?? null);
+    try {
+      if (!(await flush())) return; const next = side === "others" ? await api.closeOtherTabs(projectId, id) : await api.closeTabsRight(projectId, id);
+      assign(next); if (!next.some((tab) => tab.id === activeRef.current)) activate(next.find((tab) => tab.id === id)?.id ?? next[0]?.id ?? null);
+    } catch (error) { actionError(error); }
   }
   async function move(id: string, offset: -1 | 1): Promise<void> {
-    if (!(await flush())) return; const ordered = [...tabsRef.current]; const index = ordered.findIndex((tab) => tab.id === id);
-    const target = index + offset; if (index < 0 || target < 0 || target >= ordered.length) return;
-    [ordered[index], ordered[target]] = [ordered[target], ordered[index]];
-    assign(await api.reorderTabs(projectId, ordered.map((tab) => tab.id)));
+    try {
+      if (!(await flush())) return; const ordered = [...tabsRef.current]; const index = ordered.findIndex((tab) => tab.id === id);
+      const target = index + offset; if (index < 0 || target < 0 || target >= ordered.length) return;
+      [ordered[index], ordered[target]] = [ordered[target], ordered[index]];
+      assign(await api.reorderTabs(projectId, ordered.map((tab) => tab.id)));
+    } catch (error) { actionError(error); }
   }
   async function execute(): Promise<void> {
     if (active === null || !(await flush(active.id))) return;

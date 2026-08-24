@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type MouseEvent } from "react";
 import type { DebugTabSummary } from "../../api/api-client.js";
 
 interface Props {
@@ -20,6 +20,10 @@ export function TabStrip({ tabs, activeId, onSelect, onClose, onDuplicate, onPin
     }
     previousActive.current = activeId;
   }, [activeId]);
+  function finishMenuAction(event: MouseEvent<HTMLButtonElement>, action: () => void): void {
+    const details = event.currentTarget.closest("details"); action();
+    details?.removeAttribute("open"); details?.querySelector("summary")?.focus();
+  }
   return <div ref={strip} className="debug-tabs" role="tablist" aria-label="Tool 调试 Tabs" onKeyDown={(event) => {
     if (!(event.target instanceof HTMLElement) || event.target.getAttribute("role") !== "tab") return;
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
@@ -34,13 +38,17 @@ export function TabStrip({ tabs, activeId, onSelect, onClose, onDuplicate, onPin
         onClick={() => onSelect(tab.id)}>{tab.pinned ? "固定 " : ""}{tab.title}
         {dirtyIds.has(tab.id) && <span aria-label="未保存"> *</span>}
         {runningIds.has(tab.id) && <span aria-label="运行中"> ⟳</span>}</button>
-      <details className="tab-menu"><summary aria-label={`${tab.title} 操作`}>⋯</summary><div>
-        <button type="button" onClick={() => onDuplicate(tab.id)}>复制 Tab</button>
-        <button type="button" onClick={() => onPin(tab.id, !tab.pinned)}>{tab.pinned ? "取消固定" : "固定"}</button>
-        <button type="button" disabled={tab.position === 0} onClick={() => onMove(tab.id, -1)}>左移</button>
-        <button type="button" disabled={tab.position === tabs.length - 1} onClick={() => onMove(tab.id, 1)}>右移</button>
-        <button type="button" onClick={() => onCloseOthers(tab.id)}>关闭其他</button>
-        <button type="button" onClick={() => onCloseRight(tab.id)}>关闭右侧</button>
+      <details className="tab-menu"><summary aria-label={`${tab.title} 操作`} onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault(); const details = event.currentTarget.parentElement;
+        if (details instanceof HTMLDetailsElement) details.open = !details.open;
+      }}>⋯</summary><div aria-label={`${tab.title} Tab 操作菜单`}>
+        <button type="button" onClick={(event) => finishMenuAction(event, () => onDuplicate(tab.id))}>复制 Tab</button>
+        <button type="button" onClick={(event) => finishMenuAction(event, () => onPin(tab.id, !tab.pinned))}>{tab.pinned ? "取消固定" : "固定"}</button>
+        <button type="button" disabled={tab.position === 0} onClick={(event) => finishMenuAction(event, () => onMove(tab.id, -1))}>左移</button>
+        <button type="button" disabled={tab.position === tabs.length - 1} onClick={(event) => finishMenuAction(event, () => onMove(tab.id, 1))}>右移</button>
+        <button type="button" onClick={(event) => finishMenuAction(event, () => onCloseOthers(tab.id))}>关闭其他</button>
+        <button type="button" onClick={(event) => finishMenuAction(event, () => onCloseRight(tab.id))}>关闭右侧</button>
       </div></details>
       <button type="button" aria-label={`关闭 ${tab.title}`} disabled={tab.pinned} onClick={() => onClose(tab.id)}>×</button>
     </div>)}

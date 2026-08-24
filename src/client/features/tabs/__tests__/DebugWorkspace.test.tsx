@@ -310,6 +310,79 @@ describe("DebugWorkspace", () => {
     expect(screen.queryByRole("tab", { name: "old" })).not.toBeInTheDocument();
   });
 
+  it("applies a successful new-Tab response before the next single-Tab intent and converges after reload", async () => {
+    const openingA = deferred<DebugTabSummary>();
+    const original = tab("00000000-0000-4000-8000-000000000646", "sum", {});
+    const openedA = { ...tab("00000000-0000-4000-8000-000000000647", "alpha", {}), toolName: "alpha", position: 1 };
+    const replacedB = { ...openedA, title: "beta", toolName: "beta" };
+    let persisted = [original]; const events: string[] = [];
+    const openTab = vi.fn((_project: string, _connection: string, name: string) => {
+      events.push(`open:${name}`); return openingA.promise;
+    });
+    const replaceTabTool = vi.fn(async (_project: string, id: string, _connection: string, name: string) => {
+      events.push(`replace:${name}`); persisted = persisted.map((item) => item.id === id ? replacedB : item); return replacedB;
+    });
+    const api = { listTabs: vi.fn(async () => persisted), getTool: vi.fn(async () => tool), updateTab: vi.fn(),
+      openTab, replaceTabTool } as unknown as InspectorApiClient;
+    const alpha = { ...tool.tool, name: "alpha" }; const beta = { ...tool.tool, name: "beta" };
+    const view = render(<DebugWorkspace api={api} projectId={projectId} />); await screen.findByRole("tab", { name: "sum" });
+    view.rerender(<DebugWorkspace api={api} projectId={projectId} toolIntent={{ sequence: 1, tool: alpha, newTab: true }} />);
+    await waitFor(() => expect(openTab).toHaveBeenCalledTimes(1));
+    view.rerender(<DebugWorkspace api={api} projectId={projectId} toolIntent={{ sequence: 2, tool: beta, newTab: false }} />);
+    await act(async () => { persisted = [original, openedA]; openingA.resolve(openedA); await Promise.resolve(); await Promise.resolve(); });
+    await waitFor(() => expect(replaceTabTool).toHaveBeenCalledTimes(1));
+    expect(events).toEqual(["open:alpha", "replace:beta"]);
+    expect(await screen.findByRole("tab", { name: "beta" })).toHaveAttribute("aria-selected", "true");
+    view.unmount(); render(<DebugWorkspace api={api} projectId={projectId} />);
+    expect(await screen.findByRole("tab", { name: "beta" })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "sum" })).toBeVisible();
+  });
+
+  it("persists and displays both queued new-Tab intent responses in request order", async () => {
+    const openingA = deferred<DebugTabSummary>(); const openingB = deferred<DebugTabSummary>();
+    const original = tab("00000000-0000-4000-8000-000000000648", "sum", {});
+    const openedA = { ...tab("00000000-0000-4000-8000-000000000649", "alpha", {}), toolName: "alpha", position: 1 };
+    const openedB = { ...tab("00000000-0000-4000-8000-000000000650", "beta", {}), toolName: "beta", position: 2 };
+    let persisted = [original]; const events: string[] = [];
+    const openTab = vi.fn((_project: string, _connection: string, name: string) => {
+      events.push(`open:${name}`); return name === "alpha" ? openingA.promise : openingB.promise;
+    });
+    const api = { listTabs: vi.fn(async () => persisted), getTool: vi.fn(async () => tool), updateTab: vi.fn(), openTab } as unknown as InspectorApiClient;
+    const alpha = { ...tool.tool, name: "alpha" }; const beta = { ...tool.tool, name: "beta" };
+    const view = render(<DebugWorkspace api={api} projectId={projectId} />); await screen.findByRole("tab", { name: "sum" });
+    view.rerender(<DebugWorkspace api={api} projectId={projectId} toolIntent={{ sequence: 1, tool: alpha, newTab: true }} />);
+    await waitFor(() => expect(openTab).toHaveBeenCalledTimes(1));
+    view.rerender(<DebugWorkspace api={api} projectId={projectId} toolIntent={{ sequence: 2, tool: beta, newTab: true }} />);
+    expect(openTab).toHaveBeenCalledTimes(1);
+    await act(async () => { persisted = [original, openedA]; openingA.resolve(openedA); await Promise.resolve(); await Promise.resolve(); });
+    await waitFor(() => expect(openTab).toHaveBeenCalledTimes(2));
+    await act(async () => { persisted = [original, openedA, openedB]; openingB.resolve(openedB); await Promise.resolve(); await Promise.resolve(); });
+    expect(events).toEqual(["open:alpha", "open:beta"]);
+    expect(await screen.findByRole("tab", { name: "alpha" })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "beta" })).toHaveAttribute("aria-selected", "true");
+    view.unmount(); render(<DebugWorkspace api={api} projectId={projectId} />);
+    expect(await screen.findByRole("tab", { name: "alpha" })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "beta" })).toBeVisible();
+  });
+
+  it.each([
+    ["close", "closeTab", () => fireEvent.click(screen.getByRole("button", { name: "关闭 sum" }))],
+    ["duplicate", "duplicateTab", () => fireEvent.click(screen.getAllByRole("button", { name: "复制 Tab" })[0]!)],
+    ["close others", "closeOtherTabs", () => fireEvent.click(screen.getAllByRole("button", { name: "关闭其他" })[0]!)],
+    ["close right", "closeTabsRight", () => fireEvent.click(screen.getAllByRole("button", { name: "关闭右侧" })[0]!)],
+    ["reorder", "reorderTabs", () => fireEvent.click(screen.getAllByRole("button", { name: "右移" })[0]!)],
+  ])("keeps the original UI and reports a rejected %s action", async (_label, method, trigger) => {
+    const tabs = [tab("00000000-0000-4000-8000-000000000651", "sum", {}),
+      { ...tab("00000000-0000-4000-8000-000000000652", "sum (2)", {}), position: 1 }];
+    const rejected = vi.fn(async () => { throw new Error(`${method} failed`); });
+    const api = { listTabs: vi.fn(async () => tabs), getTool: vi.fn(async () => tool), updateTab: vi.fn(), closeTab: vi.fn(),
+      duplicateTab: vi.fn(), closeOtherTabs: vi.fn(), closeTabsRight: vi.fn(), reorderTabs: vi.fn(), [method]: rejected } as unknown as InspectorApiClient;
+    render(<DebugWorkspace api={api} projectId={projectId} />); await screen.findByRole("tab", { name: "sum" }); trigger();
+    expect(await screen.findByRole("alert")).toHaveTextContent(`${method} failed`);
+    expect(screen.getByRole("tab", { name: "sum" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: /sum \(2\)/ })).toBeVisible();
+  });
+
   it.each(["[]", "null", '"text"'])("rejects non-object whole-arguments fallback value %s", (invalid) => {
     const onChange = vi.fn(); render(<ParameterEditor tab={tab("00000000-0000-4000-8000-000000000642", "sum", {})}
       schema={{ oneOf: [{ type: "object" }, { type: "null" }] }} onChange={onChange} />);
@@ -334,12 +407,18 @@ describe("DebugWorkspace", () => {
       { ...tab("00000000-0000-4000-8000-000000000645", "sum (2)", {}), position: 1 }];
     render(<TabStrip tabs={tabs} activeId={tabs[0].id} {...callbacks} />); const user = userEvent.setup();
     const actions: Array<[string, ReturnType<typeof vi.fn>]> = [
-      ["关闭 sum", callbacks.onClose], ["复制 Tab", callbacks.onDuplicate], ["固定", callbacks.onPin],
+      ["复制 Tab", callbacks.onDuplicate], ["固定", callbacks.onPin],
       ["右移", callbacks.onMove], ["关闭其他", callbacks.onCloseOthers], ["关闭右侧", callbacks.onCloseRight],
     ];
-    for (const [name, callback] of actions) {
-      const button = screen.getAllByRole("button", { name })[0]!; button.focus(); await user.keyboard("{Enter}");
+    const summary = screen.getByLabelText("sum 操作");
+    for (const [index, [name, callback]] of actions.entries()) {
+      summary.focus(); await user.keyboard(index % 2 === 0 ? "{Enter}" : " ");
+      expect(summary.closest("details")).toHaveAttribute("open");
+      const button = screen.getAllByRole("button", { name })[0]!;
+      for (let step = 0; document.activeElement !== button && step < 8; step += 1) await user.tab();
+      expect(button).toHaveFocus(); await user.keyboard("{Enter}");
       expect(callback).toHaveBeenCalled();
+      expect(summary.closest("details")).not.toHaveAttribute("open"); expect(summary).toHaveFocus();
     }
   });
 });
