@@ -97,6 +97,38 @@ export class ConnectionRepository {
     return rows.map(toRecord);
   }
 
+  get(projectId: string, connectionId: string): ConnectionRecord | null {
+    const row = this.store.database.prepare(`
+      SELECT ${columns} FROM connections WHERE id = ? AND project_id = ?
+    `).get(connectionId, projectId) as ConnectionRow | undefined;
+    return row === undefined ? null : toRecord(row);
+  }
+
+  recordSuccess(
+    projectId: string,
+    connectionId: string,
+    protocolVersion: string,
+    serverInfo: Record<string, unknown> | null,
+  ): void {
+    const result = this.store.database.prepare(`
+      UPDATE connections
+      SET last_protocol_version = ?, last_server_info_json = ?, last_error_json = NULL
+      WHERE id = ? AND project_id = ?
+    `).run(
+      protocolVersion,
+      serverInfo === null ? null : JSON.stringify(serverInfo),
+      connectionId,
+      projectId,
+    );
+    if (result.changes !== 1) throw new Error("Connection disappeared during initialization");
+  }
+
+  recordFailure(projectId: string, connectionId: string, error: ConnectionError): void {
+    this.store.database.prepare(`
+      UPDATE connections SET last_error_json = ? WHERE id = ? AND project_id = ?
+    `).run(JSON.stringify(error), connectionId, projectId);
+  }
+
   delete(projectId: string, connectionId: string): boolean {
     const result = this.store.database.prepare(
       "DELETE FROM connections WHERE id = ? AND project_id = ?",

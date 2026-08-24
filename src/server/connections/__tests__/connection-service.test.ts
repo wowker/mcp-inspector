@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createProjectService, type ProjectService } from "../../projects/project-service.js";
 import { createConnectionService } from "../connection-service.js";
+import { FakeMcpSession } from "../../../../test-support/fake-mcp-session.js";
 
 describe("ConnectionService", () => {
   const dataRoots: string[] = [];
@@ -162,5 +163,43 @@ describe("ConnectionService", () => {
       lastServerInfo: null,
       lastError: null,
     }));
+  });
+
+  it("persists negotiated metadata, clears errors, and keeps runtime project-scoped", async () => {
+    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-connections-"));
+    dataRoots.push(dataRoot);
+    projects = createProjectService({ dataRoot });
+    const first = projects.create("First");
+    const second = projects.create("Second");
+    const sharedId = "00000000-0000-4000-8000-000000000206";
+    const sessions: FakeMcpSession[] = [];
+    const service = createConnectionService(projects, {
+      createId: () => sharedId,
+      sessionFactory: async () => {
+        const session = new FakeMcpSession();
+        sessions.push(session);
+        return session;
+      },
+    });
+    const input = {
+      name: "MCP",
+      url: "http://127.0.0.1:1/mcp",
+      transport: "streamable-http" as const,
+      authMode: "none" as const,
+      timeoutMs: 100,
+    };
+    service.create(first.id, input);
+    service.create(second.id, input);
+
+    await service.connect(first.id, sharedId);
+    expect(service.list(first.id)[0]).toEqual(expect.objectContaining({
+      status: "connected",
+      lastProtocolVersion: "2025-06-18",
+      lastServerInfo: { name: "fake", version: "1.0.0" },
+      lastError: null,
+    }));
+    expect(service.list(second.id)[0]?.status).toBe("disconnected");
+    await service.disconnect(first.id, sharedId);
+    expect(sessions[0]?.closeCount).toBe(1);
   });
 });

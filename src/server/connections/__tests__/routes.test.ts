@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../../app.js";
 import { createProjectService, type ProjectService } from "../../projects/project-service.js";
 import { createConnectionService } from "../connection-service.js";
+import { FakeMcpSession } from "../../../../test-support/fake-mcp-session.js";
 
 describe("connection routes", () => {
   let dataRoot: string;
@@ -177,5 +178,87 @@ describe("connection routes", () => {
         message: "Project storage metadata is invalid",
       },
     });
+  });
+
+  it("connects and disconnects only through authenticated project-scoped actions", async () => {
+    const project = projects.create("Supplier Tools");
+    const other = projects.create("Other");
+    const connectionId = "00000000-0000-4000-8000-000000000301";
+    const session = new FakeMcpSession();
+    const connections = createConnectionService(projects, {
+      createId: () => connectionId,
+      sessionFactory: async () => session,
+    });
+    connections.create(project.id, {
+      name: "Catalog MCP",
+      url: "http://127.0.0.1:1/mcp",
+      transport: "streamable-http",
+      authMode: "none",
+      timeoutMs: 100,
+    });
+    const runtimeApp = createApp({
+      sessionToken: "test-session",
+      allowedOrigin: "http://127.0.0.1:5173",
+      version: "0.1.0",
+      projects,
+      connections,
+    });
+
+    expect((await runtimeApp.request(
+      `/api/projects/${project.id}/connections/${connectionId}/connect`,
+      { method: "POST" },
+    )).status).toBe(401);
+    expect((await runtimeApp.request(
+      `/api/projects/${other.id}/connections/${connectionId}/connect`,
+      { method: "POST", headers },
+    )).status).toBe(404);
+    const connected = await runtimeApp.request(
+      `/api/projects/${project.id}/connections/${connectionId}/connect`,
+      { method: "POST", headers },
+    );
+    expect(connected.status).toBe(200);
+    expect(await connected.json()).toEqual({ connection: expect.objectContaining({ status: "connected" }) });
+    const disconnected = await runtimeApp.request(
+      `/api/projects/${project.id}/connections/${connectionId}/disconnect`,
+      { method: "POST", headers },
+    );
+    expect(disconnected.status).toBe(200);
+    expect(session.closeCount).toBe(1);
+  });
+
+  it("normalizes connection failures without returning remote details", async () => {
+    const project = projects.create("Supplier Tools");
+    const connectionId = "00000000-0000-4000-8000-000000000301";
+    const connections = createConnectionService(projects, {
+      createId: () => connectionId,
+      sessionFactory: async () => { throw new Error("Bearer remote-secret stack"); },
+    });
+    connections.create(project.id, {
+      name: "Catalog MCP",
+      url: "http://127.0.0.1:1/mcp",
+      transport: "streamable-http",
+      authMode: "none",
+      timeoutMs: 100,
+    });
+    const runtimeApp = createApp({
+      sessionToken: "test-session",
+      allowedOrigin: "http://127.0.0.1:5173",
+      version: "0.1.0",
+      projects,
+      connections,
+    });
+
+    const response = await runtimeApp.request(
+      `/api/projects/${project.id}/connections/${connectionId}/connect`,
+      { method: "POST", headers },
+    );
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({
+      error: { code: "MCP_CONNECT_FAILED", message: "Unable to connect to MCP server" },
+    });
+    expect(connections.list(project.id)[0]).toEqual(expect.objectContaining({
+      status: "failed",
+      lastError: { code: "MCP_CONNECT_FAILED", message: "Unable to connect to MCP server" },
+    }));
   });
 });

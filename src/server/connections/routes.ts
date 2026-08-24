@@ -9,6 +9,7 @@ import {
   InvalidProjectStorageError,
   ProjectNotFoundError,
 } from "../projects/project-service.js";
+import { McpConnectError } from "./connection-runtime.js";
 
 const createConnectionBodySchema = z.object({
   name: z.string(),
@@ -33,6 +34,12 @@ const errors = {
       code: "INVALID_PROJECT_STORAGE",
       message: "Project storage metadata is invalid",
     },
+  },
+  connectFailed: {
+    error: { code: "MCP_CONNECT_FAILED", message: "Unable to connect to MCP server" },
+  },
+  disconnectFailed: {
+    error: { code: "MCP_DISCONNECT_FAILED", message: "Unable to disconnect MCP server" },
   },
 } as const;
 
@@ -90,6 +97,40 @@ export function createConnectionRoutes(connections: ConnectionService): Hono {
         return context.json(errors.connectionNotFound, 404);
       }
       return projectError(context, error);
+    }
+  });
+
+  routes.post("/:projectId/connections/:connectionId/connect", async (context) => {
+    try {
+      return context.json({ connection: await connections.connect(
+        context.req.param("projectId"),
+        context.req.param("connectionId"),
+      ) });
+    } catch (error) {
+      if (error instanceof ConnectionNotFoundError) {
+        return context.json(errors.connectionNotFound, 404);
+      }
+      if (error instanceof McpConnectError) {
+        return context.json(errors.connectFailed, 502);
+      }
+      return projectError(context, error);
+    }
+  });
+
+  routes.post("/:projectId/connections/:connectionId/disconnect", async (context) => {
+    try {
+      return context.json({ connection: await connections.disconnect(
+        context.req.param("projectId"),
+        context.req.param("connectionId"),
+      ) });
+    } catch (error) {
+      if (error instanceof ConnectionNotFoundError) {
+        return context.json(errors.connectionNotFound, 404);
+      }
+      if (error instanceof InvalidProjectStorageError || error instanceof ProjectNotFoundError) {
+        return projectError(context, error);
+      }
+      return context.json(errors.disconnectFailed, 502);
     }
   });
 

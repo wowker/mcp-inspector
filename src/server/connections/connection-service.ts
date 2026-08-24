@@ -6,6 +6,12 @@ import {
 } from "../projects/project-service.js";
 import { ConnectionRepository } from "./connection-repository.js";
 import type { ConnectionRecord, CreateConnectionInput } from "./connection-types.js";
+import {
+  createConnectionRuntime,
+  type ConnectionRuntime,
+  type McpSessionFactory,
+} from "./connection-runtime.js";
+import { createStreamableMcpSessionFactory } from "./streamable-session.js";
 
 const connectionIdSchema = z.string().uuid();
 const createConnectionSchema = z.object({
@@ -50,14 +56,20 @@ export interface ConnectionService {
   create(projectId: string, input: CreateConnectionInput): ConnectionRecord;
   list(projectId: string): ConnectionRecord[];
   delete(projectId: string, connectionId: string): void;
+  connect(projectId: string, connectionId: string): Promise<ConnectionRecord>;
+  disconnect(projectId: string, connectionId: string): Promise<ConnectionRecord>;
+  runtime(projectId: string): ConnectionRuntime;
 }
 
 export function createConnectionService(projects: ProjectService, options: {
   createId?: () => string;
   now?: () => Date;
+  sessionFactory?: McpSessionFactory;
 } = {}): ConnectionService {
   const createId = options.createId ?? randomUUID;
   const now = options.now ?? (() => new Date());
+  const sessionFactory = options.sessionFactory ?? createStreamableMcpSessionFactory();
+  const runtimes = new Map<string, ConnectionRuntime>();
 
   function repository(projectId: string): ConnectionRepository {
     const store = projects.open(projectId);
@@ -65,6 +77,36 @@ export function createConnectionService(projects: ProjectService, options: {
       throw new InvalidProjectStorageError();
     }
     return new ConnectionRepository(store);
+  }
+
+  function find(projectId: string, connectionId: string): ConnectionRecord {
+    if (!connectionIdSchema.safeParse(connectionId).success) throw new ConnectionNotFoundError();
+    const connection = repository(projectId).get(projectId, connectionId);
+    if (connection === null) throw new ConnectionNotFoundError();
+    return connection;
+  }
+
+  function runtime(projectId: string): ConnectionRuntime {
+    repository(projectId);
+    let existing = runtimes.get(projectId);
+    if (existing !== undefined) return existing;
+    existing = createConnectionRuntime({
+      resolveConnection: (connectionId) => find(projectId, connectionId),
+      factory: sessionFactory,
+      persistSuccess: (connectionId, metadata) => repository(projectId).recordSuccess(
+        projectId,
+        connectionId,
+        metadata.protocolVersion,
+        metadata.serverInfo,
+      ),
+      persistFailure: (connectionId, error) => repository(projectId).recordFailure(
+        projectId,
+        connectionId,
+        error,
+      ),
+    });
+    runtimes.set(projectId, existing);
+    return existing;
   }
 
   return {
@@ -87,7 +129,11 @@ export function createConnectionService(projects: ProjectService, options: {
     },
 
     list(projectId) {
-      return repository(projectId).list(projectId);
+      const projectRuntime = runtimes.get(projectId);
+      return repository(projectId).list(projectId).map((connection) => ({
+        ...connection,
+        status: projectRuntime?.status(connection.id) ?? "disconnected",
+      }));
     },
 
     delete(projectId, connectionId) {
@@ -98,5 +144,18 @@ export function createConnectionService(projects: ProjectService, options: {
         throw new ConnectionNotFoundError();
       }
     },
+
+    async connect(projectId, connectionId) {
+      await runtime(projectId).connect(connectionId);
+      return { ...find(projectId, connectionId), status: "connected" };
+    },
+
+    async disconnect(projectId, connectionId) {
+      find(projectId, connectionId);
+      await runtime(projectId).disconnect(connectionId);
+      return { ...find(projectId, connectionId), status: "disconnected" };
+    },
+
+    runtime,
   };
 }
