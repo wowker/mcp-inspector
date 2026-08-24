@@ -3,7 +3,7 @@ import type { CatalogToolSummary, DebugTabSummary, InspectorApiClient, RunDetail
 import { parseRawArguments } from "../../../shared/json.js";
 import { RunHistory } from "../runs/RunHistory.js";
 import { RunResultPanel } from "../runs/RunResultPanel.js";
-import { useRunEvents } from "../runs/use-run-events.js";
+import { useRunEvents, useRunPolling } from "../runs/use-run-events.js";
 import { ParameterEditor } from "./ParameterEditor.js";
 import { TabStrip } from "./TabStrip.js";
 
@@ -22,11 +22,13 @@ interface SubtreeDraft { text: string; base: string }
 interface ActiveObservation { run: RunDetail | null; error: string | null }
 const terminalRunStatuses = new Set(["succeeded", "failed", "cancelled", "interrupted"]);
 
-function ActiveRunObserver({ api, projectId, tabId, runId, onUpdate }: {
-  api: InspectorApiClient; projectId: string; tabId: string; runId: string;
+function ActiveRunObserver({ api, projectId, tabId, runId, selected, onUpdate }: {
+  api: InspectorApiClient; projectId: string; tabId: string; runId: string; selected: boolean;
   onUpdate: (tabId: string, runId: string, observation: ActiveObservation) => void;
 }) {
-  const observation = useRunEvents(api, projectId, runId);
+  const streamed = useRunEvents(api, projectId, selected ? runId : null);
+  const polled = useRunPolling(api, projectId, selected ? null : runId);
+  const observation = selected ? streamed : polled;
   useEffect(() => { onUpdate(tabId, runId, { run: observation.run, error: observation.error }); },
     [observation.error, observation.run, onUpdate, runId, tabId]);
   return null;
@@ -316,7 +318,8 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
   if (tabs === null) return <p role="status">正在恢复调试 Tabs…</p>;
   return <section className="debug-workspace" aria-label="Tool 调试工作台">
     {[...startingIds].map((tabId) => { const runId = activeRuns.current.get(tabId); return runId === undefined ? null
-      : <ActiveRunObserver key={`${tabId}:${runId}`} api={api} projectId={projectId} tabId={tabId} runId={runId} onUpdate={handleActiveObservation} />; })}
+      : <ActiveRunObserver key={`${tabId}:${runId}`} api={api} projectId={projectId} tabId={tabId} runId={runId}
+          selected={tabId === activeId} onUpdate={handleActiveObservation} />; })}
     {message !== null && <p role="alert">{message}</p>}
     <div className="workspace-global-nav"><button type="button" aria-current={view === "global-history" ? "page" : undefined}
       onClick={() => { setActiveReadOnlyId(null); setView("global-history"); }}>运行历史</button></div>

@@ -41,6 +41,41 @@ export async function consumeRunEventStream(response: Response, runId: string, s
 }
 
 export interface RunEventState { run: RunDetail | null; error: string | null; observing: boolean }
+
+export function useRunPolling(api: InspectorApiClient, projectId: string, runId: string | null): RunEventState {
+  const [state, setState] = useState<RunEventState>({ run: null, error: null, observing: false });
+  useEffect(() => {
+    const controller = new AbortController(); let current = true;
+    setState({ run: null, error: null, observing: runId !== null });
+    if (runId === null) return () => controller.abort();
+    void (async () => {
+      let attempt = 0;
+      while (current && !controller.signal.aborted) {
+        try {
+          const run = await api.getRun(projectId, runId);
+          if (!current || controller.signal.aborted) return;
+          const observing = !terminal.has(run.status);
+          setState({ run, error: null, observing });
+          if (!observing) return;
+          attempt = 0;
+          await wait(delays[0]!, controller.signal);
+        } catch (cause) {
+          if (!current || controller.signal.aborted) return;
+          setState((previous) => ({ ...previous,
+            error: cause instanceof Error ? cause.message : "加载运行失败", observing: true }));
+          await wait(delays[Math.min(attempt, delays.length - 1)]!, controller.signal);
+          attempt += 1;
+        }
+      }
+    })().catch((cause: unknown) => {
+      if (current && !controller.signal.aborted) setState({ run: null,
+        error: cause instanceof Error ? cause.message : "加载运行失败", observing: false });
+    });
+    return () => { current = false; controller.abort(); };
+  }, [api, projectId, runId]);
+  return state;
+}
+
 export function useRunEvents(api: InspectorApiClient, projectId: string, runId: string | null): RunEventState {
   const [state, setState] = useState<RunEventState>({ run: null, error: null, observing: false });
   useEffect(() => {

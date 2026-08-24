@@ -1,16 +1,19 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
-import { startInspector, type InspectorRuntime } from "../src/server/main.js";
+import { startInspector } from "../dist/server/main.js";
 import { startStreamableMcpServer } from "../test-support/streamable-mcp-server.js";
+
+interface InspectorRuntime { address: { origin: string }; close(): Promise<void> }
 
 test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state", async ({ page, request }) => {
   const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-e2e-"));
-  const mcp = await startStreamableMcpServer();
+  let mcp: Awaited<ReturnType<typeof startStreamableMcpServer>> | undefined;
   let browserUrl = "";
   let inspector: InspectorRuntime | undefined;
   try {
+    mcp = await startStreamableMcpServer({ controlCalls: true });
     inspector = await startInspector({
       host: "127.0.0.1",
       port: 0,
@@ -21,6 +24,12 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     const bootstrap = new URL(browserUrl);
     const token = bootstrap.searchParams.get("session")!;
     const apiHeaders = { Origin: inspector.address.origin, "X-DSers-Inspector-Session": token };
+    expect((await request.get(`${inspector.address.origin}/api/health`, { headers: {
+      Origin: inspector.address.origin, "X-DSers-Inspector-Session": "invalid-session",
+    } })).status()).toBe(401);
+    expect((await request.get(`${inspector.address.origin}/api/health`, { headers: {
+      Origin: "https://attacker.example", "X-DSers-Inspector-Session": token,
+    } })).status()).toBe(403);
 
     await page.goto(browserUrl);
     await expect(page.getByText("本地服务已就绪")).toBeVisible();
@@ -30,6 +39,7 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
 
     await page.getByLabel("连接名称").fill("Loopback MCP");
     await page.getByLabel("MCP URL").fill(mcp.url);
+    await page.getByLabel("请求超时（毫秒）").fill("60000");
     await page.getByRole("button", { name: "保存配置" }).click();
     await expect(page.getByText(mcp.url)).toBeVisible();
     await page.getByRole("button", { name: "连接 Loopback MCP" }).click();
@@ -48,18 +58,18 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     const inputs = Array.from({ length: 8 }, (_, index) => ({
       a: 100 + index,
       b: 1000 + index,
-      delayMs: (8 - index) * 1_000,
       total: 1100 + index * 2,
     }));
     for (let index = 0; index < 8; index += 1) {
-      await page.getByRole("tab", { name: titles[index], exact: true }).click();
+      const tab = page.getByRole("tab", { name: titles[index], exact: true });
+      await tab.click();
+      await expect(tab).toHaveAttribute("aria-selected", "true");
       if (index % 2 === 0) {
         await page.getByLabel(/^a（必填）$/).fill(String(inputs[index].a));
         await page.getByLabel(/^b（必填）$/).fill(String(inputs[index].b));
-        await page.getByLabel(/^delayMs/).fill(String(inputs[index].delayMs));
       } else {
         await page.getByRole("tab", { name: "Raw JSON" }).click();
-        await page.getByLabel("完整 arguments JSON").fill(JSON.stringify(inputs[index], ["a", "b", "delayMs"]));
+        await page.getByLabel("完整 arguments JSON").fill(JSON.stringify(inputs[index], ["a", "b"]));
       }
     }
 
@@ -70,42 +80,59 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
       acceptedRuns.push(payload.run.id);
     });
     for (let index = 0; index < 8; index += 1) {
-      await page.getByRole("tab", { name: titles[index], exact: true }).click();
+      const tab = page.getByRole("tab", { name: titles[index], exact: true });
+      await tab.click();
+      await expect(tab).toHaveAttribute("aria-selected", "true");
       await page.getByRole("button", { name: "执行", exact: true }).click();
     }
     await expect.poll(() => acceptedRuns.length).toBe(8);
-    await expect.poll(() => mcp.completedTotals.length).toBe(8);
-    expect(mcp.maxConcurrentCalls).toBeGreaterThan(1);
-    expect(mcp.completedTotals).not.toEqual(inputs.map(({ total }) => total));
-    expect(new Set(mcp.completedTotals)).toEqual(new Set(inputs.map(({ total }) => total)));
+    await expect.poll(() => mcp!.enteredTotals.length).toBe(8);
+    expect(mcp.completedTotals).toEqual([]);
+    expect(mcp.maxConcurrentCalls).toBe(8);
+    for (const [released, input] of [...inputs].reverse().entries()) {
+      mcp.release(input.total);
+      await expect.poll(() => mcp!.completedTotals.length).toBe(released + 1);
+      expect(mcp.completedTotals.at(-1)).toBe(input.total);
+    }
 
     const runIds: string[] = [];
     for (let index = 0; index < 8; index += 1) {
-      await page.getByRole("tab", { name: titles[index], exact: true }).click();
+      const tab = page.getByRole("tab", { name: titles[index], exact: true });
+      await tab.click();
+      await expect(tab).toHaveAttribute("aria-selected", "true");
       const detail = page.locator("article.run-result");
       await expect(detail.locator(".run-status")).toHaveText("成功");
       await detail.getByRole("tab", { name: "格式化结果" }).click();
-      await expect(detail.locator(".json-block").filter({ hasText: "结构化内容" }).locator("pre"))
-        .toContainText(`"total": ${inputs[index].total}`);
+      const formattedResult = detail.locator(".json-block").filter({ hasText: "结构化内容" }).locator("pre");
+      await expect(formattedResult).toContainText(`"total": ${inputs[index].total}`);
+      for (const other of inputs.filter((_, otherIndex) => otherIndex !== index)) {
+        await expect(formattedResult).not.toContainText(`"total": ${other.total}`);
+      }
       const runId = await detail.locator(".run-metadata div").filter({ hasText: "Run ID" }).locator("dd").innerText();
       runIds.push(runId);
 
       await detail.getByRole("tab", { name: "RPC" }).click();
       await expect(detail.locator(".result-view")).toContainText("tools/call");
       await expect(detail.locator(".result-view")).toContainText(`"a": ${inputs[index].a}`);
-      await expect(detail.locator(".result-view")).not.toContainText(`"a": ${inputs[(index + 1) % 8].a}`);
+      for (const other of inputs.filter((_, otherIndex) => otherIndex !== index)) {
+        await expect(detail.locator(".result-view")).not.toContainText(`"a": ${other.a}`);
+      }
       await detail.getByRole("tab", { name: "HTTP" }).click();
       await expect(detail.locator(".result-view")).toContainText("200");
     }
     expect(new Set(runIds).size).toBe(8);
 
-    await page.getByRole("tab", { name: titles[5], exact: true }).click();
+    const reloadTab = page.getByRole("tab", { name: titles[5], exact: true });
+    await reloadTab.click();
+    await expect(reloadTab).toHaveAttribute("aria-selected", "true");
     await page.reload();
     await expect(page.getByRole("heading", { name: "Core E2E" })).toBeVisible();
     await expect(tabList.getByRole("tab")).toHaveCount(8);
     await expect(page.getByRole("tab", { name: titles[5], exact: true })).toHaveAttribute("aria-selected", "true");
     for (let index = 0; index < 8; index += 1) {
-      await page.getByRole("tab", { name: titles[index], exact: true }).click();
+      const tab = page.getByRole("tab", { name: titles[index], exact: true });
+      await tab.click();
+      await expect(tab).toHaveAttribute("aria-selected", "true");
       await expect(page.getByRole("tab", { name: index % 2 === 0 ? "Form" : "Raw JSON" })).toHaveAttribute("aria-selected", "true");
       if (index % 2 === 0) await expect(page.getByLabel(/^a（必填）$/)).toHaveValue(String(inputs[index].a));
       else await expect(page.getByLabel("完整 arguments JSON")).toHaveValue(new RegExp(`"a":${inputs[index].a}`));
@@ -143,13 +170,21 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
       expect(rpcRequests).toHaveLength(1);
       expect(payload.run.events.filter(({ kind }) => kind === "http-request")).toHaveLength(1);
       expect(payload.run.events.filter(({ kind }) => kind === "http-response")).toHaveLength(1);
-      const terminalEvents = payload.run.events.filter(({ kind, payload: eventPayload }) => kind === "run-status" &&
-        typeof eventPayload === "object" && eventPayload !== null &&
-        (eventPayload as { status?: string }).status === "succeeded");
+      const terminalStatuses = new Set(["succeeded", "failed", "cancelled", "interrupted"]);
+      const terminalEvents = payload.run.events.filter(({ kind, payload: eventPayload }) => {
+        if (kind === "run-error") return true;
+        return kind === "run-status" && typeof eventPayload === "object" && eventPayload !== null &&
+          terminalStatuses.has(String((eventPayload as { status?: string }).status));
+      });
       expect(terminalEvents).toHaveLength(1);
     }
   } finally {
-    await inspector?.close();
-    await mcp.stop();
+    await page.close().catch(() => undefined);
+    try { mcp?.releaseAll(); } catch { /* Continue deterministic cleanup after assertion failures. */ }
+    await Promise.allSettled([
+      inspector?.close() ?? Promise.resolve(),
+      mcp?.stop() ?? Promise.resolve(),
+    ]);
+    rmSync(dataRoot, { recursive: true, force: true });
   }
 });

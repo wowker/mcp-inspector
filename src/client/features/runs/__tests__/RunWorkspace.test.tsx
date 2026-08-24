@@ -56,7 +56,7 @@ describe("Run workspace", () => {
     view.unmount(); expect(streamSignal?.aborted).toBe(true);
   });
 
-  it("uses one observer per actual active Run and aborts it when its Tab is deleted", async () => {
+  it("uses one SSE only for the selected active Run and promotes a background observer after selection changes", async () => {
     const secondTabId = "00000000-0000-4000-8000-000000000851"; const secondRunId = "00000000-0000-4000-8000-000000000852";
     const firstTab = { ...tab, lastRunId: runId }; const secondTab = { ...tab, id: secondTabId, title: "sum (2)", position: 1, lastRunId: secondRunId };
     const signals = new Map<string, AbortSignal>();
@@ -67,11 +67,12 @@ describe("Run workspace", () => {
         return new Promise<Response>((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true })); }),
       closeTab: vi.fn(async () => undefined) });
     render(<DebugWorkspace api={client} projectId={projectId} />);
-    await waitFor(() => expect(client.openRunEventStream).toHaveBeenCalledTimes(2));
-    expect(signals.get(runId)?.aborted).toBe(false); expect(signals.get(secondRunId)?.aborted).toBe(false);
+    await waitFor(() => expect(client.openRunEventStream).toHaveBeenCalledTimes(1));
+    expect(signals.get(runId)?.aborted).toBe(false); expect(signals.has(secondRunId)).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "关闭 sum" }));
     await waitFor(() => expect(signals.get(runId)?.aborted).toBe(true));
-    expect(signals.get(secondRunId)?.aborted).toBe(false); expect(client.openRunEventStream).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(client.openRunEventStream).toHaveBeenCalledTimes(2));
+    expect(signals.get(secondRunId)?.aborted).toBe(false);
   });
 
   it("uses the same single-POST path for Ctrl+Enter and recovers after a start error", async () => {

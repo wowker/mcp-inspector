@@ -1,8 +1,8 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
-import { startInspector } from "../main.js";
+import { reportStartupFailure, startInspector } from "../main.js";
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "dsers-inspector-main-"));
@@ -10,7 +10,7 @@ function fixture() {
   mkdirSync(join(staticRoot, "assets"), { recursive: true });
   writeFileSync(join(staticRoot, "index.html"), "<!doctype html><main>Inspector shell</main>");
   writeFileSync(join(staticRoot, "assets", "app.js"), "globalThis.inspectorLoaded = true;");
-  return { dataRoot: join(root, "data"), staticRoot };
+  return { root, dataRoot: join(root, "data"), staticRoot };
 }
 
 describe("startInspector", () => {
@@ -136,24 +136,35 @@ describe("startInspector", () => {
     expect(process.listenerCount("SIGTERM")).toBe(before.sigterm);
   });
 
-  test("closes a partially started server when browser opening fails and redacts its token", async () => {
-    const { dataRoot, staticRoot } = fixture();
+  test("normalizes a malicious browser-open error and cleans every partial-start resource", async () => {
+    const { root, dataRoot, staticRoot } = fixture();
     let openedUrl = "";
     let thrown: unknown;
+    const before = { sigint: process.listenerCount("SIGINT"), sigterm: process.listenerCount("SIGTERM") };
     try {
       await startInspector({
         host: "127.0.0.1", port: 0, dataRoot, staticRoot,
-        installSignalHandlers: false,
-        openBrowser: async (url) => { openedUrl = url; throw new Error("browser unavailable"); },
+        openBrowser: async (url) => { openedUrl = url; throw new Error(`open failed: ${url}`); },
       });
     } catch (error) {
       thrown = error;
     }
     expect(thrown).toBeInstanceOf(Error);
-    expect((thrown as Error).message).toBe("browser unavailable");
     const opened = new URL(openedUrl);
-    expect((thrown as Error).message).not.toContain(opened.searchParams.get("session")!);
+    const token = opened.searchParams.get("session")!;
+    expect((thrown as Error).message).toBe("Unable to open Inspector browser");
+    expect(String(thrown)).not.toContain(token);
+    expect(String(thrown)).not.toContain(openedUrl);
+    const logged: string[] = [];
+    reportStartupFailure(thrown, (message) => { logged.push(message); });
+    expect(logged).toEqual(["Unable to start DSers MCP Inspector"]);
+    expect(logged.join("\n")).not.toContain(token);
+    expect(logged.join("\n")).not.toContain(openedUrl);
     await expect(fetch(opened.origin)).rejects.toThrow();
+    expect(process.listenerCount("SIGINT")).toBe(before.sigint);
+    expect(process.listenerCount("SIGTERM")).toBe(before.sigterm);
+    rmSync(root, { recursive: true, force: true });
+    expect(existsSync(root)).toBe(false);
   });
 });
 
