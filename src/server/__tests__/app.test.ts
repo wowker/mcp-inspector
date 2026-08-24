@@ -51,11 +51,15 @@ describe("createApp", () => {
     expect(response.status).toBe(401);
   });
 
-  test("protects Tab resources before route resolution", async () => {
-    const path = "/api/projects/00000000-0000-4000-8000-000000000001/tabs";
-    expect((await app.request(path, { headers: { Origin: "http://127.0.0.1:5173" } })).status).toBe(401);
-    expect((await app.request(path, { headers: { Origin: "https://malicious.example",
-      "X-DSers-Inspector-Session": "test-session" } })).status).toBe(403);
+  test("protects Tab and Run resources before route resolution", async () => {
+    for (const path of [
+      "/api/projects/00000000-0000-4000-8000-000000000001/tabs",
+      "/api/projects/00000000-0000-4000-8000-000000000001/runs",
+    ]) {
+      expect((await app.request(path, { headers: { Origin: "http://127.0.0.1:5173" } })).status).toBe(401);
+      expect((await app.request(path, { headers: { Origin: "https://malicious.example",
+        "X-DSers-Inspector-Session": "test-session" } })).status).toBe(403);
+    }
   });
 
   test("rejects an equal-length invalid session token", async () => {

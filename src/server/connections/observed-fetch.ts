@@ -22,6 +22,13 @@ function headersObject(headers: Headers): Record<string, string> {
   ]));
 }
 
+export function redactWireObservation(event: WireObservation): WireObservation {
+  if (event.kind !== "http-request" && event.kind !== "http-response") return event;
+  return { ...event, headers: Object.fromEntries(Object.entries(event.headers).map(([name, value]) => [
+    name, sensitiveHeaders.has(name.toLowerCase()) ? "[REDACTED]" : value,
+  ])) };
+}
+
 function forwardingInit(request: Request): RequestInit {
   const init: RequestInit & { duplex?: "half" } = {
     method: request.method,

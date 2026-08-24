@@ -8,6 +8,8 @@ import { createToolRoutes } from "./tools/routes.js";
 import { createToolService, type ToolService } from "./tools/tool-service.js";
 import { createTabRoutes } from "./tabs/routes.js";
 import { createTabService, type TabService } from "./tabs/tab-service.js";
+import { createRunRoutes } from "./runs/routes.js";
+import { createRunService, type RunServiceWithEvents } from "./runs/run-service.js";
 
 export interface AppDependencies {
   sessionToken: string;
@@ -17,6 +19,7 @@ export interface AppDependencies {
   connections?: ConnectionService;
   tools?: ToolService;
   tabs?: TabService;
+  runs?: RunServiceWithEvents;
 }
 
 export function createApp(deps: AppDependencies): Hono {
@@ -40,8 +43,10 @@ export function createApp(deps: AppDependencies): Hono {
     app.route("/api/projects", createConnectionRoutes(connections));
     const tools = deps.tools ?? createToolService(deps.projects, connections);
     app.route("/api/projects", createToolRoutes(tools));
-    app.route("/api/projects", createTabRoutes(
-      deps.tabs ?? createTabService(deps.projects, connections, { tools }),
+    const tabs = deps.tabs ?? createTabService(deps.projects, connections, { tools });
+    app.route("/api/projects", createTabRoutes(tabs));
+    app.route("/api/projects", createRunRoutes(
+      deps.runs ?? createRunService(deps.projects, connections, tabs),
     ));
   }
 

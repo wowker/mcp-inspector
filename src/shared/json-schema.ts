@@ -1,6 +1,6 @@
-import Ajv2020, { type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
-import AjvDraft7 from "ajv/dist/ajv.js";
-import addFormats from "ajv-formats";
+import { type ErrorObject, type ValidateFunction } from "ajv";
+import { Ajv as AjvDraft7, addFormats } from "@modelcontextprotocol/client/validators/ajv";
+import { Ajv2020 } from "ajv/dist/2020.js";
 import { resolveSchemaDialect } from "./schema-dialect.js";
 
 export interface SchemaIssue { path: string; keyword: string; message: string }
@@ -35,11 +35,12 @@ export function validateJsonSchema(
 ): SchemaValidation {
   const resolution = resolveSchemaDialect(schema);
   if (resolution.dialect === "unknown") return { issues: [], warning: resolution.warning };
-  const ajv = resolution.dialect === "draft-07" ? legacy : modern;
+  const compile = (resolution.dialect === "draft-07" ? legacy.compile.bind(legacy) : modern.compile.bind(modern)) as unknown as
+    (schema: Record<string, unknown>) => ValidateFunction;
   let validate: ValidateFunction;
   const key = `${resolution.dialect}:${canonical(schema)}`;
   try {
-    validate = cache.get(key) ?? ajv.compile(schema);
+    validate = cache.get(key) ?? compile(schema);
     cache.set(key, validate);
   }
   catch (error) {

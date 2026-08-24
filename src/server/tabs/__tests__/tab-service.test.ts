@@ -116,11 +116,11 @@ describe("TabService", () => {
     } finally { projects.close(); }
   });
 
-  it("applies migrations 1-4 once and enforces Tab foreign keys", () => {
+  it("applies migrations 1-5 once and enforces Tab foreign keys", () => {
     const { dataRoot, projects } = fixture();
     const store = projects.open(projectId);
     expect(store.database.prepare("SELECT version FROM schema_migrations ORDER BY version").all())
-      .toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }]);
+      .toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }]);
     expect(() => store.database.prepare(`INSERT INTO debug_tabs
       (id, project_id, connection_id, tool_name, title, position, pinned, input_mode,
        arguments_json, raw_text, view_state_json, created_at, updated_at)
