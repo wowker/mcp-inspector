@@ -42,7 +42,7 @@ function normalizeJson(value: unknown, ancestors: Set<object>): JsonValue {
     if (Object.getOwnPropertySymbols(value).length > 0) {
       throw new InvalidToolCatalogError("Value is not valid JSON");
     }
-    const result: Record<string, JsonValue> = {};
+    const result = Object.create(null) as Record<string, JsonValue>;
     for (const key of Object.keys(value as Record<string, unknown>).sort()) {
       result[key] = normalizeJson((value as Record<string, unknown>)[key], ancestors);
     }

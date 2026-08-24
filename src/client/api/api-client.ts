@@ -201,6 +201,22 @@ function isJson(value: unknown, ancestors = new Set<object>()): boolean {
   }
 }
 
+function isCanonicalUtcTimestamp(value: unknown): value is string {
+  if (typeof value !== "string" ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) return false;
+  const epoch = Date.parse(value);
+  return Number.isFinite(epoch) && new Date(epoch).toISOString() === value;
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (isObject(value)) {
+    return `{${Object.keys(value).sort().map((key) =>
+      `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
 function decodeSnapshot(
   value: unknown,
   projectId: string,
@@ -223,8 +239,7 @@ function decodeSnapshot(
     typeof id !== "string" || !uuidPattern.test(id) || owner !== projectId ||
     connection !== connectionId || name !== toolName ||
     typeof contentHash !== "string" || !/^[a-f0-9]{64}$/.test(contentHash) ||
-    !validDefinition || typeof createdAt !== "string" ||
-    Number.isNaN(Date.parse(createdAt))
+    !validDefinition || !isCanonicalUtcTimestamp(createdAt)
   ) throw new Error("Invalid Tool response");
   return value as unknown as ToolSnapshotSummary;
 }
@@ -234,7 +249,7 @@ function decodeTool(value: unknown, projectId: string, connectionId: string): Ca
   const { projectId: owner, connectionId: connection, name, status, updatedAt, currentSnapshot } = value;
   if (owner !== projectId || connection !== connectionId || typeof name !== "string" || name.length === 0 ||
       (status !== "current" && status !== "changed" && status !== "removed") ||
-      typeof updatedAt !== "string" || Number.isNaN(Date.parse(updatedAt))) {
+      !isCanonicalUtcTimestamp(updatedAt)) {
     throw new Error("Invalid Tool response");
   }
   return {
@@ -263,14 +278,24 @@ function decodeToolDetail(value: unknown, projectId: string, connectionId: strin
   if (tool.name !== toolName) throw new Error("Invalid Tool response");
   const snapshots = snapshotValues.map((snapshot: unknown) =>
     decodeSnapshot(snapshot, projectId, connectionId, toolName));
+  const snapshotIds = new Set<string>();
   for (let index = 1; index < snapshots.length; index += 1) {
     const previous = snapshots[index - 1];
     const current = snapshots[index];
-    if (previous.createdAt > current.createdAt || previous.id === current.id) {
+    const previousEpoch = Date.parse(previous.createdAt);
+    const currentEpoch = Date.parse(current.createdAt);
+    if (previousEpoch > currentEpoch ||
+        (previousEpoch === currentEpoch && previous.id >= current.id)) {
       throw new Error("Invalid Tool response");
     }
   }
-  if (!snapshots.some((snapshot) => snapshot.id === tool.currentSnapshot.id)) {
+  for (const snapshot of snapshots) {
+    if (snapshotIds.has(snapshot.id)) throw new Error("Invalid Tool response");
+    snapshotIds.add(snapshot.id);
+  }
+  const currentHistorySnapshot = snapshots.find(({ id }) => id === tool.currentSnapshot.id);
+  if (currentHistorySnapshot === undefined ||
+      stableJson(currentHistorySnapshot) !== stableJson(tool.currentSnapshot)) {
     throw new Error("Invalid Tool response");
   }
   return { tool, snapshots };

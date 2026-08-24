@@ -81,7 +81,7 @@ describe("ConnectionPanel", () => {
 
   it("keeps a successful transport connected when its automatic refresh fails", async () => {
     const refreshTools = vi.fn().mockRejectedValue(new Error("目录刷新失败"));
-    const disconnectConnection = vi.fn();
+    const disconnectConnection = vi.fn().mockResolvedValue(connection);
     const user = userEvent.setup();
     render(<ConnectionPanel api={api({ refreshTools, disconnectConnection })} projectId={projectId} />);
     await screen.findByText("Catalog MCP");
@@ -93,6 +93,72 @@ describe("ConnectionPanel", () => {
     expect(disconnectConnection).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "刷新 Catalog MCP Tools" }));
     expect(refreshTools).toHaveBeenCalledTimes(2);
+    await screen.findByRole("alert");
+    await user.click(screen.getByRole("button", { name: "断开 Catalog MCP" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("synchronously invalidates an in-flight refresh when disconnecting", async () => {
+    const pendingRefresh = deferred<Awaited<ReturnType<InspectorApiClient["refreshTools"]>>>();
+    const connected = { ...connection, status: "connected" as const };
+    const refreshTools = vi.fn()
+      .mockResolvedValueOnce([])
+      .mockReturnValueOnce(pendingRefresh.promise);
+    const user = userEvent.setup();
+    render(<ConnectionPanel api={api({
+      connectConnection: vi.fn().mockResolvedValue(connected),
+      disconnectConnection: vi.fn().mockResolvedValue(connection),
+      refreshTools,
+    })} projectId={projectId} />);
+    await screen.findByText("Catalog MCP");
+    await user.click(screen.getByRole("button", { name: "连接 Catalog MCP" }));
+    expect(await screen.findByText("目录已就绪")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "刷新 Catalog MCP Tools" }));
+    expect(screen.getByRole("button", { name: "刷新 Catalog MCP Tools" })).toHaveTextContent("刷新中");
+    expect(screen.getByText("正在刷新 Tool 目录")).toHaveAttribute("aria-live", "polite");
+
+    await user.click(screen.getByRole("button", { name: "断开 Catalog MCP" }));
+
+    expect(screen.getByRole("button", { name: "刷新 Catalog MCP Tools" })).toHaveTextContent("刷新");
+    expect(screen.queryByText("目录已就绪")).not.toBeInTheDocument();
+    await act(async () => pendingRefresh.resolve([]));
+    expect(screen.queryByText("目录已就绪")).not.toBeInTheDocument();
+  });
+
+  it("invalidates an in-flight refresh before deleting its connection", async () => {
+    const pendingRefresh = deferred<Awaited<ReturnType<InspectorApiClient["refreshTools"]>>>();
+    const connected = { ...connection, status: "connected" as const };
+    const user = userEvent.setup();
+    render(<ConnectionPanel api={api({
+      listConnections: vi.fn().mockResolvedValue([connected]),
+      refreshTools: vi.fn().mockReturnValue(pendingRefresh.promise),
+    })} projectId={projectId} />);
+    await screen.findByRole("button", { name: "刷新 Catalog MCP Tools" });
+    await user.click(screen.getByRole("button", { name: "刷新 Catalog MCP Tools" }));
+    await user.click(screen.getByRole("button", { name: "删除 Catalog MCP" }));
+    await user.click(screen.getByRole("button", { name: "确认删除 Catalog MCP" }));
+    expect(screen.queryByRole("treeitem", { name: "折叠 Catalog MCP" })).not.toBeInTheDocument();
+
+    await act(async () => pendingRefresh.resolve([]));
+    expect(screen.queryByRole("treeitem", { name: "折叠 Catalog MCP" })).not.toBeInTheDocument();
+  });
+
+  it("does not refresh or restore a connection deleted during connect", async () => {
+    const pendingConnect = deferred<Awaited<ReturnType<InspectorApiClient["connectConnection"]>>>();
+    const refreshTools = vi.fn();
+    const user = userEvent.setup();
+    render(<ConnectionPanel api={api({
+      connectConnection: vi.fn().mockReturnValue(pendingConnect.promise),
+      refreshTools,
+    })} projectId={projectId} />);
+    await screen.findByRole("button", { name: "连接 Catalog MCP" });
+    await user.click(screen.getByRole("button", { name: "连接 Catalog MCP" }));
+    await user.click(screen.getByRole("button", { name: "删除 Catalog MCP" }));
+    await user.click(screen.getByRole("button", { name: "确认删除 Catalog MCP" }));
+    await act(async () => pendingConnect.resolve({ ...connection, status: "connected" }));
+
+    expect(refreshTools).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "断开 Catalog MCP" })).not.toBeInTheDocument();
   });
 
   it("saves a local configuration without implying it connected", async () => {

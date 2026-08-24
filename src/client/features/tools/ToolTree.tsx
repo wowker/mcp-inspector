@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import type { CatalogToolSummary, ConnectionSummary } from "../../api/api-client.js";
 
 interface ToolTreeProps {
@@ -28,6 +28,10 @@ export function ToolTree({
   onSelectTool,
   onOpenTool,
 }: ToolTreeProps) {
+  const pendingSelection = useRef<{
+    timer: ReturnType<typeof setTimeout>;
+    tool: CatalogToolSummary;
+  } | null>(null);
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -39,6 +43,38 @@ export function ToolTree({
         (typeof description === "string" && description.toLocaleLowerCase().includes(normalizedQuery));
     }),
   ])), [catalogs, connections, normalizedQuery]);
+
+  useEffect(() => () => {
+    if (pendingSelection.current !== null) clearTimeout(pendingSelection.current.timer);
+  }, []);
+
+  function select(tool: CatalogToolSummary, event: MouseEvent<HTMLButtonElement>): void {
+    if (event.detail === 0) {
+      onSelectTool(tool);
+      return;
+    }
+    if (event.detail > 1) {
+      if (pendingSelection.current !== null) clearTimeout(pendingSelection.current.timer);
+      pendingSelection.current = null;
+      return;
+    }
+    if (pendingSelection.current !== null) {
+      clearTimeout(pendingSelection.current.timer);
+      onSelectTool(pendingSelection.current.tool);
+    }
+    const timer = setTimeout(() => {
+      if (pendingSelection.current?.timer !== timer) return;
+      pendingSelection.current = null;
+      onSelectTool(tool);
+    }, 180);
+    pendingSelection.current = { timer, tool };
+  }
+
+  function open(tool: CatalogToolSummary): void {
+    if (pendingSelection.current !== null) clearTimeout(pendingSelection.current.timer);
+    pendingSelection.current = null;
+    onOpenTool(tool);
+  }
 
   function toggle(connectionId: string): void {
     setCollapsed((current) => {
@@ -91,8 +127,10 @@ export function ToolTree({
                     ))}
                   </span>
                 </button>
-                <span className="catalog-readiness">
-                  {connection.status === "connected"
+                <span className="catalog-readiness" role="status" aria-live="polite">
+                  {refreshing
+                    ? "正在刷新 Tool 目录"
+                    : connection.status === "connected"
                     ? isReady ? "目录已就绪" : "已连接，目录未就绪"
                     : "连接后可刷新"}
                 </span>
@@ -118,8 +156,8 @@ export function ToolTree({
                         role="treeitem"
                         className="tool-item"
                         aria-label={`${tool.name}，${statusLabels[tool.status]}`}
-                        onClick={() => onSelectTool(tool)}
-                        onDoubleClick={() => onOpenTool(tool)}
+                        onClick={(event) => select(tool, event)}
+                        onDoubleClick={() => open(tool)}
                       >
                         <span className="tool-item__copy">
                           <strong>{tool.name}</strong>

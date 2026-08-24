@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ProtocolError } from "@modelcontextprotocol/client";
+import { ProtocolError, type StandardSchemaV1 } from "@modelcontextprotocol/client";
 import { FakeMcpSession } from "../../../../test-support/fake-mcp-session.js";
 import {
   CallCancelledError,
@@ -233,6 +233,62 @@ describe("ConnectionRuntime", () => {
 });
 
 describe("createStreamableMcpSessionFactory", () => {
+  it("uses one uncached low-level tools/list request per explicit page and preserves future fields", async () => {
+    const highLevelListTools = vi.fn(async () => ({ tools: [] }));
+    const rawPage = {
+      tools: [{
+        name: "future/tool",
+        inputSchema: { type: "object", futureKeyword: { nested: true } },
+        annotations: { readOnlyHint: true, futureHint: "keep" },
+        execution: { taskSupport: "optional", futureExecution: 7 },
+        _meta: { vendor: { future: true } },
+        futureTopLevel: { keep: [1, 2, 3] },
+      }],
+      nextCursor: "same",
+    };
+    const request = vi.fn(async (rawRequest: unknown, schema: StandardSchemaV1) => {
+      const requestValue = rawRequest as { method: string; params?: { cursor?: string } };
+      if (requestValue.method !== "tools/list") return { content: [] };
+      const validated = await schema["~standard"].validate(rawPage);
+      if (validated.issues !== undefined) throw new Error("schema rejected controlled page");
+      return validated.value;
+    });
+    const factory = createStreamableMcpSessionFactory({
+      createClient: () => ({
+        connect: async () => undefined,
+        getServerVersion: () => undefined,
+        listTools: highLevelListTools,
+        callTool: async () => ({ content: [] }),
+        request,
+        close: async () => undefined,
+      }),
+      createTransport: () => ({
+        start: async () => undefined, send: async () => undefined, close: async () => undefined,
+      }),
+    });
+    const session = await factory(connection, () => undefined);
+
+    const first = await session.listTools();
+    await session.listTools();
+    const repeated = await session.listTools({ cursor: first.nextCursor });
+    for (let index = 0; index < 65; index += 1) {
+      await session.listTools({ cursor: `page-${index}` });
+    }
+
+    expect(highLevelListTools).not.toHaveBeenCalled();
+    expect(request).toHaveBeenCalledTimes(68);
+    expect(request.mock.calls[0]?.[0]).toEqual({ method: "tools/list", params: {} });
+    expect(request.mock.calls[1]?.[0]).toEqual({ method: "tools/list", params: {} });
+    expect(request.mock.calls[2]?.[0]).toEqual({ method: "tools/list", params: { cursor: "same" } });
+    expect(repeated.nextCursor).toBe("same");
+    expect(first.tools[0]).toEqual(expect.objectContaining({
+      annotations: expect.objectContaining({ futureHint: "keep" }),
+      execution: expect.objectContaining({ futureExecution: 7 }),
+      _meta: { vendor: { future: true } },
+      futureTopLevel: { keep: [1, 2, 3] },
+    }));
+  });
+
   it("sends tools/call exactly once through the low-level request path", async () => {
     const callTool = vi.fn(async () => { throw new Error("HEADER_MISMATCH would retry"); });
     const request = vi.fn(async (
@@ -345,7 +401,8 @@ describe("createStreamableMcpSessionFactory", () => {
           return { content: [] };
         },
         request: async ({ params }) => {
-          const name = params.name;
+          const name = params?.name;
+          if (typeof name !== "string") throw new Error("Tool name is required");
           await observedFetch("http://127.0.0.1/mcp", {
             method: "POST",
             headers: { "content-type": "application/json" },

@@ -40,6 +40,7 @@ describe("Tool API response decoding", () => {
     ["bad hash", { ...tool, currentSnapshot: { ...snapshot, contentHash: "bad" } }],
     ["mismatched definition", { ...tool, currentSnapshot: { ...snapshot, definition: { ...definition, name: "other" } } }],
     ["invalid status", { ...tool, status: "new" }],
+    ["non-canonical update timestamp", { ...tool, updatedAt: "2026-08-17T12:00:00Z" }],
   ])("rejects a successful list with %s", async (_label, invalid) => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ tools: [invalid] }), {
       status: 200, headers: { "Content-Type": "application/json" },
@@ -71,6 +72,28 @@ describe("Tool API response decoding", () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ detail: { tool, snapshots: [] } }), {
       status: 200, headers: { "Content-Type": "application/json" },
     }));
+    await expect(createApiClient("session").getTool(projectId, connectionId, definition.name))
+      .rejects.toThrow("Invalid Tool response");
+  });
+
+  it.each([
+    ["duplicate snapshot IDs", [snapshot, { ...snapshot, contentHash: "b".repeat(64) }], snapshot],
+    ["non-canonical timestamp", [{ ...snapshot, createdAt: "2026-08-17T12:00:00Z" }], { ...snapshot, createdAt: "2026-08-17T12:00:00Z" }],
+    ["invalid calendar timestamp", [{ ...snapshot, createdAt: "2026-02-30T12:00:00.000Z" }], { ...snapshot, createdAt: "2026-02-30T12:00:00.000Z" }],
+    ["epoch-descending history", [
+      { ...snapshot, id: "00000000-0000-4000-8000-000000000534", createdAt: "2026-08-18T12:00:00.000Z" },
+      snapshot,
+    ], snapshot],
+    ["invalid tie ordering", [
+      snapshot,
+      { ...snapshot, id: "00000000-0000-4000-8000-000000000530" },
+    ], snapshot],
+    ["current snapshot content mismatch", [snapshot], { ...snapshot, contentHash: "b".repeat(64) }],
+  ])("rejects Tool detail with %s", async (_label, snapshots, currentSnapshot) => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      detail: { tool: { ...tool, currentSnapshot }, snapshots },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+
     await expect(createApiClient("session").getTool(projectId, connectionId, definition.name))
       .rejects.toThrow("Invalid Tool response");
   });

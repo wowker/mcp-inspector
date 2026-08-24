@@ -78,7 +78,8 @@ describe("Tool routes", () => {
 
     const listed = await app().request(base, { headers });
     expect(listed.status).toBe(200);
-    expect((await listed.json() as any).tools[0]).toEqual(expect.objectContaining({
+    const listedBody = await listed.json() as { tools: Array<{ name: string; status: string }> };
+    expect(listedBody.tools[0]).toEqual(expect.objectContaining({
       name: "catalog/read item", status: "current",
     }));
     const detail = await app().request(`${base}/${encodeURIComponent("catalog/read item")}`, { headers });

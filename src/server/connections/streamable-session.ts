@@ -7,7 +7,9 @@ import {
   type Tool,
   type Transport,
   specTypeSchemas,
+  type StandardSchemaV1,
 } from "@modelcontextprotocol/client";
+import { z } from "zod";
 import { DialectAwareJsonSchemaValidator } from "./dialect-aware-validator.js";
 import { createObservedFetch } from "./observed-fetch.js";
 import type {
@@ -27,12 +29,20 @@ interface ClientLike {
     options?: { signal?: AbortSignal; timeout?: number },
   ): Promise<CallToolResult>;
   request(
-    request: { method: "tools/call"; params: { name: string; arguments?: Record<string, unknown> } },
-    resultSchema: typeof specTypeSchemas.CallToolResult,
+    request: { method: string; params?: Record<string, unknown> },
+    resultSchema: StandardSchemaV1,
     options?: { signal?: AbortSignal; timeout?: number },
-  ): Promise<CallToolResult>;
+  ): Promise<unknown>;
   close(): Promise<void>;
 }
+
+const toolListPageSchema = z.object({
+  tools: z.array(z.object({
+    name: z.string(),
+    inputSchema: z.object({ type: z.literal("object") }).loose(),
+  }).loose()),
+  nextCursor: z.string().optional(),
+}).loose();
 
 type TransportLike = Transport & { protocolVersion?: string };
 
@@ -70,18 +80,22 @@ export function createStreamableMcpSessionFactory(options: {
       protocolVersion,
       serverInfo: server === undefined ? null : { name: server.name, version: server.version },
       async listTools(input) {
-        const result = await client.listTools(input);
-        return { tools: result.tools, nextCursor: result.nextCursor };
+        const result = await client.request(
+          { method: "tools/list", params: input ?? {} },
+          toolListPageSchema,
+          { timeout: connection.timeoutMs },
+        ) as z.output<typeof toolListPageSchema>;
+        return { tools: result.tools as Tool[], nextCursor: result.nextCursor };
       },
       callTool(input) {
-        return observerContext.run(input.observe, () => client.request(
+        return observerContext.run(input.observe, async () => await client.request(
           {
             method: "tools/call",
             params: { name: input.name, arguments: input.arguments },
           },
           specTypeSchemas.CallToolResult,
           { signal: input.signal, timeout: connection.timeoutMs },
-        ));
+        ) as CallToolResult);
       },
       close() {
         return client.close();

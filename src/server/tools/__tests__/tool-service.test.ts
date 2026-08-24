@@ -2,8 +2,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { StandardSchemaV1 } from "@modelcontextprotocol/client";
 import { createConnectionService, type ConnectionService } from "../../connections/connection-service.js";
 import type { McpSession } from "../../connections/connection-runtime.js";
+import { createStreamableMcpSessionFactory } from "../../connections/streamable-session.js";
 import { createProjectService, type ProjectService } from "../../projects/project-service.js";
 import { canonicalJson, createToolService } from "../tool-service.js";
 
@@ -34,7 +36,7 @@ describe("ToolService", () => {
   let projects: ProjectService;
   let connections: ConnectionService;
   let projectId: string;
-  let pages: Array<{ tools: any[]; nextCursor?: string }>;
+  let pages: Array<{ tools: Array<Record<string, unknown>>; nextCursor?: string }>;
   let listTools: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
@@ -88,6 +90,79 @@ describe("ToolService", () => {
     const cyclic: Record<string, unknown> = {};
     cyclic.self = cyclic;
     expect(() => canonicalJson(cyclic)).toThrow(/json/i);
+    const special = JSON.parse('{"nested":{"__proto__":{"polluted":true},"constructor":"kept"}}') as unknown;
+    expect(canonicalJson(special)).toBe('{"nested":{"__proto__":{"polluted":true},"constructor":"kept"}}');
+    expect(canonicalJson(special)).not.toBe(canonicalJson({ nested: { constructor: "kept" } }));
+  });
+
+  it("persists future Tool fields unchanged through the real low-level client adapter", async () => {
+    const adapterConnectionId = "00000000-0000-4000-8000-000000000518";
+    const adapterProject = projects.create("Adapter Catalog");
+    const definition = {
+      name: "future/tool",
+      inputSchema: { type: "object", futureKeyword: { nested: ["a", "b"] } },
+      annotations: { readOnlyHint: true, futureHint: { keep: true } },
+      execution: { taskSupport: "optional", futureExecution: "keep" },
+      _meta: { vendor: { keep: true } },
+      futureTopLevel: { keep: [1, 2, 3] },
+    };
+    const highLevelListTools = vi.fn(async () => ({ tools: [] }));
+    const request = vi.fn(async (_request: unknown, schema: StandardSchemaV1) => {
+      const validated = await schema["~standard"].validate({ tools: [definition] });
+      if (validated.issues !== undefined) throw new Error("schema rejected controlled Tool");
+      return validated.value;
+    });
+    const sessionFactory = createStreamableMcpSessionFactory({
+      createClient: () => ({
+        connect: async () => undefined,
+        getServerVersion: () => undefined,
+        listTools: highLevelListTools,
+        callTool: async () => ({ content: [] }),
+        request,
+        close: async () => undefined,
+      }),
+      createTransport: () => ({
+        start: async () => undefined, send: async () => undefined, close: async () => undefined,
+      }),
+    });
+    const adapterConnections = createConnectionService(projects, {
+      createId: () => adapterConnectionId,
+      sessionFactory,
+    });
+    adapterConnections.create(adapterProject.id, {
+      name: "Adapter", url: "http://127.0.0.1:1/mcp",
+      transport: "streamable-http", authMode: "none", timeoutMs: 100,
+    });
+    await adapterConnections.connect(adapterProject.id, adapterConnectionId);
+    const adapterTools = createToolService(projects, adapterConnections, {
+      createId: () => "00000000-0000-4000-8000-000000000519",
+    });
+
+    await adapterTools.refresh(adapterProject.id, adapterConnectionId);
+
+    expect(highLevelListTools).not.toHaveBeenCalled();
+    expect(request).toHaveBeenCalledOnce();
+    expect(adapterTools.get(adapterProject.id, adapterConnectionId, definition.name)
+      .tool.currentSnapshot.definition).toEqual(definition);
+  });
+
+  it("preserves nested special keys and hashes them as content", async () => {
+    const tools = service();
+    const withSpecialKey = JSON.parse(
+      '{"name":"special","inputSchema":{"type":"object"},"future":{"__proto__":{"kept":true},"constructor":"value"}}',
+    ) as Record<string, unknown>;
+    pages = [{ tools: [withSpecialKey] }];
+    await tools.refresh(projectId, connectionId);
+    const first = tools.get(projectId, connectionId, "special").tool.currentSnapshot;
+
+    pages = [{ tools: [{
+      name: "special", inputSchema: { type: "object" }, future: { constructor: "value" },
+    }] }];
+    await tools.refresh(projectId, connectionId);
+    const second = tools.get(projectId, connectionId, "special").tool.currentSnapshot;
+
+    expect(first.definition).toEqual(withSpecialKey);
+    expect(first.contentHash).not.toBe(second.contentHash);
   });
 
   it("marks a reappeared Tool changed when its definition differs from its last snapshot", async () => {

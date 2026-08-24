@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CatalogToolSummary, ConnectionSummary } from "../../../api/api-client.js";
@@ -52,7 +52,7 @@ describe("ToolTree", () => {
     expect(screen.queryByRole("treeitem", { name: /sum/ })).not.toBeInTheDocument();
   });
 
-  it("exposes manual refresh and distinct selection/open intents without executing metadata", async () => {
+  it("exposes manual refresh and keeps single-click separate from a real double-click", async () => {
     const onRefresh = vi.fn();
     const onSelectTool = vi.fn();
     const onOpenTool = vi.fn();
@@ -67,9 +67,16 @@ describe("ToolTree", () => {
     expect(onRefresh).toHaveBeenCalledWith(first.id);
     const item = screen.getByRole("treeitem", { name: /img onerror/ });
     await user.click(item);
-    fireEvent.doubleClick(item);
+    await new Promise((resolve) => setTimeout(resolve, 220));
     expect(onSelectTool).toHaveBeenCalledWith(expect.objectContaining({ name: unsafe.name }));
+    onSelectTool.mockClear();
+    await user.dblClick(item);
+    await new Promise((resolve) => setTimeout(resolve, 220));
+    expect(onSelectTool).not.toHaveBeenCalled();
     expect(onOpenTool).toHaveBeenCalledWith(expect.objectContaining({ name: unsafe.name }));
+    item.focus();
+    await user.keyboard("{Enter}");
+    expect(onSelectTool).toHaveBeenCalledOnce();
     expect(screen.getByRole("alert")).toHaveTextContent("目录刷新失败");
     expect(screen.getByText("已连接，目录未就绪")).toBeVisible();
     expect(container.querySelector("img")).toBeNull();

@@ -38,7 +38,7 @@ Implemented a project-scoped MCP Tool catalog backed by immutable SQLite snapsho
 ## Verification
 
 - `npm run verify` — passed using bundled Node v24.19.0.
-- Full suite — 142 tests passed across 19 files, including the real loopback Streamable HTTP integration.
+- Full suite — 155 tests passed across 19 files, including the real loopback Streamable HTTP integration.
 - TypeScript client/server typecheck — passed.
 - Vite client and Node 22 tsup production build — passed.
 - `cmp src/server/projects/migrations/003_tools.sql dist/server/projects/migrations/003_tools.sql` — exact byte match.
@@ -46,3 +46,13 @@ Implemented a project-scoped MCP Tool catalog backed by immutable SQLite snapsho
 - The complete suite exited normally without open-handle warnings.
 
 All Node/npm/npx commands used the mandated bundled Node v24.19.0 PATH.
+
+## Independent review fixes
+
+- Replaced the official client's high-level auto-paginating/cached `listTools()` helper with one custom-schema low-level `request({ method: "tools/list" })` per page. The passthrough Zod schema validates the Tool array, name, and object Input Schema while retaining annotations, execution, `_meta`, nested schema extensions, and future top-level JSON fields.
+- Added controlled official-client adapter coverage proving repeated uncached first-page requests, explicit cursor forwarding, more than 64 single-page requests, repeated-cursor passthrough (with `ToolService` rejection coverage), and lossless future-field persistence into immutable snapshots.
+- Canonical JSON now builds null-prototype objects so own keys such as `__proto__` and `constructor` remain content. Nested regression tests verify persistence and distinct SHA-256 hashes.
+- Tool single-click selection is delayed just enough to distinguish a real browser double-click. A double-click now emits only the new-Tab intent; keyboard activation remains immediate and tested.
+- Disconnect, delete, reconnect, and project invalidation synchronously clear refreshing/readiness/error state and advance a generation fence. Deferred tests prove old refresh/connect completions and `finally` blocks cannot repopulate deleted or disconnected UI state.
+- Tool detail decoding now requires canonical millisecond UTC timestamps, actual-epoch ordering, UUID lexical ordering for equal timestamps (matching the repository's `created_at, id` ordering), globally unique snapshot IDs, and canonical deep equality between the current snapshot and its history entry.
+- Refresh/readiness changes are announced through a polite live status. Native button keyboard activation is covered; full arrow-key tree navigation remains intentionally deferred to the later workspace interaction slice.
