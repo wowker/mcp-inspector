@@ -131,6 +131,7 @@ async function observeRequest(
   request: Request,
   observer: Observer,
   at: string,
+  exchangeId: string,
 ): Promise<void> {
   let body: unknown = null;
   if (request.body !== null) {
@@ -145,6 +146,7 @@ async function observeRequest(
   emit(observer, {
     kind: "http-request",
     at,
+    exchangeId,
     method: request.method,
     url: request.url,
     headers: headersObject(request.headers),
@@ -234,14 +236,17 @@ export function createObservedFetch(
   options: { now?: () => Date } = {},
 ): FetchLike {
   const now = options.now ?? (() => new Date());
+  let nextExchangeId = 0;
   return async (input, init) => {
+    const exchangeId = String(++nextExchangeId);
     const request = new Request(input, init);
-    await observeRequest(request, observer, now().toISOString());
+    await observeRequest(request, observer, now().toISOString(), exchangeId);
     const response = await baseFetch(request.url, forwardingInit(request));
     const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
     const responseEvent = {
       kind: "http-response" as const,
       at: now().toISOString(),
+      exchangeId,
       status: response.status,
       headers: headersObject(response.headers),
       body: null as unknown,

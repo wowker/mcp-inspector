@@ -34,6 +34,6 @@ export interface RunService {
   cancel(projectId: string, runId: string): boolean;
   list(projectId: string, cursor?: string): RunPage;
   get(projectId: string, runId: string): RunDetail;
-  events(projectId: string, runId: string, after?: number): RunEvent[];
+  events(projectId: string, runId: string, after?: number, limit?: number): RunEvent[];
 }
 export type { SchemaIssue };

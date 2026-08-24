@@ -56,24 +56,40 @@ function elapsed(from: string, to: string): number {
   return Number.isFinite(value) ? Math.max(0, value) : 0;
 }
 
+function isToolsCallRequest(observation: WireObservation): observation is Extract<WireObservation, { kind: "http-request" }> {
+  if (observation.kind !== "http-request" || typeof observation.body !== "object" ||
+      observation.body === null || Array.isArray(observation.body)) return false;
+  return (observation.body as Record<string, unknown>).method === "tools/call";
+}
+
 export interface RunServiceWithEvents extends RunService {
   readonly eventBus: RunEventBus;
+  assertExists(projectId: string, runId: string): RunSummary;
 }
 
 export function createRunService(projects: ProjectService, connections: ConnectionService, tabs: TabService,
-  options: { createId?: () => string; now?: () => Date; eventBus?: RunEventBus; clientInfo?: Record<string, unknown> } = {},
+  options: { createId?: () => string; now?: () => Date; eventBus?: RunEventBus; clientInfo?: Record<string, unknown>;
+    maxResponseBytes?: number } = {},
 ): RunServiceWithEvents {
   const createId = options.createId ?? randomUUID;
   const now = options.now ?? (() => new Date());
   const eventBus = options.eventBus ?? new RunEventBus();
   const clientInfo = options.clientInfo ?? { name: "dsers-mcp-inspector", version: "0.1.0" };
   const controllers = new Map<string, AbortController>();
-  const repository = (projectId: string) => new RunRepository(projects.open(projectId), eventBus);
+  const repository = (projectId: string) => new RunRepository(projects.open(projectId), eventBus,
+    { maxResponseBytes: options.maxResponseBytes });
   const key = (projectId: string, runId: string) => `${projectId}:${runId}`;
   const timestamp = () => now().toISOString();
 
   function appendStatus(projectId: string, runId: string, status: string, at: string): void {
     repository(projectId).append(runId, "run-status", at, { status });
+  }
+
+  function finishSafely(repo: RunRepository, projectId: string, runId: string,
+    status: "succeeded" | "failed" | "cancelled", at: string, durationMs: number,
+    networkDurationMs: number | null, response: { result?: unknown; error?: { code: string; message: string } }): boolean {
+    try { return repo.finish(projectId, runId, status, at, durationMs, networkDurationMs, response) !== null; }
+    catch { return repo.failRecording(projectId, runId, at, durationMs, networkDurationMs, response.result); }
   }
 
   async function execute(projectId: string, runId: string): Promise<void> {
@@ -83,18 +99,33 @@ export function createRunService(projects: ProjectService, connections: Connecti
     const repo = repository(projectId);
     let traceFailure = false;
     let requestAt: string | null = null;
+    let requestExchangeId: string | null = null;
+    let fallbackRequestAt: string | null = null;
+    let fallbackExchangeId: string | null = null;
     let networkDurationMs: number | null = null;
+    let fallbackNetworkDurationMs: number | null = null;
     const observe = (observation: WireObservation) => {
       if (traceFailure) return;
       try {
         const safeObservation = redactWireObservation(observation);
         repo.append(runId, safeObservation.kind, safeObservation.at, safeObservation);
-        if (safeObservation.kind === "http-request" && requestAt === null) {
-          requestAt = safeObservation.at;
+        if (safeObservation.kind === "http-request" && fallbackRequestAt === null) {
+          fallbackRequestAt = safeObservation.at;
+          fallbackExchangeId = safeObservation.exchangeId ?? null;
           repo.recordHttpRequest(runId, safeObservation);
         }
-        if (safeObservation.kind === "http-response" && requestAt !== null && networkDurationMs === null) {
-          networkDurationMs = elapsed(requestAt, safeObservation.at);
+        if (isToolsCallRequest(safeObservation) && requestAt === null) {
+          requestAt = safeObservation.at;
+          requestExchangeId = safeObservation.exchangeId ?? null;
+          repo.recordHttpRequest(runId, safeObservation, true);
+        }
+        if (safeObservation.kind === "http-response") {
+          const matchesCall = requestExchangeId === null || safeObservation.exchangeId === requestExchangeId;
+          const matchesFallback = fallbackExchangeId === null || safeObservation.exchangeId === fallbackExchangeId;
+          if (requestAt !== null && matchesCall && networkDurationMs === null) networkDurationMs = elapsed(requestAt, safeObservation.at);
+          else if (requestAt === null && fallbackRequestAt !== null && matchesFallback && fallbackNetworkDurationMs === null) {
+            fallbackNetworkDurationMs = elapsed(fallbackRequestAt, safeObservation.at);
+          }
         }
       } catch { traceFailure = true; }
     };
@@ -124,24 +155,22 @@ export function createRunService(projects: ProjectService, connections: Connecti
       const latest = repo.get(projectId, runId);
       if (latest === null || terminal.has(latest.status)) return;
       const failed = traceFailure || result.isError === true;
+      networkDurationMs ??= fallbackNetworkDurationMs;
       const response = traceFailure
-        ? { error: { code: "TRACE_PERSIST_FAILED", message: "Tool call completed but trace persistence failed" } }
+        ? { result, error: { code: "TRACE_PERSIST_FAILED", message: "Tool call completed but trace persistence failed" } }
         : { result };
-      if (repo.finish(projectId, runId, failed ? "failed" : "succeeded", completedAt,
-        elapsed(latest.createdAt, completedAt), networkDurationMs, response)) {
-        try { appendStatus(projectId, runId, failed ? "failed" : "succeeded", completedAt); } catch { /* terminal state is authoritative */ }
-      }
+      finishSafely(repo, projectId, runId, failed ? "failed" : "succeeded", completedAt,
+        elapsed(latest.createdAt, completedAt), networkDurationMs, response);
     } catch (error) {
       const latest = repo.get(projectId, runId);
       if (latest !== null && !terminal.has(latest.status)) {
+        networkDurationMs ??= fallbackNetworkDurationMs;
         const completedAt = timestamp();
         const cancellation = controller.signal.aborted || error instanceof CallCancelledError;
         const status = cancellation ? "cancelled" : "failed";
         const normalized = cancellation ? { code: "CALL_CANCELLED", message: "MCP Tool call was cancelled" } : safeError(error);
-        if (repo.finish(projectId, runId, status, completedAt, elapsed(latest.createdAt, completedAt), networkDurationMs,
-          { error: normalized })) {
-          try { appendStatus(projectId, runId, status, completedAt); } catch { /* terminal state is authoritative */ }
-        }
+        finishSafely(repo, projectId, runId, status, completedAt, elapsed(latest.createdAt, completedAt), networkDurationMs,
+          { error: normalized });
       }
     } finally {
       controllers.delete(controllerKey);
@@ -155,8 +184,16 @@ export function createRunService(projects: ProjectService, connections: Connecti
     return run;
   }
 
+  function requireSummary(projectId: string, runId: string): RunSummary {
+    if (!uuid.safeParse(runId).success) throw new RunNotFoundError();
+    const run = repository(projectId).getSummary(projectId, runId);
+    if (run === null) throw new RunNotFoundError();
+    return run;
+  }
+
   return {
     eventBus,
+    assertExists: requireSummary,
     start(input: StartRunInput): RunSummary {
       if (!uuid.safeParse(input.projectId).success || !uuid.safeParse(input.tabId).success ||
           typeof input.idempotencyKey !== "string" || input.idempotencyKey.length < 1 || input.idempotencyKey.length > 200 ||
@@ -187,12 +224,11 @@ export function createRunService(projects: ProjectService, connections: Connecti
       const run = requireRun(projectId, runId);
       if (terminal.has(run.status)) return false;
       const completedAt = timestamp();
-      const changed = repository(projectId).finish(projectId, runId, "cancelled", completedAt,
+      const changed = finishSafely(repository(projectId), projectId, runId, "cancelled", completedAt,
         elapsed(run.createdAt, completedAt), run.networkDurationMs, { error: { code: "CALL_CANCELLED", message: "MCP Tool call was cancelled" } });
       if (!changed) return false;
       const controller = controllers.get(key(projectId, runId));
       controllers.delete(key(projectId, runId)); controller?.abort();
-      try { appendStatus(projectId, runId, "cancelled", completedAt); } catch { /* terminal state is authoritative */ }
       return true;
     },
     list(projectId, cursor) {
@@ -204,6 +240,10 @@ export function createRunService(projects: ProjectService, connections: Connecti
       }
     },
     get: requireRun,
-    events(projectId, runId, after = 0): RunEvent[] { requireRun(projectId, runId); return repository(projectId).events(runId, after); },
+    events(projectId, runId, after = 0, limit): RunEvent[] {
+      requireSummary(projectId, runId);
+      if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1 || limit > 1_000)) throw new InvalidRunError();
+      return repository(projectId).events(runId, after, limit);
+    },
   };
 }

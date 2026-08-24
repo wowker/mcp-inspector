@@ -19,7 +19,8 @@ const detail: RunDetail = { ...summary, protocolVersion: null, serverInfo: null,
 function fake(overrides: Partial<RunServiceWithEvents> = {}): RunServiceWithEvents {
   return {
     eventBus: new RunEventBus(), start: () => summary, cancel: () => true,
-    list: () => ({ runs: [summary], nextCursor: null }), get: () => detail, events: () => [], ...overrides,
+    list: () => ({ runs: [summary], nextCursor: null }), get: () => detail,
+    assertExists: () => summary, events: () => [], ...overrides,
   };
 }
 
@@ -91,5 +92,41 @@ describe("run routes", () => {
     const response = await createRunRoutes(service).request(`/${projectId}/runs/${runId}/events`);
     await vi.waitFor(() => expect(bus.subscriberCount(runId)).toBe(0));
     await response.body?.cancel().catch(() => undefined);
+  });
+
+  it("streams a 300-event persisted backlog in pages while deduplicating a live arrival", async () => {
+    const bus = new RunEventBus();
+    const all = Array.from({ length: 301 }, (_, index) => ({ runId, sequence: index + 1, kind: "rpc-in",
+      occurredAt: "2026-08-17T00:00:00.000Z", payload: { sequence: index + 1 } } satisfies RunEvent));
+    let calls = 0;
+    const service = fake({ eventBus: bus,
+      events: (_project, _run, after = 0, limit = 128) => {
+        calls += 1;
+        if (calls === 2) bus.publish(all[300]);
+        return all.filter(({ sequence }) => sequence > after).slice(0, limit);
+      },
+    } as Partial<RunServiceWithEvents>);
+    const response = await createRunRoutes(service).request(`/${projectId}/runs/${runId}/events`);
+    const reader = response.body!.getReader(); const decoder = new TextDecoder(); let text = "";
+    for (let attempt = 0; attempt < 400 && !text.includes("id: 301"); attempt += 1) {
+      const chunk = await reader.read(); if (chunk.done) break; text += decoder.decode(chunk.value, { stream: true });
+    }
+    const ids = [...text.matchAll(/^id: (\d+)$/gm)].map((match) => Number(match[1]));
+    expect(ids).toEqual(Array.from({ length: 301 }, (_, index) => index + 1));
+    expect(calls).toBeGreaterThanOrEqual(3);
+    await reader.cancel();
+  });
+
+  it("never lets another Run's live cursor enter the requested Run stream", async () => {
+    const otherRunId = "00000000-0000-4000-8000-000000000799";
+    const bus = new RunEventBus();
+    const own = { runId, sequence: 2, kind: "rpc-in", occurredAt: "2026-08-17T00:00:00.000Z", payload: { owner: "a" } } satisfies RunEvent;
+    const foreign = { ...own, runId: otherRunId, sequence: 99, payload: { owner: "b" } };
+    const service = fake({ eventBus: bus, events: () => { bus.publish(foreign); return [own]; } });
+    const response = await createRunRoutes(service).request(`/${projectId}/runs/${runId}/events?after=1`);
+    const reader = response.body!.getReader(); const first = await reader.read();
+    const text = new TextDecoder().decode(first.value);
+    expect(text).toContain("id: 2"); expect(text).not.toContain("id: 99"); expect(text).not.toContain(otherRunId);
+    await reader.cancel();
   });
 });

@@ -39,6 +39,12 @@ describe("createObservedFetch", () => {
     });
 
     expect(events).toHaveLength(4);
+    const requestEvent = events.find((event) => event.kind === "http-request");
+    const responseEvent = events.find((event) => event.kind === "http-response");
+    const requestExchange = requestEvent !== undefined && "exchangeId" in requestEvent ? requestEvent.exchangeId : undefined;
+    const responseExchange = responseEvent !== undefined && "exchangeId" in responseEvent ? responseEvent.exchangeId : undefined;
+    expect(requestExchange).toBeDefined();
+    expect(responseExchange).toBe(requestExchange);
     expect(await response.json()).toEqual({ jsonrpc: "2.0", id: 1, result: { tools: [] } });
     expect(events).toEqual([
       expect.objectContaining({ kind: "http-request", headers: expect.objectContaining({ authorization: "[REDACTED]", cookie: "[REDACTED]" }) }),

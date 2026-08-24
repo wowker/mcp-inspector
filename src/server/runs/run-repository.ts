@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { ProjectStore } from "../projects/project-store.js";
 import { RunEventBus } from "./run-event-bus.js";
 import type { RunDetail, RunError, RunEvent, RunPage, RunStatus, RunSummary } from "./run-types.js";
@@ -44,7 +45,12 @@ export interface NewRun {
 export interface ExistingIdentity { tabId: string | null; toolSnapshotId: string; canonicalArguments: string }
 
 export class RunRepository {
-  constructor(private readonly store: ProjectStore, private readonly bus: RunEventBus) {}
+  private readonly maxResponseBytes: number;
+  constructor(private readonly store: ProjectStore, private readonly bus: RunEventBus,
+    options: { maxResponseBytes?: number } = {}) {
+    this.maxResponseBytes = options.maxResponseBytes ?? 25 * 1024 * 1024;
+    if (!Number.isSafeInteger(this.maxResponseBytes) || this.maxResponseBytes < 1) throw new Error("Response limit is invalid");
+  }
 
   create(input: NewRun): { run: RunSummary; created: boolean; identity: ExistingIdentity } {
     const operation = this.store.database.transaction(() => {
@@ -137,19 +143,67 @@ export class RunRepository {
     return result.changes === 1;
   }
 
+  private responseRecord(result: unknown | undefined): {
+    resultJson: string | null; truncated: number; originalBytes: number | null;
+  } {
+    if (result === undefined) return { resultJson: null, truncated: 0, originalBytes: null };
+    let json: string;
+    try {
+      json = JSON.stringify(result);
+      if (json === undefined) throw new Error();
+    } catch {
+      return { resultJson: JSON.stringify({ unavailable: true, reason: "Result is not valid JSON" }),
+        truncated: 1, originalBytes: null };
+    }
+    const originalBytes = Buffer.byteLength(json, "utf8");
+    if (originalBytes <= this.maxResponseBytes) return { resultJson: json, truncated: 0, originalBytes };
+    const descriptor = { truncated: true, originalBytes,
+      sha256: createHash("sha256").update(json).digest("hex"),
+      preview: Array.from(json).slice(0, 256).join("") };
+    return { resultJson: JSON.stringify(descriptor), truncated: 1, originalBytes };
+  }
+
   finish(projectId: string, runId: string, status: "succeeded" | "failed" | "cancelled",
     at: string, durationMs: number, networkDurationMs: number | null,
-    response: { result?: unknown; error?: RunError }): boolean {
-    return this.store.database.transaction(() => {
+    response: { result?: unknown; error?: RunError }): RunEvent | null {
+    const stored = this.responseRecord(response.result);
+    const completed = this.store.database.transaction(() => {
       const placeholders = active.map(() => "?").join(",");
       const changed = this.store.database.prepare(`UPDATE runs SET status = ?, completed_at = ?, duration_ms = ?, network_duration_ms = ?
         WHERE project_id = ? AND id = ? AND status IN (${placeholders})`)
         .run(status, at, durationMs, networkDurationMs, projectId, runId, ...active).changes;
+      if (changed !== 1) return null;
+      this.store.database.prepare(`INSERT INTO run_responses
+        (run_id, result_json, error_json, truncated, original_bytes) VALUES (?, ?, ?, ?, ?)`)
+        .run(runId, stored.resultJson, response.error === undefined ? null : JSON.stringify(response.error),
+          stored.truncated, stored.originalBytes);
+      this.store.database.prepare(`UPDATE debug_tabs SET last_run_id = ?, updated_at = ?
+        WHERE project_id = ? AND id = (SELECT tab_id FROM runs WHERE id = ?)`)
+        .run(runId, at, projectId, runId);
+      const row = this.store.database.prepare("SELECT COALESCE(MAX(sequence), 0) + 1 AS sequence FROM run_events WHERE run_id = ?")
+        .get(runId) as { sequence: number };
+      const terminalEvent: RunEvent = { runId, sequence: row.sequence, kind: "run-status", occurredAt: at, payload: { status } };
+      this.store.database.prepare(`INSERT INTO run_events (run_id, sequence, kind, occurred_at, payload_json)
+        VALUES (?, ?, 'run-status', ?, ?)`).run(runId, row.sequence, at, JSON.stringify(terminalEvent.payload));
+      return terminalEvent;
+    })();
+    if (completed !== null) this.bus.publish(completed);
+    return completed;
+  }
+
+  failRecording(projectId: string, runId: string, at: string, durationMs: number,
+    networkDurationMs: number | null, result?: unknown): boolean {
+    const stored = this.responseRecord(result);
+    return this.store.database.transaction(() => {
+      const placeholders = active.map(() => "?").join(",");
+      const changed = this.store.database.prepare(`UPDATE runs SET status = 'failed', completed_at = ?, duration_ms = ?, network_duration_ms = ?
+        WHERE project_id = ? AND id = ? AND status IN (${placeholders})`)
+        .run(at, durationMs, networkDurationMs, projectId, runId, ...active).changes;
       if (changed !== 1) return false;
       this.store.database.prepare(`INSERT INTO run_responses
-        (run_id, result_json, error_json, truncated, original_bytes) VALUES (?, ?, ?, 0, NULL)`)
-        .run(runId, response.result === undefined ? null : JSON.stringify(response.result),
-          response.error === undefined ? null : JSON.stringify(response.error));
+        (run_id, result_json, error_json, truncated, original_bytes) VALUES (?, ?, ?, ?, ?)`)
+        .run(runId, stored.resultJson, JSON.stringify({ code: "TRACE_PERSIST_FAILED",
+          message: "Tool call completed but trace persistence failed" }), stored.truncated, stored.originalBytes);
       this.store.database.prepare(`UPDATE debug_tabs SET last_run_id = ?, updated_at = ?
         WHERE project_id = ? AND id = (SELECT tab_id FROM runs WHERE id = ?)`)
         .run(runId, at, projectId, runId);
@@ -169,14 +223,15 @@ export class RunRepository {
     return created;
   }
 
-  recordHttpRequest(runId: string, value: unknown): void {
-    this.store.database.prepare("UPDATE run_requests SET http_json = COALESCE(http_json, ?) WHERE run_id = ?")
+  recordHttpRequest(runId: string, value: unknown, replace = false): void {
+    this.store.database.prepare(`UPDATE run_requests SET http_json = ${replace ? "?" : "COALESCE(http_json, ?)"} WHERE run_id = ?`)
       .run(JSON.stringify(value), runId);
   }
 
-  events(runId: string, after: number): RunEvent[] {
+  events(runId: string, after: number, limit?: number): RunEvent[] {
     return (this.store.database.prepare(`SELECT run_id, sequence, kind, occurred_at, payload_json
-      FROM run_events WHERE run_id = ? AND sequence > ? ORDER BY sequence`).all(runId, after) as EventRow[]).map(event);
+      FROM run_events WHERE run_id = ? AND sequence > ? ORDER BY sequence ${limit === undefined ? "" : "LIMIT ?"}`)
+      .all(...(limit === undefined ? [runId, after] : [runId, after, limit])) as EventRow[]).map(event);
   }
 
   list(projectId: string, cursor?: string, limit = 50): RunPage {
@@ -187,6 +242,7 @@ export class RunRepository {
         if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error();
         const value = parsed as Record<string, unknown>;
         if (value.projectId !== projectId || typeof value.createdAt !== "string" || Number.isNaN(Date.parse(value.createdAt)) ||
+            new Date(value.createdAt).toISOString() !== value.createdAt ||
             typeof value.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.id)) throw new Error();
         boundary = { projectId, createdAt: value.createdAt, id: value.id };
       } catch { throw new Error("Run cursor is invalid"); }

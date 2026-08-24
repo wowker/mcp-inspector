@@ -2,8 +2,8 @@ import type { CallToolResult, Tool } from "@modelcontextprotocol/client";
 import type { ConnectionError, ConnectionRecord } from "./connection-types.js";
 
 export type WireObservation =
-  | { kind: "http-request"; at: string; method: string; url: string; headers: Record<string, string>; body: unknown }
-  | { kind: "http-response"; at: string; status: number; headers: Record<string, string>; body: unknown }
+  | { kind: "http-request"; at: string; exchangeId?: string; method: string; url: string; headers: Record<string, string>; body: unknown }
+  | { kind: "http-response"; at: string; exchangeId?: string; status: number; headers: Record<string, string>; body: unknown }
   | { kind: "rpc-out" | "rpc-in"; at: string; message: unknown };
 
 export interface McpSession {

@@ -66,7 +66,7 @@ export function createRunRoutes(runs: RunServiceWithEvents): Hono {
     const after = afterValue(c.req.query("after"));
     if (after === null) return c.json({ error: { code: "INVALID_EVENT_CURSOR", message: "Event cursor is invalid" } }, 400);
     const projectId = c.req.param("projectId"); const runId = c.req.param("runId");
-    try { runs.get(projectId, runId); } catch (error) { return errorResponse(c, error); }
+    try { runs.assertExists(projectId, runId); } catch (error) { return errorResponse(c, error); }
     return streamSSE(c, async (stream) => {
       const pending = new Map<number, RunEvent>();
       let delivered = after; let wake: (() => void) | undefined; let overflow = false;
@@ -80,7 +80,17 @@ export function createRunRoutes(runs: RunServiceWithEvents): Hono {
       let aborted = false;
       stream.onAbort(() => { aborted = true; signal(); unsubscribe(); });
       try {
-        for (const item of runs.events(projectId, runId, after)) accept(item);
+        let replayAfter = after;
+        while (!aborted && !overflow) {
+          const page = runs.events(projectId, runId, replayAfter, 128);
+          for (const item of page) {
+            pending.delete(item.sequence);
+            if (item.sequence <= delivered) continue;
+            await stream.writeSSE({ id: String(item.sequence), event: item.kind, data: JSON.stringify(item) });
+            delivered = item.sequence; replayAfter = item.sequence;
+          }
+          if (page.length < 128) break;
+        }
         while (!aborted && !overflow) {
           const next = [...pending.values()].sort((left, right) => left.sequence - right.sequence)[0];
           if (next !== undefined) {

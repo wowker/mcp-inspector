@@ -7,9 +7,12 @@ import { FakeMcpSession } from "../../../../test-support/fake-mcp-session.js";
 import { createConnectionService } from "../../connections/connection-service.js";
 import { CallTimeoutError } from "../../connections/connection-runtime.js";
 import { createProjectService } from "../../projects/project-service.js";
+import { ProjectStore } from "../../projects/project-store.js";
 import { createTabService } from "../../tabs/tab-service.js";
 import { ToolRepository } from "../../tools/tool-repository.js";
 import { createToolService } from "../../tools/tool-service.js";
+import { RunRepository } from "../run-repository.js";
+import { RunEventBus } from "../run-event-bus.js";
 import { RunIdempotencyConflictError, RunValidationError, createRunService } from "../run-service.js";
 
 const projectId = "00000000-0000-4000-8000-000000000701";
@@ -42,7 +45,7 @@ describe("RunService", () => {
     const tabA = tabs.open({ projectId, connectionId, toolName: "sum" });
     const tabB = tabs.open({ projectId, connectionId, toolName: "sum" });
     const service = createRunService(projects, connections, tabs, { createId: ids });
-    return { projects, connections, session, tabs, tabA, tabB, service };
+    return { dataRoot, projects, connections, session, tabs, tabA, tabB, service };
   }
 
   async function terminal(service: ReturnType<typeof createRunService>, id: string) {
@@ -54,8 +57,8 @@ describe("RunService", () => {
     throw new Error("Run did not finish");
   }
 
-  it("is idempotent only for the same Tab, snapshot, and canonical arguments", () => {
-    const { projects, service, tabA, tabB } = fixture();
+  it("is idempotent only for the same Tab, snapshot, and canonical arguments", async () => {
+    const { projects, session, service, tabA, tabB } = fixture();
     try {
       const first = service.start({ projectId, tabId: tabA.id, idempotencyKey: "submit-a", arguments: { a: 1, b: 2 } });
       const duplicate = service.start({ projectId, tabId: tabA.id, idempotencyKey: "submit-a", arguments: { b: 2, a: 1 } });
@@ -65,7 +68,30 @@ describe("RunService", () => {
       expect(() => service.start({ projectId, tabId: tabB.id, idempotencyKey: "submit-a", arguments: { a: 99 } }))
         .toThrow(RunIdempotencyConflictError);
       expect(service.cancel(projectId, first.id)).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(session.calls).toHaveLength(0);
     } finally { projects.close(); }
+  });
+
+  it("makes duplicate inserts race-safe across independent SQLite handles", async () => {
+    const { dataRoot, projects, tabA } = fixture();
+    const project = projects.list()[0];
+    const secondStore = new ProjectStore({ databasePath: join(dataRoot, "projects", projectId, "project.sqlite"), project });
+    try {
+      const firstStore = projects.open(projectId); const bus = new RunEventBus();
+      const snapshot = firstStore.database.prepare("SELECT id FROM tool_snapshots LIMIT 1").get() as { id: string };
+      const input = { projectId, connectionId, tabId: tabA.id, toolName: "sum", toolSnapshotId: snapshot.id,
+        idempotencyKey: "parallel", canonicalArguments: '{"a":1}', jsonrpc: { method: "tools/call" }, clientInfo: {},
+        createdAt: "2026-08-17T00:00:00.000Z" };
+      const [left, right] = await Promise.all([
+        Promise.resolve().then(() => new RunRepository(firstStore, bus).create({ ...input, id: "00000000-0000-4000-8000-000000000981" })),
+        Promise.resolve().then(() => new RunRepository(secondStore, bus).create({ ...input, id: "00000000-0000-4000-8000-000000000982" })),
+      ]);
+      expect([left.created, right.created].sort()).toEqual([false, true]);
+      expect(left.run.id).toBe(right.run.id);
+      expect(firstStore.database.prepare("SELECT count(*) AS count FROM runs WHERE idempotency_key = 'parallel'").get())
+        .toEqual({ count: 1 });
+    } finally { secondStore.close(); projects.close(); }
   });
 
   it("schedules exactly one execution for duplicate submissions", async () => {
@@ -73,10 +99,23 @@ describe("RunService", () => {
     try {
       await connections.connect(projectId, connectionId);
       const first = service.start({ projectId, tabId: tabA.id, idempotencyKey: "one-execution", arguments: { a: 1 } });
+      let terminalWasCommitted = false;
+      const unsubscribe = service.eventBus.subscribe(first.id, (event) => {
+        if ((event.payload as { status?: string }).status !== "succeeded") return;
+        const stored = projects.open(projectId).database.prepare(`SELECT r.status, p.result_json, t.last_run_id
+          FROM runs r JOIN run_responses p ON p.run_id = r.id JOIN debug_tabs t ON t.id = r.tab_id WHERE r.id = ?`)
+          .get(first.id) as { status: string; result_json: string; last_run_id: string };
+        terminalWasCommitted = stored.status === "succeeded" && stored.last_run_id === first.id && JSON.parse(stored.result_json) !== null;
+        throw new Error("listener failure must not roll back the transaction");
+      });
       const duplicate = service.start({ projectId, tabId: tabA.id, idempotencyKey: "one-execution", arguments: { a: 1 } });
       expect(duplicate.id).toBe(first.id);
       await terminal(service, first.id);
+      unsubscribe();
       expect(session.calls).toHaveLength(1);
+      expect(terminalWasCommitted).toBe(true);
+      expect(new RunRepository(projects.open(projectId), service.eventBus)
+        .transition(projectId, first.id, ["queued"], "running", new Date().toISOString())).toBe(false);
     } finally { projects.close(); }
   });
 
@@ -115,7 +154,7 @@ describe("RunService", () => {
   it("lets cancellation win a late result and preserves isError Tool results", async () => {
     const late = deferred<CallToolResult>();
     let call = 0;
-    const { projects, connections, service, tabA } = fixture(async () => ++call === 1 ? late.promise : ({ isError: true, content: [{ type: "text", text: "bad input" }] }));
+    const { projects, connections, service, tabs, tabA } = fixture(async () => ++call === 1 ? late.promise : ({ isError: true, content: [{ type: "text", text: "bad input" }] }));
     try {
       await connections.connect(projectId, connectionId);
       const cancelled = service.start({ projectId, tabId: tabA.id, idempotencyKey: "cancel", arguments: { a: 1 } });
@@ -126,6 +165,11 @@ describe("RunService", () => {
       expect(service.get(projectId, cancelled.id).response?.result).toBeNull();
       expect(service.get(projectId, cancelled.id).response?.error?.code).toBe("CALL_CANCELLED");
       expect(service.cancel(projectId, cancelled.id)).toBe(false);
+      const completedAt = service.get(projectId, cancelled.id).completedAt;
+      const lastRunId = tabs.get(projectId, tabA.id).lastRunId;
+      expect(service.cancel(projectId, cancelled.id)).toBe(false);
+      expect(service.get(projectId, cancelled.id).completedAt).toBe(completedAt);
+      expect(tabs.get(projectId, tabA.id).lastRunId).toBe(lastRunId);
       const failed = service.start({ projectId, tabId: tabA.id, idempotencyKey: "tool-error", arguments: { a: 2 } });
       const detail = await terminal(service, failed.id);
       expect(detail.status).toBe("failed");
@@ -207,6 +251,97 @@ describe("RunService", () => {
       const detail = await terminal(service, run.id);
       expect(detail.status).toBe("failed");
       expect(detail.response?.error).toEqual({ code: "TRACE_PERSIST_FAILED", message: "Tool call completed but trace persistence failed" });
+      expect(detail.response?.result).toEqual({ content: [{ type: "text", text: "completed" }] });
+    } finally { projects.close(); }
+  });
+
+  it("falls back to failed when an atomic success terminal event cannot be recorded", async () => {
+    const { projects, connections, service, tabA } = fixture();
+    try {
+      await connections.connect(projectId, connectionId);
+      projects.open(projectId).database.exec(`CREATE TRIGGER reject_success_event BEFORE INSERT ON run_events
+        WHEN NEW.kind = 'run-status' AND NEW.payload_json LIKE '%succeeded%' BEGIN SELECT RAISE(ABORT, 'terminal event failed'); END`);
+      const run = service.start({ projectId, tabId: tabA.id, idempotencyKey: "terminal-event-fail", arguments: { a: 1 } });
+      const detail = await terminal(service, run.id);
+      expect(detail.status).toBe("failed");
+      expect(detail.response?.error?.code).toBe("TRACE_PERSIST_FAILED");
+      expect(detail.response?.result).toEqual({ content: [{ type: "text", text: "sum" }] });
+      expect(detail.events.some(({ payload }) => JSON.stringify(payload).includes("succeeded"))).toBe(false);
+    } finally { projects.close(); }
+  });
+
+  it("falls back to failed when cancellation cannot atomically record its terminal event", async () => {
+    const late = deferred<CallToolResult>();
+    const { projects, connections, service, tabA } = fixture(async () => late.promise);
+    try {
+      await connections.connect(projectId, connectionId);
+      const run = service.start({ projectId, tabId: tabA.id, idempotencyKey: "cancel-event-fail", arguments: { a: 1 } });
+      await vi.waitFor(() => expect(service.get(projectId, run.id).status).toBe("running"));
+      projects.open(projectId).database.exec(`CREATE TRIGGER reject_cancel_event BEFORE INSERT ON run_events
+        WHEN NEW.kind = 'run-status' AND NEW.payload_json LIKE '%cancelled%' BEGIN SELECT RAISE(ABORT, 'terminal event failed'); END`);
+      expect(service.cancel(projectId, run.id)).toBe(true);
+      const detail = service.get(projectId, run.id);
+      expect(detail.status).toBe("failed");
+      expect(detail.response?.error?.code).toBe("TRACE_PERSIST_FAILED");
+      expect(detail.events.some(({ payload }) => JSON.stringify(payload).includes("cancelled"))).toBe(false);
+      late.resolve({ content: [{ type: "text", text: "late" }] });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(service.get(projectId, run.id).status).toBe("failed");
+    } finally { projects.close(); }
+  });
+
+  it("stores a bounded UTF-8-safe descriptor for oversized Tool results", async () => {
+    const result = { isError: true, content: [{ type: "text" as const, text: `前缀-${"x".repeat(500)}-结尾` }] };
+    const base = fixture(async () => result);
+    const service = createRunService(base.projects, base.connections, base.tabs, {
+      createId: (() => { let next = 900; return () => `00000000-0000-4000-8000-${String(next++).padStart(12, "0")}`; })(),
+      ...({ maxResponseBytes: 100 } as {}),
+    });
+    try {
+      await base.connections.connect(projectId, connectionId);
+      const run = service.start({ projectId, tabId: base.tabA.id, idempotencyKey: "large-result", arguments: { a: 1 } });
+      const detail = await terminal(service, run.id);
+      expect(detail.status).toBe("failed");
+      expect(detail.response?.truncated).toBe(true);
+      expect(detail.response?.originalBytes).toBe(new TextEncoder().encode(JSON.stringify(result)).byteLength);
+      expect(detail.response?.result).toMatchObject({ truncated: true, originalBytes: expect.any(Number), sha256: expect.stringMatching(/^[a-f0-9]{64}$/) });
+      expect(() => JSON.stringify(detail.response?.result)).not.toThrow();
+    } finally { base.projects.close(); }
+  });
+
+  it("stores a response exactly at the byte limit without truncating it", async () => {
+    const result = { content: [{ type: "text" as const, text: "边界" }] };
+    const maxResponseBytes = new TextEncoder().encode(JSON.stringify(result)).byteLength;
+    const base = fixture(async () => result);
+    const service = createRunService(base.projects, base.connections, base.tabs, {
+      createId: () => "00000000-0000-4000-8000-000000000998", maxResponseBytes,
+    });
+    try {
+      await base.connections.connect(projectId, connectionId);
+      const run = service.start({ projectId, tabId: base.tabA.id, idempotencyKey: "exact-limit", arguments: { a: 1 } });
+      const detail = await terminal(service, run.id);
+      expect(detail.response?.truncated).toBe(false);
+      expect(detail.response?.originalBytes).toBe(maxResponseBytes);
+      expect(detail.response?.result).toEqual(result);
+    } finally { base.projects.close(); }
+  });
+
+  it("selects the tools/call HTTP exchange when extra stream traffic is observed", async () => {
+    const { projects, connections, service, tabA } = fixture(async ({ observe }) => {
+      observe?.({ kind: "http-request", exchangeId: "stream", at: "2026-08-17T00:00:00.000Z", method: "GET", url: "https://example.test/sse", headers: {}, body: null });
+      observe?.({ kind: "http-request", exchangeId: "call", at: "2026-08-17T00:00:01.000Z", method: "POST", url: "https://example.test/mcp", headers: {},
+        body: { jsonrpc: "2.0", method: "tools/call" } });
+      observe?.({ kind: "http-response", exchangeId: "stream", at: "2026-08-17T00:00:01.010Z", status: 200, headers: {}, body: { stream: true } });
+      observe?.({ kind: "rpc-in", at: "2026-08-17T00:00:01.020Z", message: { method: "notifications/progress" } });
+      observe?.({ kind: "http-response", exchangeId: "call", at: "2026-08-17T00:00:01.040Z", status: 200, headers: {}, body: {} });
+      return { content: [{ type: "text", text: "ok" }] };
+    });
+    try {
+      await connections.connect(projectId, connectionId);
+      const run = service.start({ projectId, tabId: tabA.id, idempotencyKey: "timing", arguments: { a: 1 } });
+      const detail = await terminal(service, run.id);
+      expect(detail.networkDurationMs).toBe(40);
+      expect(detail.request.http).toMatchObject({ body: { method: "tools/call" } });
     } finally { projects.close(); }
   });
 
@@ -233,10 +368,26 @@ describe("RunService", () => {
       const decoded = JSON.parse(Buffer.from(first.nextCursor!, "base64url").toString("utf8"));
       decoded.projectId = "00000000-0000-4000-8000-000000000799";
       expect(() => service.list(projectId, Buffer.from(JSON.stringify(decoded)).toString("base64url"))).toThrow(/cursor/i);
+      for (const mutation of [{ createdAt: "2026-08-17" }, { id: "not-a-uuid" }]) {
+        const malformed = { ...JSON.parse(Buffer.from(first.nextCursor!, "base64url").toString("utf8")), ...mutation };
+        expect(() => service.list(projectId, Buffer.from(JSON.stringify(malformed)).toString("base64url"))).toThrow(/cursor/i);
+      }
       projects.open(projectId).database.prepare("UPDATE run_requests SET arguments_json = 'not-json' WHERE run_id = ?").run(runs[0].id);
       expect(() => service.get(projectId, runs[0].id)).toThrow(/corrupt/i);
       expect(projects.open(projectId).database.prepare("SELECT version FROM schema_migrations ORDER BY version").all())
         .toEqual([1, 2, 3, 4, 5].map((version) => ({ version })));
+      const store = projects.open(projectId); const snapshotId = store.database.prepare("SELECT id FROM tool_snapshots LIMIT 1").get() as { id: string };
+      const insert = store.database.prepare(`INSERT INTO runs
+        (id, project_id, connection_id, tab_id, tool_name, tool_snapshot_id, idempotency_key, status, created_at, client_info_json)
+        VALUES (?, ?, ?, ?, 'sum', ?, ?, 'queued', '2026-08-17T00:00:00.000Z', '{}')`);
+      const bad = "00000000-0000-4000-8000-000000000799";
+      for (const [index, values] of [
+        [bad, connectionId, tabA.id, snapshotId.id], [projectId, bad, tabA.id, snapshotId.id],
+        [projectId, connectionId, bad, snapshotId.id], [projectId, connectionId, tabA.id, bad],
+      ].entries()) {
+        expect(() => insert.run(`00000000-0000-4000-8000-${String(970 + index).padStart(12, "0")}`,
+          values[0], values[1], values[2], values[3], `fk-${index}`)).toThrow(/foreign key/i);
+      }
     } finally { projects.close(); }
   });
 });
