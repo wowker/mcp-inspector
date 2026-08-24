@@ -7,23 +7,25 @@ import { fieldsFromSchema, requiresWholeArgumentsFallback, valueFromInput } from
 interface Props {
   tab: DebugTabSummary; schema: Record<string, unknown>;
   onChange: (patch: Partial<DebugTabSummary>) => void; onExecute?: () => void;
-  subtreeDrafts?: Readonly<Record<string, string>>;
-  onSubtreeDraftChange?: (path: string, text: string) => void;
+  subtreeDrafts?: Readonly<Record<string, { text: string; base: string }>>;
+  onSubtreeDraftChange?: (path: string, text: string, base: string) => void;
 }
 
-function JsonSubtreeEditor({ id, value, describedBy, draft, onDraftChange, onCommit }: {
-  id: string; value: unknown; describedBy?: string; draft?: string;
-  onDraftChange?: (text: string) => void; onCommit: (value: unknown) => void;
+function JsonSubtreeEditor({ id, value, describedBy, draft, objectOnly = false, onDraftChange, onCommit }: {
+  id: string; value: unknown; describedBy?: string; draft?: { text: string; base: string };
+  objectOnly?: boolean; onDraftChange?: (text: string, base: string) => void; onCommit: (value: unknown) => void;
 }) {
   const formatted = value === undefined ? "" : JSON.stringify(value, null, 2);
   const [localText, setLocalText] = useState(formatted);
   const [invalid, setInvalid] = useState(false);
-  const text = draft ?? localText;
+  const text = draft?.base === formatted ? draft.text : draft === undefined ? localText : formatted;
   useEffect(() => { if (draft === undefined) setLocalText(formatted); }, [draft, formatted]);
   return <><textarea id={id} value={text} aria-describedby={describedBy} aria-invalid={invalid}
-    onChange={(event) => { onDraftChange?.(event.target.value); if (draft === undefined) setLocalText(event.target.value); setInvalid(false); }}
-    onBlur={() => { try { onCommit(JSON.parse(text)); setInvalid(false); } catch { setInvalid(true); } }} />
-    {invalid && <p role="alert">请输入有效 JSON</p>}</>;
+    onChange={(event) => { onDraftChange?.(event.target.value, formatted); if (draft === undefined) setLocalText(event.target.value); setInvalid(false); }}
+    onBlur={() => { try { const parsed: unknown = JSON.parse(text);
+      if (objectOnly && (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))) throw new Error("object required");
+      onCommit(parsed); setInvalid(false); } catch { setInvalid(true); } }} />
+    {invalid && <p role="alert">{objectOnly ? "必须是 JSON 对象" : "请输入有效 JSON"}</p>}</>;
 }
 
 export function ParameterEditor({ tab, schema, onChange, onExecute, subtreeDrafts = {}, onSubtreeDraftChange }: Props) {
@@ -83,11 +85,9 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, subtreeDraft
     </div> : <div id={`panel-form-${tab.id}`} role="tabpanel" aria-labelledby={`mode-form-${tab.id}`} className="schema-fields">
       {wholeFallback && <div className="schema-field">
         <label htmlFor={`${tab.id}-whole`}>完整 arguments（复杂 Schema）</label>
-        <JsonSubtreeEditor id={`${tab.id}-whole`} value={tab.arguments} draft={subtreeDrafts[""]}
-          onDraftChange={(text) => onSubtreeDraftChange?.("", text)}
-          onCommit={(value) => { if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-            onChange({ arguments: value as Record<string, unknown>, rawText: formatRawArguments(value as Record<string, unknown>) });
-          } }} />
+        <JsonSubtreeEditor id={`${tab.id}-whole`} value={tab.arguments} draft={subtreeDrafts[""]} objectOnly
+          onDraftChange={(text, base) => onSubtreeDraftChange?.("", text, base)}
+          onCommit={(value) => onChange({ arguments: value as Record<string, unknown>, rawText: formatRawArguments(value as Record<string, unknown>) })} />
       </div>}
       {!wholeFallback && fields.map((field) => {
         const errors = issuesAt(field.path); const inputId = `${tab.id}-${field.name}`;
@@ -104,7 +104,7 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, subtreeDraft
               aria-describedby={describedBy} onChange={(event) => { const next = valueFromInput(field, event.target.value); if (next.ok) edit(field.name, next.value); }}>
               <option value="">请选择</option>{field.enumValues?.map((item, index) => <option value={index} key={index}>{String(item)}</option>)}</select>
           : field.kind === "json" ? <JsonSubtreeEditor id={inputId} value={field.value} describedBy={describedBy}
-              draft={subtreeDrafts[field.path]} onDraftChange={(text) => onSubtreeDraftChange?.(field.path, text)}
+              draft={subtreeDrafts[field.path]} onDraftChange={(text, base) => onSubtreeDraftChange?.(field.path, text, base)}
               onCommit={(value) => edit(field.name, value)} />
           : <input id={inputId} type={field.kind === "string" ? "text" : "number"} value={field.value === undefined ? "" : String(field.value)}
               step={field.kind === "integer" ? 1 : "any"} aria-describedby={describedBy}

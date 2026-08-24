@@ -17,6 +17,8 @@ describe("Tab API client", () => {
     ["foreign project", { ...tab, projectId: "00000000-0000-4000-8000-000000000799" }],
     ["bad connection", { ...tab, connectionId: "bad" }],
     ["empty Tool", { ...tab, toolName: "" }],
+    ["whitespace Tool", { ...tab, toolName: "   " }],
+    ["long Tool", { ...tab, toolName: "x".repeat(513) }],
     ["empty title", { ...tab, title: " " }],
     ["long title", { ...tab, title: "x".repeat(181) }],
     ["fraction position", { ...tab, position: 0.5 }],
@@ -49,5 +51,31 @@ describe("Tab API client", () => {
     expect(fetchMock).toHaveBeenCalledWith(`/api/projects/${projectId}/tabs/${tabId}`,
       expect.objectContaining({ method: "PATCH", headers: expect.objectContaining({ "X-DSers-Inspector-Session": "session" }),
         body: JSON.stringify({ pinned: true }) }));
+  });
+
+  it("decodes every Tab API method and envelope", async () => {
+    const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status,
+      headers: { "Content-Type": "application/json" } });
+    fetchMock
+      .mockResolvedValueOnce(json({ tabs: [tab] }))
+      .mockResolvedValueOnce(json({ tab }, 201))
+      .mockResolvedValueOnce(json({ tab }))
+      .mockResolvedValueOnce(json({ tab }))
+      .mockResolvedValueOnce(json({ tab }, 201))
+      .mockResolvedValueOnce(json({ tabs: [tab] }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(json({ tabs: [tab] }))
+      .mockResolvedValueOnce(json({ tabs: [tab] }));
+    const api = createApiClient("session");
+    await expect(api.listTabs(projectId)).resolves.toEqual([tab]);
+    await expect(api.openTab(projectId, connectionId, "sum")).resolves.toEqual(tab);
+    await expect(api.replaceTabTool(projectId, tabId, connectionId, "sum")).resolves.toEqual(tab);
+    await expect(api.updateTab(projectId, tabId, { rawText: "{}" })).resolves.toEqual(tab);
+    await expect(api.duplicateTab(projectId, tabId)).resolves.toEqual(tab);
+    await expect(api.reorderTabs(projectId, [tabId])).resolves.toEqual([tab]);
+    await expect(api.closeTab(projectId, tabId)).resolves.toBeUndefined();
+    await expect(api.closeOtherTabs(projectId, tabId)).resolves.toEqual([tab]);
+    await expect(api.closeTabsRight(projectId, tabId)).resolves.toEqual([tab]);
+    expect(fetchMock).toHaveBeenCalledTimes(9);
   });
 });

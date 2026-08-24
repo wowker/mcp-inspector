@@ -129,6 +129,14 @@ describe("TabService", () => {
         "00000000-0000-4000-8000-000000000698", "sum", "sum", 0, 0, "form", "{}", "{}",
         '{"editorScrollTop":0,"resultScrollTop":0,"splitRatio":0.5}',
         "2026-08-17T00:00:00.000Z", "2026-08-17T00:00:00.000Z")).toThrow(/foreign key/i);
+    expect(() => store.database.prepare(`INSERT INTO debug_tabs
+      (id, project_id, connection_id, tool_name, title, position, pinned, input_mode,
+       arguments_json, raw_text, view_state_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run("00000000-0000-4000-8000-000000000700", "00000000-0000-4000-8000-000000000697",
+        connectionId, "sum", "sum", 0, 0, "form", "{}", "{}",
+        '{"editorScrollTop":0,"resultScrollTop":0,"splitRatio":0.5}',
+        "2026-08-17T00:00:00.000Z", "2026-08-17T00:00:00.000Z")).toThrow(/foreign key/i);
     projects.close();
     const reopened = createProjectService({ dataRoot });
     try {

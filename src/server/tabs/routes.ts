@@ -6,7 +6,7 @@ import { ToolNotFoundError } from "../tools/tool-service.js";
 import { InvalidTabError, TabNotFoundError, type TabService } from "./tab-service.js";
 
 const uuid = z.string().uuid();
-const openBody = z.object({ connectionId: uuid, toolName: z.string().min(1).max(512) }).strict();
+const openBody = z.object({ connectionId: uuid, toolName: z.string().max(512).refine((value) => value.trim().length > 0) }).strict();
 const replaceBody = openBody;
 const viewState = z.object({ editorScrollTop: z.number().finite().min(0), resultScrollTop: z.number().finite().min(0),
   splitRatio: z.number().finite().min(0.2).max(0.8) }).strict();

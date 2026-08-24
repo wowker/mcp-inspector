@@ -57,6 +57,7 @@ export function createTabService(projects: ProjectService, connections: Connecti
     validId(id); const tab = repo(projectId).get(projectId, id); if (tab === null) throw new TabNotFoundError(); return tab;
   }
   function validateTool(projectId: string, connectionId: string, toolName: string): void {
+    if (toolName.trim().length === 0 || toolName.length > 512) throw new InvalidTabError();
     const detail = tools.get(projectId, connectionId, toolName);
     if (detail.tool.status === "removed") throw new InvalidTabError("Removed Tool cannot be opened");
   }

@@ -13,6 +13,7 @@ type WorkspaceView = "debug" | "definition" | "history";
 const PERSIST_DELAY = 300;
 interface PendingSave { revision: number; patch: Partial<DebugTabSummary> }
 interface BoundToolDetail { tabId: string; connectionId: string; toolName: string; value: ToolDetailSummary }
+interface SubtreeDraft { text: string; base: string }
 
 function SchemaPanel({ title, schema }: { title: string; schema: unknown }) {
   const record = typeof schema === "object" && schema !== null && !Array.isArray(schema)
@@ -41,7 +42,7 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
   const [boundDetail, setBoundDetail] = useState<BoundToolDetail | null>(null);
   const [view, setView] = useState<WorkspaceView>("debug");
   const [message, setMessage] = useState<string | null>(null);
-  const [subtreeDrafts, setSubtreeDrafts] = useState<Record<string, Record<string, string>>>({});
+  const [subtreeDrafts, setSubtreeDrafts] = useState<Record<string, Record<string, SubtreeDraft>>>({});
   const tabsRef = useRef<DebugTabSummary[]>([]);
   const activeRef = useRef<string | null>(null);
   const pending = useRef(new Map<string, PendingSave>());
@@ -51,8 +52,25 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
   const [, renderDirtyState] = useState(0);
   const loadGeneration = useRef(0);
   const handledIntent = useRef(0);
+  const intentQueue = useRef<Promise<void>>(Promise.resolve());
+  const workspaceGeneration = useRef(0);
 
-  function assign(next: DebugTabSummary[]): void { tabsRef.current = next; setTabs(next); }
+  function assign(next: DebugTabSummary[]): void {
+    tabsRef.current = next; setTabs(next);
+    setSubtreeDrafts((current) => {
+      const retained: Record<string, Record<string, SubtreeDraft>> = {};
+      for (const [tabId, drafts] of Object.entries(current)) {
+        const tab = next.find((item) => item.id === tabId); if (tab === undefined) continue;
+        const valid = Object.fromEntries(Object.entries(drafts).filter(([path, draft]) => {
+          const key = path.slice(1).replaceAll("~1", "/").replaceAll("~0", "~");
+          const canonical = path === "" ? tab.arguments : tab.arguments[key];
+          return draft.base === (canonical === undefined ? "" : JSON.stringify(canonical, null, 2));
+        }));
+        if (Object.keys(valid).length > 0) retained[tabId] = valid;
+      }
+      return retained;
+    });
+  }
   function activate(id: string | null): void { activeRef.current = id; setActiveId(id); }
 
   const flush = useCallback(async (tabId?: string): Promise<boolean> => {
@@ -92,6 +110,9 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
   function schedule(tabId: string, patch: Partial<DebugTabSummary>): void {
     const tab = tabsRef.current.find(({ id }) => id === tabId); if (tab === undefined) return;
     const nextTab = { ...tab, ...patch };
+    if (patch.arguments !== undefined) setSubtreeDrafts((current) => {
+      const next = { ...current }; delete next[tabId]; return next;
+    });
     assign(tabsRef.current.map((item) => item.id === tabId ? nextTab : item));
     const revision = (revisions.current.get(tabId) ?? 0) + 1; revisions.current.set(tabId, revision);
     pending.current.set(tabId, { revision, patch: { ...(pending.current.get(tabId)?.patch ?? {}), ...patch } });
@@ -106,7 +127,9 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
       if (loadGeneration.current !== generation) return;
       assign(loaded); activate(loaded[0]?.id ?? null);
     }).catch((error: unknown) => { if (loadGeneration.current === generation) setMessage(error instanceof Error ? error.message : "加载 Tabs 失败"); });
-    return () => { loadGeneration.current += 1; void flush(); for (const timer of timers.current.values()) clearTimeout(timer); timers.current.clear(); };
+    const scope = ++workspaceGeneration.current;
+    return () => { loadGeneration.current += 1; if (workspaceGeneration.current === scope) workspaceGeneration.current += 1;
+      void flush(); for (const timer of timers.current.values()) clearTimeout(timer); timers.current.clear(); };
   }, [api, flush, projectId]);
 
   const active = tabs?.find(({ id }) => id === activeId) ?? null;
@@ -124,32 +147,37 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
   useEffect(() => {
     if (toolIntent === null || toolIntent.sequence === handledIntent.current || tabs === null || toolIntent.tool.projectId !== projectId) return;
     handledIntent.current = toolIntent.sequence;
-    void (async () => {
-      await flush(); const current = tabsRef.current.find(({ id }) => id === activeRef.current);
-      const opened = toolIntent.newTab || current === undefined || current.pinned
-        ? await api.openTab(projectId, toolIntent.tool.connectionId, toolIntent.tool.name)
-        : await api.replaceTabTool(projectId, current.id, toolIntent.tool.connectionId, toolIntent.tool.name);
-      const next = current !== undefined && !toolIntent.newTab && !current.pinned
+    const intent = toolIntent; const scope = workspaceGeneration.current;
+    intentQueue.current = intentQueue.current.catch(() => undefined).then(async () => {
+      if (workspaceGeneration.current !== scope || !(await flush()) || workspaceGeneration.current !== scope) return;
+      if (handledIntent.current > intent.sequence) return;
+      const current = tabsRef.current.find(({ id }) => id === activeRef.current);
+      const opened = intent.newTab || current === undefined || current.pinned
+        ? await api.openTab(projectId, intent.tool.connectionId, intent.tool.name)
+        : await api.replaceTabTool(projectId, current.id, intent.tool.connectionId, intent.tool.name);
+      if (workspaceGeneration.current !== scope || handledIntent.current > intent.sequence) return;
+      const next = current !== undefined && !intent.newTab && !current.pinned
         ? tabsRef.current.map((item) => item.id === current.id ? opened : item)
         : [...tabsRef.current, opened];
+      setSubtreeDrafts((drafts) => { const updated = { ...drafts }; if (current !== undefined) delete updated[current.id]; return updated; });
       assign(next.sort((left, right) => left.position - right.position)); activate(opened.id); setView("debug");
-    })().catch((error: unknown) => setMessage(error instanceof Error ? error.message : "无法打开 Tool Tab"));
+    }).catch((error: unknown) => { if (workspaceGeneration.current === scope) setMessage(error instanceof Error ? error.message : "无法打开 Tool Tab"); });
   }, [api, flush, projectId, tabs, toolIntent]);
 
-  async function select(id: string): Promise<void> { await flush(activeRef.current ?? undefined); activate(id); setView("debug"); }
+  async function select(id: string): Promise<void> { if (!(await flush(activeRef.current ?? undefined))) return; activate(id); setView("debug"); }
   async function close(id: string): Promise<void> {
     if (tabsRef.current.find((tab) => tab.id === id)?.pinned === true) return;
-    await flush(id); await api.closeTab(projectId, id); const previous = tabsRef.current; const closedIndex = previous.findIndex((tab) => tab.id === id);
+    if (!(await flush(id))) return; await api.closeTab(projectId, id); const previous = tabsRef.current; const closedIndex = previous.findIndex((tab) => tab.id === id);
     const next = previous.filter((tab) => tab.id !== id); assign(next);
     if (activeRef.current === id) activate(next[Math.max(0, closedIndex - 1)]?.id ?? null);
   }
-  async function duplicate(id: string): Promise<void> { await flush(id); const copy = await api.duplicateTab(projectId, id); assign([...tabsRef.current, copy]); activate(copy.id); }
+  async function duplicate(id: string): Promise<void> { if (!(await flush(id))) return; const copy = await api.duplicateTab(projectId, id); assign([...tabsRef.current, copy]); activate(copy.id); }
   async function bulk(id: string, side: "others" | "right"): Promise<void> {
-    await flush(); const next = side === "others" ? await api.closeOtherTabs(projectId, id) : await api.closeTabsRight(projectId, id);
+    if (!(await flush())) return; const next = side === "others" ? await api.closeOtherTabs(projectId, id) : await api.closeTabsRight(projectId, id);
     assign(next); if (!next.some((tab) => tab.id === activeRef.current)) activate(next.find((tab) => tab.id === id)?.id ?? next[0]?.id ?? null);
   }
   async function move(id: string, offset: -1 | 1): Promise<void> {
-    await flush(); const ordered = [...tabsRef.current]; const index = ordered.findIndex((tab) => tab.id === id);
+    if (!(await flush())) return; const ordered = [...tabsRef.current]; const index = ordered.findIndex((tab) => tab.id === id);
     const target = index + offset; if (index < 0 || target < 0 || target >= ordered.length) return;
     [ordered[index], ordered[target]] = [ordered[target], ordered[index]];
     assign(await api.reorderTabs(projectId, ordered.map((tab) => tab.id)));
@@ -165,7 +193,7 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
   if (tabs === null) return <p role="status">正在恢复调试 Tabs…</p>;
   return <section className="debug-workspace" aria-label="Tool 调试工作台">
     {message !== null && <p role="alert">{message}</p>}
-    <TabStrip tabs={tabs} activeId={activeId} dirtyIds={new Set(pending.current.keys())} onSelect={(id) => void select(id)} onClose={(id) => void close(id)}
+    <TabStrip tabs={tabs} activeId={activeId} dirtyIds={new Set([...pending.current.keys(), ...queues.current.keys()])} onSelect={(id) => void select(id)} onClose={(id) => void close(id)}
       onDuplicate={(id) => void duplicate(id)} onPin={(id, pinned) => schedule(id, { pinned })}
       onMove={(id, offset) => void move(id, offset)}
       onCloseOthers={(id) => void bulk(id, "others")} onCloseRight={(id) => void bulk(id, "right")} />
@@ -181,8 +209,8 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
           onScroll={(event) => schedule(active.id, { viewState: { ...active.viewState, editorScrollTop: event.currentTarget.scrollTop } })}>
           <ParameterEditor tab={active} schema={detail.tool.currentSnapshot.definition.inputSchema}
             subtreeDrafts={subtreeDrafts[active.id]}
-            onSubtreeDraftChange={(path, text) => setSubtreeDrafts((current) => ({ ...current,
-              [active.id]: { ...(current[active.id] ?? {}), [path]: text } }))}
+            onSubtreeDraftChange={(path, text, base) => setSubtreeDrafts((current) => ({ ...current,
+              [active.id]: { ...(current[active.id] ?? {}), [path]: { text, base } } }))}
             onChange={(patch) => schedule(active.id, patch)} onExecute={() => void execute()} />
         </div>
         <label className="split-control">请求区高度
@@ -205,6 +233,6 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
       </article>}
       {view === "history" && <div className="history-placeholder"><h2>当前 Tab 历史</h2><p>运行历史将在下一阶段接入。</p></div>}
     </div>}
-    <span className="sr-only" role="status" aria-live="polite">{pending.current.size > 0 ? "Tab 有待保存更改" : "Tab 已保存"}</span>
+    <span className="sr-only" role="status" aria-live="polite">{queues.current.size > 0 ? "正在保存 Tab" : pending.current.size > 0 ? "Tab 有待保存更改" : "Tab 已保存"}</span>
   </section>;
 }

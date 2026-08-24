@@ -314,7 +314,7 @@ function decodeTab(value: unknown, projectId: string): DebugTabSummary {
   const { id, projectId: owner, connectionId, toolName, title, position, pinned, inputMode,
     arguments: args, rawText, viewState, lastRunId } = value;
   if (typeof id !== "string" || !uuidPattern.test(id) || owner !== projectId ||
-      typeof connectionId !== "string" || !uuidPattern.test(connectionId) || typeof toolName !== "string" || toolName.length === 0 ||
+      typeof connectionId !== "string" || !uuidPattern.test(connectionId) || typeof toolName !== "string" || toolName.trim().length === 0 || toolName.length > 512 ||
       typeof title !== "string" || title.trim().length === 0 || title.length > 180 || !Number.isInteger(position) || (position as number) < 0 ||
       typeof pinned !== "boolean" || (inputMode !== "form" && inputMode !== "raw") || !isObject(args) ||
       typeof rawText !== "string" || rawText.length > 2_000_000 || !isObject(viewState) ||
