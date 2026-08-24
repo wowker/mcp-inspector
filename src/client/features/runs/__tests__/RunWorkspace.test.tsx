@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DebugTabSummary, InspectorApiClient, RunDetail, RunSummary, ToolDetailSummary } from "../../../api/api-client.js";
 import { DebugWorkspace } from "../../tabs/DebugWorkspace.js";
@@ -86,15 +86,22 @@ describe("Run workspace", () => {
     const firstTab = { ...tab, lastRunId: runId }; const secondTab = { ...tab, id: secondTabId, title: "sum (2)", position: 1, lastRunId: secondRunId };
     const running = { ...detail(), status: "running" as const, completedAt: null, durationMs: null, response: null };
     const completed = { ...detail(), id: secondRunId, tabId: secondTabId };
+    let resolveCompleted!: (value: RunDetail) => void;
+    const completedDetail = new Promise<RunDetail>((resolve) => { resolveCompleted = resolve; });
     const client = api({ listTabs: vi.fn(async () => [firstTab, secondTab]),
       getRunSummary: vi.fn(async (_project, id) => id === secondRunId ? completed : running),
-      getRun: vi.fn(async (_project, id) => id === secondRunId ? completed : running),
+      getRun: vi.fn(async (_project, id) => id === secondRunId ? completedDetail : running),
       openRunEventStream: vi.fn((_project, _id, _after, signal) =>
         new Promise<Response>((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }))),
     });
     render(<DebugWorkspace api={client} projectId={projectId} />);
     await waitFor(() => expect(client.getRunSummary).toHaveBeenCalledWith(projectId, secondRunId, expect.any(AbortSignal)));
-    const secondTabButton = screen.getByRole("tab", { name: "sum (2)" }); fireEvent.click(secondTabButton);
+    const secondTabButton = screen.getByRole("tab", { name: /sum \(2\)/ });
+    expect(within(secondTabButton).getByLabelText("运行中")).toBeVisible();
+    await act(async () => { resolveCompleted(completed); await Promise.resolve(); });
+    await waitFor(() => expect(within(secondTabButton).queryByLabelText("运行中")).not.toBeInTheDocument());
+    expect(screen.getByRole("tab", { name: /^sum \(2\)$/ })).toBe(secondTabButton);
+    fireEvent.click(secondTabButton);
     await waitFor(() => expect(secondTabButton).toHaveAttribute("aria-selected", "true"));
     await waitFor(() => expect(screen.getByRole("button", { name: "执行" })).toBeEnabled());
     expect(client.openRunEventStream).toHaveBeenCalledTimes(1);
