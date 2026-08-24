@@ -66,6 +66,11 @@ function isNullableObject(value: unknown): value is Record<string, unknown> | nu
   return value === null || isObject(value);
 }
 
+function isConnectionStatus(value: unknown): value is ConnectionSummary["status"] {
+  return value === "disconnected" || value === "connecting" ||
+    value === "connected" || value === "failed";
+}
+
 function decodeConnection(value: unknown, projectId: string): ConnectionSummary {
   if (!isObject(value)) throw new Error("Invalid connection response");
   const {
@@ -100,7 +105,7 @@ function decodeConnection(value: unknown, projectId: string): ConnectionSummary 
     typeof name !== "string" || name.trim() !== name || name.length < 1 || name.length > 120 ||
     (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") ||
     parsedUrl.hostname.length === 0 || parsedUrl.username.length > 0 || parsedUrl.password.length > 0 ||
-    transport !== "streamable-http" || authMode !== "none" || status !== "disconnected" ||
+    transport !== "streamable-http" || authMode !== "none" || !isConnectionStatus(status) ||
     typeof timeoutMs !== "number" || !Number.isInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 600_000 ||
     !(lastProtocolVersion === null || typeof lastProtocolVersion === "string") ||
     !isNullableObject(lastServerInfo) || !validError

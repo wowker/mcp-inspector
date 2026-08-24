@@ -57,7 +57,7 @@ describe("connection API response decoding", () => {
     ["credential URL", { connections: [validConnection({ url: "https://user:secret@mcp.example.test/mcp" })] }],
     ["unsupported transport", { connections: [validConnection({ transport: "sse" })] }],
     ["unsupported auth", { connections: [validConnection({ authMode: "oauth" })] }],
-    ["connected runtime state", { connections: [validConnection({ status: "connected" })] }],
+    ["unknown runtime state", { connections: [validConnection({ status: "ready" })] }],
     ["invalid timeout", { connections: [validConnection({ timeoutMs: 99 })] }],
     ["invalid protocol", { connections: [validConnection({ lastProtocolVersion: 42 })] }],
     ["invalid server info", { connections: [validConnection({ lastServerInfo: [] })] }],
@@ -71,6 +71,19 @@ describe("connection API response decoding", () => {
     await expect(createApiClient("session").listConnections(projectId))
       .rejects.toThrow("Invalid connection response");
   });
+
+  it.each(["disconnected", "connecting", "connected", "failed"] as const)(
+    "accepts the public %s runtime state",
+    async (status) => {
+      fetchMock.mockResolvedValue(new Response(JSON.stringify({
+        connections: [validConnection({ status })],
+      }), { status: 200, headers: { "Content-Type": "application/json" } }));
+
+      await expect(createApiClient("session").listConnections(projectId)).resolves.toEqual([
+        validConnection({ status }),
+      ]);
+    },
+  );
 
   it("validates the create envelope against the requested project", async () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({

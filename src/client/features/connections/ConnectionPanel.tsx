@@ -13,11 +13,19 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "无法管理连接配置";
 }
 
+const connectionStatusLabels: Record<ConnectionSummary["status"], string> = {
+  disconnected: "未连接",
+  connecting: "连接中",
+  connected: "已连接",
+  failed: "失败",
+};
+
 export function ConnectionPanel({ api, projectId }: ConnectionPanelProps) {
-  const projectScope = useRef({ projectId });
-  if (projectScope.current.projectId !== projectId) {
-    projectScope.current = { projectId };
-  }
+  return <ProjectScopedConnectionPanel key={projectId} api={api} projectId={projectId} />;
+}
+
+function ProjectScopedConnectionPanel({ api, projectId }: ConnectionPanelProps) {
+  const mounted = useRef(false);
   const [connections, setConnections] = useState<ConnectionSummary[] | null>(null);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
@@ -29,22 +37,22 @@ export function ConnectionPanel({ api, projectId }: ConnectionPanelProps) {
   const [loadAttempt, setLoadAttempt] = useState(0);
 
   useEffect(() => {
-    const scope = projectScope.current;
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
     let active = true;
     setConnections(null);
-    setName("");
-    setUrl("");
-    setTimeoutMs("10000");
-    setSubmitting(false);
-    setPendingDelete(null);
-    setDeleting(false);
     setError(null);
     void api.listConnections(projectId)
       .then((items) => {
-        if (active && projectScope.current === scope) setConnections(items);
+        if (active) setConnections(items);
       })
       .catch((cause: unknown) => {
-        if (active && projectScope.current === scope) setError(errorMessage(cause));
+        if (active) setError(errorMessage(cause));
       });
     return () => {
       active = false;
@@ -53,19 +61,17 @@ export function ConnectionPanel({ api, projectId }: ConnectionPanelProps) {
 
   async function create(event: FormEvent): Promise<void> {
     event.preventDefault();
-    const scope = projectScope.current;
-    const requestedProjectId = projectId;
     setError(null);
     setSubmitting(true);
     try {
-      const created = await api.createConnection(requestedProjectId, {
+      const created = await api.createConnection(projectId, {
         name: name.trim(),
         url: url.trim(),
         transport: "streamable-http",
         authMode: "none",
         timeoutMs: Number(timeoutMs),
       });
-      if (projectScope.current !== scope) return;
+      if (!mounted.current) return;
       setConnections((current) => [
         ...(current ?? []).filter(({ id }) => id !== created.id),
         created,
@@ -74,26 +80,24 @@ export function ConnectionPanel({ api, projectId }: ConnectionPanelProps) {
       setUrl("");
       setTimeoutMs("10000");
     } catch (cause) {
-      if (projectScope.current === scope) setError(errorMessage(cause));
+      if (mounted.current) setError(errorMessage(cause));
     } finally {
-      if (projectScope.current === scope) setSubmitting(false);
+      if (mounted.current) setSubmitting(false);
     }
   }
 
   async function remove(connection: ConnectionSummary): Promise<void> {
-    const scope = projectScope.current;
-    const requestedProjectId = projectId;
     setError(null);
     setDeleting(true);
     try {
-      await api.deleteConnection(requestedProjectId, connection.id);
-      if (projectScope.current !== scope) return;
+      await api.deleteConnection(projectId, connection.id);
+      if (!mounted.current) return;
       setConnections((current) => current?.filter(({ id }) => id !== connection.id) ?? []);
       setPendingDelete(null);
     } catch (cause) {
-      if (projectScope.current === scope) setError(errorMessage(cause));
+      if (mounted.current) setError(errorMessage(cause));
     } finally {
-      if (projectScope.current === scope) setDeleting(false);
+      if (mounted.current) setDeleting(false);
     }
   }
 
@@ -134,7 +138,9 @@ export function ConnectionPanel({ api, projectId }: ConnectionPanelProps) {
               <div className="connection-list__details">
                 <strong>{connection.name}</strong>
                 <span className="connection-url">{connection.url}</span>
-                <span className="connection-status">disconnected（未连接）</span>
+                <span className="connection-status">
+                  {connection.status}（{connectionStatusLabels[connection.status]}）
+                </span>
               </div>
               {pendingDelete === connection.id ? (
                 <div className="connection-delete-confirmation" role="group" aria-label={`确认删除 ${connection.name}`}>
