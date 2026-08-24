@@ -25,6 +25,27 @@ select {
   font: inherit;
 }
 
+button {
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 10px;
+  color: #fff;
+  background: #6847dc;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 3px solid rgb(104 71 220 / 32%);
+  outline-offset: 2px;
+}
+
 .app-shell {
   display: grid;
   min-height: 100vh;
@@ -98,6 +119,89 @@ h1 {
 
 .health--error .health__dot {
   background: #d92d20;
+}
+
+.project-picker,
+.active-project {
+  margin-top: 36px;
+  padding-top: 28px;
+  border-top: 1px solid #e1e5ef;
+}
+
+.project-picker h2,
+.active-project h2 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.project-picker > p {
+  color: #667085;
+}
+
+.project-list {
+  display: grid;
+  gap: 10px;
+  margin: 24px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.project-list li,
+.project-create-form > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.project-list li {
+  justify-content: space-between;
+  padding: 12px;
+  border: 1px solid #e1e5ef;
+  border-radius: 12px;
+}
+
+.project-create-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 24px;
+}
+
+.project-create-form input {
+  min-width: 0;
+  flex: 1;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid #c9d0df;
+  border-radius: 10px;
+}
+
+.project-error {
+  color: #b42318;
+}
+
+.project-loading {
+  margin-top: 28px;
+  color: #667085;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 520px) {
+  .project-list li,
+  .project-create-form > div {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 
 @media (prefers-reduced-motion: no-preference) {

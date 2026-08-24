@@ -2,9 +2,12 @@ import { serve } from "@hono/node-server";
 import open from "open";
 import { createApp } from "./app.js";
 import { createRuntimeConfig } from "./config/runtime-config.js";
+import { resolveDefaultDataRoot } from "./projects/project-paths.js";
+import { createProjectService } from "./projects/project-service.js";
 
 const config = createRuntimeConfig();
-const app = createApp(config);
+const projects = createProjectService({ dataRoot: resolveDefaultDataRoot() });
+const app = createApp({ ...config, projects });
 
 serve(
   {

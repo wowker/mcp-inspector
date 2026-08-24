@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
 import "./app.css";
+import {
+  createApiClient,
+  type InspectorApiClient,
+  type ProjectSummary,
+} from "../api/api-client.js";
+import { ProjectPicker } from "../features/projects/ProjectPicker.js";
 import { consumeBootstrapSession } from "./bootstrap-session.js";
 
 const SESSION_HEADER = "X-DSers-Inspector-Session";
@@ -27,6 +33,8 @@ function isHealthResponse(value: unknown): value is HealthResponse {
 
 export function App() {
   const [health, setHealth] = useState<HealthState>({ status: "checking" });
+  const [api, setApi] = useState<InspectorApiClient | null>(null);
+  const [activeProject, setActiveProject] = useState<ProjectSummary | null>(null);
 
   useEffect(() => {
     const session = consumeBootstrapSession();
@@ -50,7 +58,10 @@ export function App() {
         }
         return payload;
       })
-      .then(({ version }) => setHealth({ status: "ready", version }))
+      .then(({ version }) => {
+        setHealth({ status: "ready", version });
+        setApi(createApiClient(session));
+      })
       .catch((error: unknown) => {
         if (!controller.signal.aborted) {
           setHealth({
@@ -84,6 +95,15 @@ export function App() {
           <span className="health__dot" aria-hidden="true" />
           {statusText}
         </p>
+        {health.status === "ready" && api !== null && activeProject === null && (
+          <ProjectPicker api={api} onProjectOpened={setActiveProject} />
+        )}
+        {activeProject !== null && (
+          <section className="active-project" aria-labelledby="active-project-name">
+            <p className="eyebrow">当前项目</p>
+            <h2 id="active-project-name">{activeProject.name}</h2>
+          </section>
+        )}
       </section>
     </main>
   );
