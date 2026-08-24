@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type {
   ConnectionSummary,
   InspectorApiClient,
@@ -14,6 +14,10 @@ function errorMessage(error: unknown): string {
 }
 
 export function ConnectionPanel({ api, projectId }: ConnectionPanelProps) {
+  const projectScope = useRef({ projectId });
+  if (projectScope.current.projectId !== projectId) {
+    projectScope.current = { projectId };
+  }
   const [connections, setConnections] = useState<ConnectionSummary[] | null>(null);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
@@ -22,35 +26,46 @@ export function ConnectionPanel({ api, projectId }: ConnectionPanelProps) {
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   useEffect(() => {
+    const scope = projectScope.current;
     let active = true;
     setConnections(null);
+    setName("");
+    setUrl("");
+    setTimeoutMs("10000");
+    setSubmitting(false);
+    setPendingDelete(null);
+    setDeleting(false);
     setError(null);
     void api.listConnections(projectId)
       .then((items) => {
-        if (active) setConnections(items);
+        if (active && projectScope.current === scope) setConnections(items);
       })
       .catch((cause: unknown) => {
-        if (active) setError(errorMessage(cause));
+        if (active && projectScope.current === scope) setError(errorMessage(cause));
       });
     return () => {
       active = false;
     };
-  }, [api, projectId]);
+  }, [api, projectId, loadAttempt]);
 
   async function create(event: FormEvent): Promise<void> {
     event.preventDefault();
+    const scope = projectScope.current;
+    const requestedProjectId = projectId;
     setError(null);
     setSubmitting(true);
     try {
-      const created = await api.createConnection(projectId, {
+      const created = await api.createConnection(requestedProjectId, {
         name: name.trim(),
         url: url.trim(),
         transport: "streamable-http",
         authMode: "none",
         timeoutMs: Number(timeoutMs),
       });
+      if (projectScope.current !== scope) return;
       setConnections((current) => [
         ...(current ?? []).filter(({ id }) => id !== created.id),
         created,
@@ -59,23 +74,26 @@ export function ConnectionPanel({ api, projectId }: ConnectionPanelProps) {
       setUrl("");
       setTimeoutMs("10000");
     } catch (cause) {
-      setError(errorMessage(cause));
+      if (projectScope.current === scope) setError(errorMessage(cause));
     } finally {
-      setSubmitting(false);
+      if (projectScope.current === scope) setSubmitting(false);
     }
   }
 
   async function remove(connection: ConnectionSummary): Promise<void> {
+    const scope = projectScope.current;
+    const requestedProjectId = projectId;
     setError(null);
     setDeleting(true);
     try {
-      await api.deleteConnection(projectId, connection.id);
+      await api.deleteConnection(requestedProjectId, connection.id);
+      if (projectScope.current !== scope) return;
       setConnections((current) => current?.filter(({ id }) => id !== connection.id) ?? []);
       setPendingDelete(null);
     } catch (cause) {
-      setError(errorMessage(cause));
+      if (projectScope.current === scope) setError(errorMessage(cause));
     } finally {
-      setDeleting(false);
+      if (projectScope.current === scope) setDeleting(false);
     }
   }
 
@@ -89,7 +107,21 @@ export function ConnectionPanel({ api, projectId }: ConnectionPanelProps) {
         <p>保存配置不会连接 MCP Server。</p>
       </div>
 
-      {error !== null && <p role="alert" className="connection-error">{error}</p>}
+      {error !== null && (
+        <div className="connection-load-error">
+          <p role="alert" className="connection-error">{error}</p>
+          {connections === null && (
+            <button
+              type="button"
+              className="button-secondary"
+              aria-label="重试加载连接配置"
+              onClick={() => setLoadAttempt((attempt) => attempt + 1)}
+            >
+              重试
+            </button>
+          )}
+        </div>
+      )}
 
       {connections === null && error === null ? (
         <p role="status" className="connection-loading">正在加载连接配置…</p>

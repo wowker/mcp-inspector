@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { InspectorApiClient } from "../../../api/api-client.js";
@@ -21,6 +21,16 @@ const connection = {
   lastServerInfo: null,
   lastError: null,
 };
+
+const secondProjectId = "00000000-0000-4000-8000-000000000403";
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
 
 function api(overrides: Partial<InspectorApiClient> = {}): InspectorApiClient {
   return {
@@ -86,5 +96,121 @@ describe("ConnectionPanel", () => {
     await user.click(screen.getByRole("button", { name: "确认删除 Catalog MCP" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("database is busy");
     expect(screen.getByText("Catalog MCP")).toBeVisible();
+  });
+
+  it("retries the initial list after an accessible load error", async () => {
+    const listConnections = vi.fn()
+      .mockRejectedValueOnce(new Error("database is busy"))
+      .mockResolvedValueOnce([connection]);
+    const user = userEvent.setup();
+    render(<ConnectionPanel api={api({ listConnections })} projectId={projectId} />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("database is busy");
+    await user.click(screen.getByRole("button", { name: "重试加载连接配置" }));
+
+    expect(await screen.findByText("Catalog MCP")).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(listConnections).toHaveBeenCalledTimes(2);
+  });
+
+  it("ignores a stale list completion after switching projects", async () => {
+    const oldList = deferred<typeof connection[]>();
+    const newConnection = {
+      ...connection,
+      id: "00000000-0000-4000-8000-000000000404",
+      projectId: secondProjectId,
+      name: "Orders MCP",
+    };
+    const listConnections = vi.fn()
+      .mockReturnValueOnce(oldList.promise)
+      .mockResolvedValueOnce([newConnection]);
+    const client = api({ listConnections });
+    const { rerender } = render(<ConnectionPanel api={client} projectId={projectId} />);
+
+    rerender(<ConnectionPanel api={client} projectId={secondProjectId} />);
+    expect(await screen.findByText("Orders MCP")).toBeVisible();
+    await act(async () => oldList.resolve([connection]));
+
+    await waitFor(() => expect(screen.queryByText("Catalog MCP")).not.toBeInTheDocument());
+    expect(screen.getByText("Orders MCP")).toBeVisible();
+  });
+
+  it("clears a previous project error when switching projects", async () => {
+    const newConnection = {
+      ...connection,
+      projectId: secondProjectId,
+      name: "Orders MCP",
+    };
+    const client = api({
+      listConnections: vi.fn()
+        .mockRejectedValueOnce(new Error("first project failed"))
+        .mockResolvedValueOnce([newConnection]),
+    });
+    const { rerender } = render(<ConnectionPanel api={client} projectId={projectId} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("first project failed");
+
+    rerender(<ConnectionPanel api={client} projectId={secondProjectId} />);
+    expect(await screen.findByText("Orders MCP")).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("does not apply a stale create completion and resets the form on project switch", async () => {
+    const pendingCreate = deferred<typeof connection>();
+    const newConnection = {
+      ...connection,
+      id: "00000000-0000-4000-8000-000000000405",
+      projectId: secondProjectId,
+      name: "Orders MCP",
+    };
+    const client = api({
+      listConnections: vi.fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([newConnection]),
+      createConnection: vi.fn().mockReturnValue(pendingCreate.promise),
+    });
+    const user = userEvent.setup();
+    const { rerender } = render(<ConnectionPanel api={client} projectId={projectId} />);
+    await screen.findByText("还没有连接配置。");
+    await user.type(screen.getByLabelText("连接名称"), "Catalog MCP");
+    await user.type(screen.getByLabelText("MCP URL"), "https://mcp.example.test/mcp");
+    await user.click(screen.getByRole("button", { name: "保存配置" }));
+
+    rerender(<ConnectionPanel api={client} projectId={secondProjectId} />);
+    expect(await screen.findByText("Orders MCP")).toBeVisible();
+    expect(screen.getByLabelText("连接名称")).toHaveValue("");
+    expect(screen.getByLabelText("MCP URL")).toHaveValue("");
+    expect(screen.getByLabelText("请求超时（毫秒）")).toHaveValue(10000);
+    await act(async () => pendingCreate.resolve(connection));
+
+    await waitFor(() => expect(screen.queryByText("Catalog MCP")).not.toBeInTheDocument());
+    expect(screen.getByText("Orders MCP")).toBeVisible();
+  });
+
+  it("does not apply a stale delete completion to the new project", async () => {
+    const pendingDelete = deferred<void>();
+    const sameIdInNewProject = {
+      ...connection,
+      projectId: secondProjectId,
+      name: "Orders MCP",
+    };
+    const client = api({
+      listConnections: vi.fn()
+        .mockResolvedValueOnce([connection])
+        .mockResolvedValueOnce([sameIdInNewProject]),
+      deleteConnection: vi.fn().mockReturnValue(pendingDelete.promise),
+    });
+    const user = userEvent.setup();
+    const { rerender } = render(<ConnectionPanel api={client} projectId={projectId} />);
+    await screen.findByText("Catalog MCP");
+    await user.click(screen.getByRole("button", { name: "删除 Catalog MCP" }));
+    await user.click(screen.getByRole("button", { name: "确认删除 Catalog MCP" }));
+
+    rerender(<ConnectionPanel api={client} projectId={secondProjectId} />);
+    expect(await screen.findByText("Orders MCP")).toBeVisible();
+    expect(screen.queryByText("确认删除 Orders MCP？")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "删除 Orders MCP" })).toBeEnabled();
+    await act(async () => pendingDelete.resolve());
+
+    expect(await screen.findByText("Orders MCP")).toBeVisible();
   });
 });
