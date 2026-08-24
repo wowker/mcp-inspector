@@ -93,6 +93,101 @@ describe("ConnectionService", () => {
     } as typeof valid)).toThrow(/invalid/i);
   });
 
+  it("updates a failed configuration, clears stale diagnostics, and leaves it disconnected", async () => {
+    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-connections-"));
+    dataRoots.push(dataRoot);
+    projects = createProjectService({ dataRoot });
+    const project = projects.create("Supplier Tools");
+    const connectionId = "00000000-0000-4000-8000-000000000209";
+    const service = createConnectionService(projects, {
+      createId: () => connectionId,
+      now: () => new Date("2026-08-17T10:00:00.000Z"),
+      sessionFactory: async () => { throw new Error("unreachable"); },
+    });
+    service.create(project.id, {
+      name: "Broken MCP", url: "http://127.0.0.1:1/mcp", transport: "streamable-http",
+      authMode: "none", timeoutMs: 100,
+    });
+    await expect(service.connect(project.id, connectionId)).rejects.toThrow(/connect/i);
+    expect(service.list(project.id)[0]?.lastError).not.toBeNull();
+
+    const updated = await service.update(project.id, connectionId, {
+      name: " Fixed MCP ", url: " https://mcp.example.test:443/mcp ", timeoutMs: 25_000,
+    });
+
+    expect(updated).toEqual(expect.objectContaining({
+      id: connectionId,
+      name: "Fixed MCP",
+      url: "https://mcp.example.test/mcp",
+      timeoutMs: 25_000,
+      status: "disconnected",
+      lastProtocolVersion: null,
+      lastServerInfo: null,
+      lastError: null,
+    }));
+    expect(service.list(project.id)).toEqual([updated]);
+  });
+
+  it("disconnects an active session before updating and keeps the old configuration if close fails", async () => {
+    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-connections-"));
+    dataRoots.push(dataRoot);
+    projects = createProjectService({ dataRoot });
+    const project = projects.create("Supplier Tools");
+    const firstId = "00000000-0000-4000-8000-000000000210";
+    const secondId = "00000000-0000-4000-8000-000000000211";
+    const firstSession = new FakeMcpSession();
+    const secondSession = new FakeMcpSession();
+    secondSession.close = async () => { throw new Error("close failed"); };
+    const sessions = [firstSession, secondSession];
+    const ids = [firstId, secondId];
+    let idIndex = 0;
+    let sessionIndex = 0;
+    const service = createConnectionService(projects, {
+      createId: () => ids[idIndex++]!,
+      sessionFactory: async () => sessions[sessionIndex++]!,
+    });
+    const input = { name: "MCP", url: "http://127.0.0.1:1/mcp", transport: "streamable-http" as const,
+      authMode: "none" as const, timeoutMs: 100 };
+    service.create(project.id, input);
+    service.create(project.id, input);
+    await service.connect(project.id, firstId);
+    await service.connect(project.id, secondId);
+
+    await expect(service.update(project.id, firstId, { url: "https://new.example.test/mcp" }))
+      .resolves.toEqual(expect.objectContaining({ url: "https://new.example.test/mcp", status: "disconnected" }));
+    expect(firstSession.closeCount).toBe(1);
+
+    await expect(service.update(project.id, secondId, { name: "Must not persist" })).rejects.toThrow(/disconnect/i);
+    expect(service.list(project.id).find(({ id }) => id === secondId)?.name).toBe("MCP");
+  });
+
+  it("makes a simultaneous first connect resolve the updated configuration", async () => {
+    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-connections-"));
+    dataRoots.push(dataRoot);
+    projects = createProjectService({ dataRoot });
+    const project = projects.create("Supplier Tools");
+    const connectionId = "00000000-0000-4000-8000-000000000212";
+    const resolvedUrls: string[] = [];
+    const service = createConnectionService(projects, {
+      createId: () => connectionId,
+      sessionFactory: async (configuration) => {
+        resolvedUrls.push(configuration.url);
+        return new FakeMcpSession();
+      },
+    });
+    service.create(project.id, {
+      name: "MCP", url: "https://old.example.test/mcp", transport: "streamable-http",
+      authMode: "none", timeoutMs: 100,
+    });
+
+    const updating = service.update(project.id, connectionId, { url: "https://new.example.test/mcp" });
+    const connecting = service.connect(project.id, connectionId);
+    await updating;
+    await connecting;
+
+    expect(resolvedUrls).toEqual(["https://new.example.test/mcp"]);
+  });
+
   it("survives closing and reopening the project store", () => {
     const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-connections-"));
     dataRoots.push(dataRoot);

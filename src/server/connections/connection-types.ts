@@ -26,3 +26,6 @@ export interface CreateConnectionInput {
   authMode: "none";
   timeoutMs: number;
 }
+
+export type UpdateConnectionInput = Partial<Pick<CreateConnectionInput,
+  "name" | "url" | "timeoutMs">>;

@@ -32,6 +32,8 @@ function ProjectScopedConnectionPanel({
   api, projectId, onSelectTool = () => undefined, onOpenTool = () => undefined,
 }: ConnectionPanelProps) {
   const mounted = useRef(false);
+  const submitLock = useRef(false);
+  const nameInput = useRef<HTMLInputElement>(null);
   const catalogGenerations = useRef(new Map<string, number>());
   const [connections, setConnections] = useState<ConnectionSummary[] | null>(null);
   const [catalogs, setCatalogs] = useState<Record<string, CatalogToolSummary[]>>({});
@@ -42,6 +44,7 @@ function ProjectScopedConnectionPanel({
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [timeoutMs, setTimeoutMs] = useState("10000");
+  const [editingConnectionId, setEditingConnectionId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -54,6 +57,10 @@ function ProjectScopedConnectionPanel({
       mounted.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (editingConnectionId !== null) nameInput.current?.focus();
+  }, [editingConnectionId]);
 
   useEffect(() => {
     let active = true;
@@ -120,6 +127,22 @@ function ProjectScopedConnectionPanel({
     setConnections((current) => current?.map((item) => item.id === updated.id ? updated : item) ?? []);
   }
 
+  function resetForm(): void {
+    setEditingConnectionId(null);
+    setName("");
+    setUrl("");
+    setTimeoutMs("10000");
+  }
+
+  function beginEdit(connection: ConnectionSummary): void {
+    setError(null);
+    setPendingDelete(null);
+    setEditingConnectionId(connection.id);
+    setName(connection.name);
+    setUrl(connection.url);
+    setTimeoutMs(String(connection.timeoutMs));
+  }
+
   async function refresh(connectionId: string): Promise<void> {
     const generation = (catalogGenerations.current.get(connectionId) ?? 0) + 1;
     catalogGenerations.current.set(connectionId, generation);
@@ -157,7 +180,15 @@ function ProjectScopedConnectionPanel({
       updateConnection(connected);
       await refresh(connection.id);
     } catch (cause) {
-      if (mounted.current) setError(errorMessage(cause));
+      if (mounted.current && catalogGenerations.current.get(connection.id) === generation) {
+        const message = errorMessage(cause);
+        updateConnection({
+          ...connection,
+          status: "failed",
+          lastError: { code: "MCP_CONNECT_FAILED", message },
+        });
+        setError(message);
+      }
     } finally {
       if (mounted.current) setPending(connection.id, false);
     }
@@ -181,30 +212,51 @@ function ProjectScopedConnectionPanel({
     }
   }
 
-  async function create(event: FormEvent): Promise<void> {
+  async function save(event: FormEvent): Promise<void> {
     event.preventDefault();
+    if (submitLock.current) return;
+    submitLock.current = true;
     setError(null);
     setSubmitting(true);
+    const editingId = editingConnectionId;
+    let generation: number | undefined;
+    if (editingId !== null) {
+      generation = invalidateConnection(editingId);
+      setPending(editingId, true);
+    }
     try {
-      const created = await api.createConnection(projectId, {
-        name: name.trim(),
-        url: url.trim(),
-        transport: "streamable-http",
-        authMode: "none",
-        timeoutMs: Number(timeoutMs),
-      });
-      if (!mounted.current) return;
-      setConnections((current) => [
-        ...(current ?? []).filter(({ id }) => id !== created.id),
-        created,
-      ]);
-      setName("");
-      setUrl("");
-      setTimeoutMs("10000");
+      if (editingId === null) {
+        const created = await api.createConnection(projectId, {
+          name: name.trim(),
+          url: url.trim(),
+          transport: "streamable-http",
+          authMode: "none",
+          timeoutMs: Number(timeoutMs),
+        });
+        if (!mounted.current) return;
+        setConnections((current) => [
+          ...(current ?? []).filter(({ id }) => id !== created.id),
+          created,
+        ]);
+        resetForm();
+      } else {
+        const updated = await api.updateConnection(projectId, editingId, {
+          name: name.trim(),
+          url: url.trim(),
+          timeoutMs: Number(timeoutMs),
+        });
+        if (!mounted.current || catalogGenerations.current.get(editingId) !== generation) return;
+        updateConnection(updated);
+        resetForm();
+      }
     } catch (cause) {
       if (mounted.current) setError(errorMessage(cause));
     } finally {
-      if (mounted.current) setSubmitting(false);
+      submitLock.current = false;
+      if (mounted.current) {
+        setSubmitting(false);
+        if (editingId !== null) setPending(editingId, false);
+      }
     }
   }
 
@@ -220,6 +272,7 @@ function ProjectScopedConnectionPanel({
         const next = { ...current }; delete next[connection.id]; return next;
       });
       catalogGenerations.current.delete(connection.id);
+      if (editingConnectionId === connection.id) resetForm();
       setPendingDelete(null);
     } catch (cause) {
       if (mounted.current) setError(errorMessage(cause));
@@ -268,6 +321,9 @@ function ProjectScopedConnectionPanel({
                 <span className="connection-status">
                   {connection.status}（{connectionStatusLabels[connection.status]}）
                 </span>
+                {connection.lastError !== null && (
+                  <span className="connection-last-error">{connection.lastError.message}</span>
+                )}
               </div>
               <div className="connection-actions">
                 {connection.status === "connected" ? (
@@ -286,6 +342,13 @@ function ProjectScopedConnectionPanel({
                     onClick={() => void connect(connection)}
                   >{pendingConnectionIds.has(connection.id) ? "连接中…" : "连接"}</button>
                 )}
+              <button
+                type="button"
+                className="button-secondary"
+                disabled={pendingConnectionIds.has(connection.id) || deleting}
+                aria-label={`编辑 ${connection.name}`}
+                onClick={() => beginEdit(connection)}
+              >编辑</button>
               {pendingDelete === connection.id ? (
                 <div className="connection-delete-confirmation" role="group" aria-label={`确认删除 ${connection.name}`}>
                   <span>确认删除 {connection.name}？</span>
@@ -331,12 +394,15 @@ function ProjectScopedConnectionPanel({
         />
       )}
 
-      <form className="connection-create-form" onSubmit={(event) => void create(event)}>
-        <h3>新建连接配置</h3>
+      <form className="connection-create-form" onSubmit={(event) => void save(event)}>
+        <h3>{editingConnectionId === null ? "新建连接配置" : "编辑连接配置"}</h3>
+        {editingConnectionId !== null && (
+          <p role="status" className="connection-edit-notice">保存修改会断开当前连接，请在保存后重新连接。</p>
+        )}
         <div className="connection-fields">
           <label>
             <span>连接名称</span>
-            <input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} required />
+            <input ref={nameInput} value={name} onChange={(event) => setName(event.target.value)} maxLength={120} required />
           </label>
           <label>
             <span>MCP URL</span>
@@ -359,9 +425,14 @@ function ProjectScopedConnectionPanel({
           <div><dt>传输方式</dt><dd>Streamable HTTP</dd></div>
           <div><dt>认证方式</dt><dd>无认证</dd></div>
         </dl>
-        <button type="submit" disabled={submitting || connections === null}>
-          {submitting ? "正在保存…" : "保存配置"}
-        </button>
+        <div className="connection-form-actions">
+          <button type="submit" disabled={submitting || connections === null}>
+            {submitting ? "正在保存…" : editingConnectionId === null ? "保存配置" : "保存修改"}
+          </button>
+          {editingConnectionId !== null && (
+            <button type="button" className="button-secondary" disabled={submitting} onClick={resetForm}>取消编辑</button>
+          )}
+        </div>
       </form>
     </section>
   );

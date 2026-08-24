@@ -30,6 +30,9 @@ export interface CreateConnectionRequest {
   timeoutMs: number;
 }
 
+export type UpdateConnectionRequest = Partial<Pick<CreateConnectionRequest,
+  "name" | "url" | "timeoutMs">>;
+
 export interface ToolSnapshotSummary {
   id: string;
   projectId: string;
@@ -101,6 +104,7 @@ export interface InspectorApiClient {
   openProject(projectId: string): Promise<ProjectSummary>;
   listConnections(projectId: string): Promise<ConnectionSummary[]>;
   createConnection(projectId: string, input: CreateConnectionRequest): Promise<ConnectionSummary>;
+  updateConnection(projectId: string, connectionId: string, input: UpdateConnectionRequest): Promise<ConnectionSummary>;
   deleteConnection(projectId: string, connectionId: string): Promise<void>;
   connectConnection(projectId: string, connectionId: string): Promise<ConnectionSummary>;
   disconnectConnection(projectId: string, connectionId: string): Promise<ConnectionSummary>;
@@ -479,6 +483,15 @@ export function createApiClient(sessionToken: string): InspectorApiClient {
         { method: "POST", headers, body: JSON.stringify(input) },
       );
       return decodeCreatedConnection(await decodeConnectionResponse(response), projectId);
+    },
+    async updateConnection(projectId, connectionId, input) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/connections/${encodeURIComponent(connectionId)}`,
+        { method: "PATCH", headers, body: JSON.stringify(input) },
+      );
+      const updated = decodeCreatedConnection(await decodeConnectionResponse(response), projectId);
+      if (updated.id !== connectionId) throw new Error("Invalid connection response");
+      return updated;
     },
     async deleteConnection(projectId, connectionId) {
       const response = await fetch(

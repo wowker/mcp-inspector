@@ -5,7 +5,7 @@ import {
   type ProjectService,
 } from "../projects/project-service.js";
 import { ConnectionRepository } from "./connection-repository.js";
-import type { ConnectionRecord, CreateConnectionInput } from "./connection-types.js";
+import type { ConnectionRecord, CreateConnectionInput, UpdateConnectionInput } from "./connection-types.js";
 import {
   createConnectionRuntime,
   type ConnectionRuntime,
@@ -21,6 +21,11 @@ const createConnectionSchema = z.object({
   authMode: z.literal("none"),
   timeoutMs: z.number().int().min(100).max(600_000),
 }).strict();
+const updateConnectionSchema = createConnectionSchema
+  .pick({ name: true, url: true, timeoutMs: true })
+  .partial()
+  .strict()
+  .refine((value) => Object.keys(value).length > 0);
 
 export class InvalidConnectionError extends Error {
   constructor(message = "Connection configuration is invalid") {
@@ -54,6 +59,7 @@ function normalizeUrl(raw: string): string {
 
 export interface ConnectionService {
   create(projectId: string, input: CreateConnectionInput): ConnectionRecord;
+  update(projectId: string, connectionId: string, input: UpdateConnectionInput): Promise<ConnectionRecord>;
   list(projectId: string): ConnectionRecord[];
   delete(projectId: string, connectionId: string): Promise<void>;
   connect(projectId: string, connectionId: string): Promise<ConnectionRecord>;
@@ -135,6 +141,33 @@ export function createConnectionService(projects: ProjectService, options: {
         ...connection,
         status: projectRuntime?.status(connection.id) ?? "disconnected",
       }));
+    },
+
+    async update(projectId, connectionId, input) {
+      const existing = find(projectId, connectionId);
+      const parsed = updateConnectionSchema.safeParse(input);
+      if (!parsed.success) throw new InvalidConnectionError();
+      const next = createConnectionSchema.safeParse({
+        name: parsed.data.name ?? existing.name,
+        url: parsed.data.url ?? existing.url,
+        timeoutMs: parsed.data.timeoutMs ?? existing.timeoutMs,
+        transport: existing.transport,
+        authMode: existing.authMode,
+      });
+      if (!next.success) throw new InvalidConnectionError();
+      const normalizedUrl = normalizeUrl(next.data.url);
+      await runtime(projectId).disconnect(connectionId);
+      const updated = repository(projectId).update({
+        id: connectionId,
+        projectId,
+        name: next.data.name,
+        url: normalizedUrl,
+        timeoutMs: next.data.timeoutMs,
+        updatedAt: now().toISOString(),
+        resetDiagnostics: normalizedUrl !== existing.url || next.data.timeoutMs !== existing.timeoutMs,
+      });
+      if (updated === null) throw new ConnectionNotFoundError();
+      return { ...updated, status: "disconnected" };
     },
 
     async delete(projectId, connectionId) {

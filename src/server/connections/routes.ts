@@ -18,6 +18,11 @@ const createConnectionBodySchema = z.object({
   authMode: z.literal("none"),
   timeoutMs: z.number(),
 }).strict();
+const updateConnectionBodySchema = z.object({
+  name: z.string().optional(),
+  url: z.string().optional(),
+  timeoutMs: z.number().optional(),
+}).strict().refine((value) => Object.keys(value).length > 0);
 
 const errors = {
   invalidConnection: {
@@ -80,6 +85,35 @@ export function createConnectionRoutes(connections: ConnectionService): Hono {
     } catch (error) {
       if (error instanceof InvalidConnectionError) {
         return context.json(errors.invalidConnection, 400);
+      }
+      return projectError(context, error);
+    }
+  });
+
+  routes.patch("/:projectId/connections/:connectionId", async (context) => {
+    let body: unknown;
+    try {
+      body = await context.req.json();
+    } catch {
+      return context.json(errors.invalidConnection, 400);
+    }
+    const parsed = updateConnectionBodySchema.safeParse(body);
+    if (!parsed.success) return context.json(errors.invalidConnection, 400);
+    try {
+      return context.json({ connection: await connections.update(
+        context.req.param("projectId"),
+        context.req.param("connectionId"),
+        parsed.data,
+      ) });
+    } catch (error) {
+      if (error instanceof InvalidConnectionError) {
+        return context.json(errors.invalidConnection, 400);
+      }
+      if (error instanceof ConnectionNotFoundError) {
+        return context.json(errors.connectionNotFound, 404);
+      }
+      if (error instanceof McpDisconnectError) {
+        return context.json(errors.disconnectFailed, 502);
       }
       return projectError(context, error);
     }

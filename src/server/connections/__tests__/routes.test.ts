@@ -164,6 +164,39 @@ describe("connection routes", () => {
       .resolves.toEqual({ connections: [] });
   });
 
+  it("updates only editable fields through an authenticated project-scoped PATCH", async () => {
+    const project = projects.create("Supplier Tools");
+    const runtimeApp = app();
+    await runtimeApp.request(`/api/projects/${project.id}/connections`, {
+      method: "POST", headers, body: JSON.stringify({
+        name: "Broken MCP", url: "http://127.0.0.1:1/mcp",
+        transport: "streamable-http", authMode: "none", timeoutMs: 100,
+      }),
+    });
+
+    const updated = await runtimeApp.request(
+      `/api/projects/${project.id}/connections/00000000-0000-4000-8000-000000000301`,
+      { method: "PATCH", headers, body: JSON.stringify({
+        name: " Fixed MCP ", url: "https://mcp.example.test/mcp", timeoutMs: 20_000,
+      }) },
+    );
+
+    expect(updated.status).toBe(200);
+    expect(await updated.json()).toEqual({ connection: expect.objectContaining({
+      name: "Fixed MCP", url: "https://mcp.example.test/mcp", timeoutMs: 20_000,
+      transport: "streamable-http", authMode: "none", status: "disconnected",
+    }) });
+    const invalid = await runtimeApp.request(
+      `/api/projects/${project.id}/connections/00000000-0000-4000-8000-000000000301`,
+      { method: "PATCH", headers, body: JSON.stringify({ authMode: "oauth" }) },
+    );
+    expect(invalid.status).toBe(400);
+    expect((await runtimeApp.request(
+      `/api/projects/00000000-0000-4000-8000-000000000099/connections/00000000-0000-4000-8000-000000000301`,
+      { method: "PATCH", headers, body: JSON.stringify({ name: "Foreign" }) },
+    )).status).toBe(404);
+  });
+
   it("keeps an active connection configuration when delete cannot close its session", async () => {
     const project = projects.create("Supplier Tools");
     const connectionId = "00000000-0000-4000-8000-000000000301";

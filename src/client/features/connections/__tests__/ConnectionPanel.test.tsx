@@ -39,6 +39,7 @@ function api(overrides: Partial<InspectorApiClient> = {}): InspectorApiClient {
     openProject: vi.fn(),
     listConnections: vi.fn().mockResolvedValue([connection]),
     createConnection: vi.fn().mockResolvedValue(connection),
+    updateConnection: vi.fn().mockResolvedValue(connection),
     deleteConnection: vi.fn().mockResolvedValue(undefined),
     connectConnection: vi.fn().mockResolvedValue({ ...connection, status: "connected" }),
     disconnectConnection: vi.fn().mockResolvedValue(connection),
@@ -81,6 +82,20 @@ describe("ConnectionPanel", () => {
     expect(screen.getByText("目录已就绪")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "断开 Catalog MCP" }));
     expect(disconnectConnection).toHaveBeenCalledWith(projectId, connection.id);
+  });
+
+  it("shows a failed state and editable diagnostic immediately when connect fails", async () => {
+    const user = userEvent.setup();
+    render(<ConnectionPanel api={api({
+      connectConnection: vi.fn().mockRejectedValue(new Error("Unable to connect to MCP server")),
+    })} projectId={projectId} />);
+    await screen.findByText("Catalog MCP");
+
+    await user.click(screen.getByRole("button", { name: "连接 Catalog MCP" }));
+
+    expect(await screen.findByText(/failed.*失败/i)).toBeVisible();
+    expect(screen.getAllByText("Unable to connect to MCP server")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "编辑 Catalog MCP" })).toBeEnabled();
   });
 
   it("keeps a successful transport connected when its automatic refresh fails", async () => {
@@ -189,6 +204,58 @@ describe("ConnectionPanel", () => {
     });
     expect(await screen.findByText(/disconnected.*未连接/i)).toBeVisible();
     expect(screen.queryByText(/已连接|连接成功/)).not.toBeInTheDocument();
+  });
+
+  it("edits a failed saved connection and keeps the form recoverable", async () => {
+    const failed = { ...connection, status: "failed" as const,
+      lastError: { code: "MCP_CONNECT_FAILED", message: "Unable to connect to MCP server" } };
+    const updated = { ...connection, name: "Fixed MCP", url: "https://fixed.example.test/mcp", timeoutMs: 20_000 };
+    const updateConnection = vi.fn().mockRejectedValueOnce(new Error("database is busy")).mockResolvedValueOnce(updated);
+    const user = userEvent.setup();
+    render(<ConnectionPanel api={api({
+      listConnections: vi.fn().mockResolvedValue([failed]), updateConnection,
+    })} projectId={projectId} />);
+
+    await screen.findByText("Catalog MCP");
+    expect(screen.getByText("Unable to connect to MCP server")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "编辑 Catalog MCP" }));
+    expect(screen.getByRole("heading", { name: "编辑连接配置" })).toBeVisible();
+    expect(screen.getByLabelText("连接名称")).toHaveValue("Catalog MCP");
+    expect(screen.getByLabelText("MCP URL")).toHaveValue("https://mcp.example.test/mcp");
+    await user.clear(screen.getByLabelText("连接名称"));
+    await user.type(screen.getByLabelText("连接名称"), "Fixed MCP");
+    await user.clear(screen.getByLabelText("MCP URL"));
+    await user.type(screen.getByLabelText("MCP URL"), "https://fixed.example.test/mcp");
+    await user.clear(screen.getByLabelText("请求超时（毫秒）"));
+    await user.type(screen.getByLabelText("请求超时（毫秒）"), "20000");
+    await user.click(screen.getByRole("button", { name: "保存修改" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("database is busy");
+    expect(screen.getByLabelText("连接名称")).toHaveValue("Fixed MCP");
+
+    await user.click(screen.getByRole("button", { name: "保存修改" }));
+    expect(updateConnection).toHaveBeenLastCalledWith(projectId, connection.id, {
+      name: "Fixed MCP", url: "https://fixed.example.test/mcp", timeoutMs: 20_000,
+    });
+    expect(await screen.findByText("Fixed MCP")).toBeVisible();
+    expect(screen.getByText("https://fixed.example.test/mcp")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "新建连接配置" })).toBeVisible();
+    expect(screen.getByLabelText("连接名称")).toHaveValue("");
+  });
+
+  it("cancels editing without changing the saved connection", async () => {
+    const updateConnection = vi.fn();
+    const user = userEvent.setup();
+    render(<ConnectionPanel api={api({ updateConnection })} projectId={projectId} />);
+    await screen.findByText("Catalog MCP");
+    await user.click(screen.getByRole("button", { name: "编辑 Catalog MCP" }));
+    await user.clear(screen.getByLabelText("连接名称"));
+    await user.type(screen.getByLabelText("连接名称"), "Discard me");
+    await user.click(screen.getByRole("button", { name: "取消编辑" }));
+
+    expect(updateConnection).not.toHaveBeenCalled();
+    expect(screen.getByRole("heading", { name: "新建连接配置" })).toBeVisible();
+    expect(screen.getByText("Catalog MCP")).toBeVisible();
+    expect(screen.getByLabelText("连接名称")).toHaveValue("");
   });
 
   it("requires confirmation before delete and keeps errors actionable", async () => {

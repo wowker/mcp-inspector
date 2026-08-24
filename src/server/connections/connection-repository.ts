@@ -104,6 +104,32 @@ export class ConnectionRepository {
     return row === undefined ? null : toRecord(row);
   }
 
+  update(connection: Pick<ConnectionRecord, "id" | "projectId" | "name" | "url" | "timeoutMs"> & {
+    updatedAt: string;
+    resetDiagnostics: boolean;
+  }): ConnectionRecord | null {
+    const result = this.store.database.prepare(`
+      UPDATE connections
+      SET name = ?, url = ?, timeout_ms = ?, updated_at = ?,
+          last_protocol_version = CASE WHEN ? THEN NULL ELSE last_protocol_version END,
+          last_server_info_json = CASE WHEN ? THEN NULL ELSE last_server_info_json END,
+          last_error_json = CASE WHEN ? THEN NULL ELSE last_error_json END
+      WHERE id = ? AND project_id = ?
+    `).run(
+      connection.name,
+      connection.url,
+      connection.timeoutMs,
+      connection.updatedAt,
+      Number(connection.resetDiagnostics),
+      Number(connection.resetDiagnostics),
+      Number(connection.resetDiagnostics),
+      connection.id,
+      connection.projectId,
+    );
+    if (result.changes !== 1) return null;
+    return this.get(connection.projectId, connection.id);
+  }
+
   recordSuccess(
     projectId: string,
     connectionId: string,

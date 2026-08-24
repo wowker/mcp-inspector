@@ -208,8 +208,7 @@ export function createConnectionRuntime(options: {
     },
 
     disconnect(connectionId) {
-      const entry = entries.get(connectionId);
-      if (entry === undefined) return Promise.resolve();
+      const entry = entryFor(connectionId);
       if (entry.disconnect !== undefined) return entry.disconnect;
       entry.generation += 1;
       entry.status = "disconnected";

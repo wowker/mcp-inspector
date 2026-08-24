@@ -599,6 +599,13 @@ h1 {
   font-size: 0.78rem;
 }
 
+.connection-last-error,
+.connection-edit-notice {
+  margin: 0;
+  color: #b42318;
+  font-size: 0.82rem;
+}
+
 .connection-create-form {
   display: grid;
   gap: 18px;
@@ -653,8 +660,10 @@ h1 {
   font-weight: 650;
 }
 
-.connection-create-form > button {
-  justify-self: start;
+.connection-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .tool-tree-panel {

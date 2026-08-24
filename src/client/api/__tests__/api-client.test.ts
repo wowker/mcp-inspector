@@ -99,6 +99,24 @@ describe("connection API response decoding", () => {
     })).rejects.toThrow("Invalid connection response");
   });
 
+  it("patches editable connection fields and validates the returned identity", async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      connection: validConnection({ name: "Fixed MCP", url: "https://fixed.example.test/mcp", timeoutMs: 20_000 }),
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    await expect(createApiClient("session").updateConnection(
+      projectId,
+      "00000000-0000-4000-8000-000000000602",
+      { name: "Fixed MCP", url: "https://fixed.example.test/mcp", timeoutMs: 20_000 },
+    )).resolves.toEqual(validConnection({ name: "Fixed MCP", url: "https://fixed.example.test/mcp", timeoutMs: 20_000 }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/projects/${projectId}/connections/00000000-0000-4000-8000-000000000602`,
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({
+        name: "Fixed MCP", url: "https://fixed.example.test/mcp", timeoutMs: 20_000,
+      }) }),
+    );
+  });
+
   it("rejects a record whose equally requested project ID is not a UUID", async () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({
       connections: [validConnection({ projectId: "not-a-uuid" })],
