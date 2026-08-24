@@ -12,6 +12,11 @@ interface ConnectionPanelProps {
   projectId: string;
   onSelectTool?: (tool: CatalogToolSummary) => void;
   onOpenTool?: (tool: CatalogToolSummary) => void;
+  mode?: "combined" | "servers" | "tools";
+  connectionFilterId?: string | null;
+  onConnectionConnected?: (connection: ConnectionSummary) => void;
+  onConnectionDisconnected?: (connectionId: string) => void;
+  onConnectionsLoaded?: (connections: ConnectionSummary[]) => void;
 }
 
 function errorMessage(error: unknown): string {
@@ -31,6 +36,10 @@ export function ConnectionPanel(props: ConnectionPanelProps) {
 
 function ProjectScopedConnectionPanel({
   api, projectId, onSelectTool = () => undefined, onOpenTool = () => undefined,
+  mode = "combined", connectionFilterId = null,
+  onConnectionConnected = () => undefined,
+  onConnectionDisconnected = () => undefined,
+  onConnectionsLoaded = () => undefined,
 }: ConnectionPanelProps) {
   const mounted = useRef(false);
   const submitLock = useRef(false);
@@ -76,7 +85,11 @@ function ProjectScopedConnectionPanel({
       .then((items) => {
         if (!active) return;
         setConnections(items);
+        onConnectionsLoaded(items);
         for (const connection of items) {
+          if (mode === "servers" || (
+            connectionFilterId !== null && connection.id !== connectionFilterId
+          )) continue;
           const generation = 1;
           catalogGenerations.current.set(connection.id, generation);
           void api.listTools(projectId, connection.id)
@@ -197,6 +210,7 @@ function ProjectScopedConnectionPanel({
       if (!mounted.current || catalogGenerations.current.get(connection.id) !== generation) return;
       updateConnection(connected);
       await refresh(connection.id);
+      if (mounted.current) onConnectionConnected(connected);
     } catch (cause) {
       if (mounted.current && catalogGenerations.current.get(connection.id) === generation) {
         const message = errorMessage(cause);
@@ -220,6 +234,7 @@ function ProjectScopedConnectionPanel({
       const disconnected = await api.disconnectConnection(projectId, connection.id);
       if (!mounted.current || catalogGenerations.current.get(connection.id) !== generation) return;
       updateConnection(disconnected);
+      onConnectionDisconnected(connection.id);
       setReadyConnectionIds((current) => {
         const next = new Set(current); next.delete(connection.id); return next;
       });
@@ -287,6 +302,7 @@ function ProjectScopedConnectionPanel({
       await api.deleteConnection(projectId, connection.id);
       if (!mounted.current || catalogGenerations.current.get(connection.id) !== generation) return;
       setConnections((current) => current?.filter(({ id }) => id !== connection.id) ?? []);
+      onConnectionDisconnected(connection.id);
       setCatalogs((current) => {
         const next = { ...current }; delete next[connection.id]; return next;
       });
@@ -301,9 +317,17 @@ function ProjectScopedConnectionPanel({
     }
   }
 
+  const visibleConnections = connectionFilterId === null
+    ? connections
+    : connections?.filter(({ id }) => id === connectionFilterId) ?? null;
+
   return (
-    <section className="connection-panel" aria-labelledby="connection-panel-title">
-      <div className="connection-panel__heading">
+    <section
+      className={`connection-panel connection-panel--${mode}`}
+      aria-label={mode === "tools" ? "Tool 目录" : undefined}
+      aria-labelledby={mode === "tools" ? undefined : "connection-panel-title"}
+    >
+      {mode !== "tools" && <div className="connection-panel__heading">
         <div>
           <p className="eyebrow">本地配置</p>
           <h2 id="connection-panel-title">连接管理</h2>
@@ -316,7 +340,7 @@ function ProjectScopedConnectionPanel({
           disabled={connections === null}
           onClick={(event) => beginCreate(event.currentTarget)}
         ><span aria-hidden="true">＋</span> 添加连接</button>
-      </div>
+      </div>}
 
       {error !== null && formMode === null && pendingDelete === null && (
         <div className="connection-load-error">
@@ -334,7 +358,7 @@ function ProjectScopedConnectionPanel({
         </div>
       )}
 
-      {connections === null && error === null ? (
+      {mode !== "tools" && (connections === null && error === null ? (
         <p role="status" className="connection-loading">正在加载连接配置…</p>
       ) : (
         <div className="connection-table-wrap">
@@ -417,11 +441,11 @@ function ProjectScopedConnectionPanel({
             </tbody>
           </table>
         </div>
-      )}
+      ))}
 
-      {connections !== null && connections.length > 0 && (
+      {mode !== "servers" && visibleConnections !== null && visibleConnections.length > 0 && (
         <ToolTree
-          connections={connections}
+          connections={visibleConnections}
           catalogs={catalogs}
           errors={catalogErrors}
           refreshingConnectionIds={refreshingConnectionIds}

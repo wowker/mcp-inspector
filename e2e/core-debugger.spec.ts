@@ -36,7 +36,8 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     await expect(page.getByText("本地服务已就绪")).toBeVisible();
     await page.getByLabel("项目名称").fill("Core E2E");
     await page.getByRole("button", { name: "创建并打开" }).click();
-    await expect(page.getByRole("heading", { name: "Core E2E" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Servers", level: 1 })).toBeVisible();
+    await expect(page.getByText("Core E2E")).toBeVisible();
 
     await page.getByRole("button", { name: "添加连接" }).click();
     const connectionDialog = page.getByRole("dialog", { name: "添加连接" });
@@ -48,6 +49,8 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     await expect(connectionDialog).toBeHidden();
     await expect(page.getByText(mcp.url)).toBeVisible();
     await page.getByRole("button", { name: "连接 Loopback MCP" }).click();
+    await expect(page.getByRole("tab", { name: "Loopback MCP" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("heading", { name: "Tools", level: 1 })).toBeVisible();
     await expect(page.getByRole("treeitem", { name: "echo，当前" })).toBeVisible();
     const sumTool = page.getByRole("treeitem", { name: "sum，当前" });
     await expect(sumTool).toBeVisible();
@@ -133,7 +136,9 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     await reloadTab.click();
     await expect(reloadTab).toHaveAttribute("aria-selected", "true");
     await page.reload();
-    await expect(page.getByRole("heading", { name: "Core E2E" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Servers", level: 1 })).toBeVisible();
+    await page.getByRole("tab", { name: "Loopback MCP" }).click();
+    await expect(page.getByRole("heading", { name: "Tools", level: 1 })).toBeVisible();
     await expect(tabList.getByRole("tab")).toHaveCount(8);
     await expect(page.getByRole("tab", { name: titles[5], exact: true })).toHaveAttribute("aria-selected", "true");
     for (let index = 0; index < 8; index += 1) {

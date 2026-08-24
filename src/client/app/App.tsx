@@ -6,9 +6,8 @@ import {
   type ProjectSummary,
 } from "../api/api-client.js";
 import { ProjectPicker } from "../features/projects/ProjectPicker.js";
-import { ConnectionPanel } from "../features/connections/ConnectionPanel.js";
-import { DebugWorkspace, type ToolOpenIntent } from "../features/tabs/DebugWorkspace.js";
 import { consumeBootstrapSession } from "./bootstrap-session.js";
+import { InspectorWorkbench } from "./InspectorWorkbench.js";
 
 const SESSION_HEADER = "X-DSers-Inspector-Session";
 
@@ -37,7 +36,6 @@ export function App() {
   const [health, setHealth] = useState<HealthState>({ status: "checking" });
   const [api, setApi] = useState<InspectorApiClient | null>(null);
   const [activeProject, setActiveProject] = useState<ProjectSummary | null>(null);
-  const [toolIntent, setToolIntent] = useState<ToolOpenIntent | null>(null);
 
   useEffect(() => {
     const session = consumeBootstrapSession();
@@ -84,6 +82,10 @@ export function App() {
         ? `本地服务已就绪 · v${health.version}`
         : health.message;
 
+  if (health.status === "ready" && api !== null && activeProject !== null) {
+    return <InspectorWorkbench api={api} project={activeProject} version={health.version} />;
+  }
+
   return (
     <main className="app-shell">
       <section className="welcome-card" aria-labelledby="app-title">
@@ -100,18 +102,6 @@ export function App() {
         </p>
         {health.status === "ready" && api !== null && activeProject === null && (
           <ProjectPicker api={api} onProjectOpened={setActiveProject} />
-        )}
-        {activeProject !== null && (
-          <section className="active-project" aria-labelledby="active-project-name">
-            <p className="eyebrow">当前项目</p>
-            <h2 id="active-project-name">{activeProject.name}</h2>
-            {api !== null && <div className="inspector-layout">
-              <aside><ConnectionPanel api={api} projectId={activeProject.id}
-                onSelectTool={(tool) => setToolIntent((current) => ({ sequence: (current?.sequence ?? 0) + 1, tool, newTab: false }))}
-                onOpenTool={(tool) => setToolIntent((current) => ({ sequence: (current?.sequence ?? 0) + 1, tool, newTab: true }))} /></aside>
-              <DebugWorkspace api={api} projectId={activeProject.id} toolIntent={toolIntent} />
-            </div>}
-          </section>
         )}
       </section>
     </main>
