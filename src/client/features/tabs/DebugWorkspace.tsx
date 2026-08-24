@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CatalogToolSummary, DebugTabSummary, InspectorApiClient, RunSummary, ToolDetailSummary } from "../../api/api-client.js";
+import type { CatalogToolSummary, DebugTabSummary, InspectorApiClient, RunDetail, RunSummary, ToolDetailSummary } from "../../api/api-client.js";
 import { parseRawArguments } from "../../../shared/json.js";
 import { RunHistory } from "../runs/RunHistory.js";
 import { RunResultPanel } from "../runs/RunResultPanel.js";
@@ -18,6 +18,18 @@ const PERSIST_DELAY = 300;
 interface PendingSave { revision: number; patch: Partial<DebugTabSummary> }
 interface BoundToolDetail { tabId: string; connectionId: string; toolName: string; value: ToolDetailSummary }
 interface SubtreeDraft { text: string; base: string }
+interface ActiveObservation { run: RunDetail | null; error: string | null }
+const terminalRunStatuses = new Set(["succeeded", "failed", "cancelled", "interrupted"]);
+
+function ActiveRunObserver({ api, projectId, tabId, runId, onUpdate }: {
+  api: InspectorApiClient; projectId: string; tabId: string; runId: string;
+  onUpdate: (tabId: string, runId: string, observation: ActiveObservation) => void;
+}) {
+  const observation = useRunEvents(api, projectId, runId);
+  useEffect(() => { onUpdate(tabId, runId, { run: observation.run, error: observation.error }); },
+    [observation.error, observation.run, onUpdate, runId, tabId]);
+  return null;
+}
 
 function SchemaPanel({ title, schema }: { title: string; schema: unknown }) {
   const record = typeof schema === "object" && schema !== null && !Array.isArray(schema)
@@ -51,6 +63,7 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
   const [readOnlyTabs, setReadOnlyTabs] = useState<RunSummary[]>([]);
   const [activeReadOnlyId, setActiveReadOnlyId] = useState<string | null>(null);
   const [startingIds, setStartingIds] = useState<ReadonlySet<string>>(new Set());
+  const [activeObservations, setActiveObservations] = useState<Record<string, ActiveObservation>>({});
   const tabsRef = useRef<DebugTabSummary[]>([]);
   const activeRef = useRef<string | null>(null);
   const pending = useRef(new Map<string, PendingSave>());
@@ -63,7 +76,8 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
   const intentQueue = useRef<Promise<void>>(Promise.resolve());
   const workspaceGeneration = useRef(0);
   const starts = useRef(new Set<string>());
-  const launchedRuns = useRef(new Map<string, string>());
+  const activeRuns = useRef(new Map<string, string>());
+  const settledLastRuns = useRef(new Map<string, string>());
 
   function assign(next: DebugTabSummary[]): void {
     tabsRef.current = next; setTabs(next);
@@ -144,13 +158,40 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
 
   const active = tabs?.find(({ id }) => id === activeId) ?? null;
   const selectedRunId = activeReadOnlyId ?? (active === null ? null : selectedRuns[active.id] ?? active.lastRunId);
-  const observed = useRunEvents(api, projectId, selectedRunId);
+  const activeSelectedRunId = active === null ? undefined
+    : activeRuns.current.get(active.id) ?? (active.lastRunId !== null && settledLastRuns.current.get(active.id) !== active.lastRunId
+      ? active.lastRunId : undefined);
+  const selectedUsesActiveObserver = selectedRunId !== null && selectedRunId === activeSelectedRunId;
+  const inspected = useRunEvents(api, projectId, selectedUsesActiveObserver ? null : selectedRunId);
+  const observed = selectedUsesActiveObserver && active !== null
+    ? activeObservations[active.id] ?? { run: null, error: null } : inspected;
+  const handleActiveObservation = useCallback((tabId: string, runId: string, observation: ActiveObservation) => {
+    if (activeRuns.current.get(tabId) !== runId) return;
+    if (observation.run !== null && terminalRunStatuses.has(observation.run.status)) {
+      settledLastRuns.current.set(tabId, runId);
+      activeRuns.current.delete(tabId);
+      setStartingIds((current) => { const next = new Set(current); next.delete(tabId); return next; });
+      setActiveObservations((current) => { const next = { ...current }; delete next[tabId]; return next; });
+      return;
+    }
+    setActiveObservations((current) => current[tabId]?.run === observation.run && current[tabId]?.error === observation.error
+      ? current : { ...current, [tabId]: observation });
+  }, []);
   useEffect(() => {
-    if (observed.run?.tabId === null || observed.run === null) return;
-    const id = observed.run.tabId; const running = !["succeeded", "failed", "cancelled", "interrupted"].includes(observed.run.status);
-    if (launchedRuns.current.get(id) !== observed.run.id) return;
-    setStartingIds((current) => { const next = new Set(current); if (running) next.add(id); else { next.delete(id); launchedRuns.current.delete(id); } return next; });
-  }, [observed.run]);
+    if (tabs === null) return;
+    const persisted = new Map(tabs.filter((tab) => tab.lastRunId !== null && settledLastRuns.current.get(tab.id) !== tab.lastRunId)
+      .map((tab) => [tab.id, tab.lastRunId!]));
+    for (const [tabId, runId] of [...settledLastRuns.current]) {
+      if (!tabs.some((tab) => tab.id === tabId && tab.lastRunId === runId)) settledLastRuns.current.delete(tabId);
+    }
+    for (const [tabId, runId] of [...activeRuns.current]) {
+      if (persisted.get(tabId) !== runId) activeRuns.current.delete(tabId);
+    }
+    for (const [tabId, runId] of persisted) activeRuns.current.set(tabId, runId);
+    setStartingIds(new Set([...persisted.keys(), ...starts.current]));
+    setActiveObservations((current) => Object.fromEntries(Object.entries(current)
+      .filter(([tabId, observation]) => persisted.get(tabId) === observation.run?.id)));
+  }, [tabs === null ? null : tabs.map(({ id, lastRunId }) => `${id}:${lastRunId ?? ""}`).join("|")]);
   useEffect(() => {
     setBoundDetail(null);
     if (active === null) return;
@@ -183,12 +224,16 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
   }, [api, flush, projectId, tabs, toolIntent]);
 
   async function reconcileLaunch(id: string): Promise<boolean> {
-    const runId = launchedRuns.current.get(id); if (runId === undefined) return true;
+    const persistedRunId = tabsRef.current.find((tab) => tab.id === id)?.lastRunId ?? null;
+    const runId = activeRuns.current.get(id) ?? (persistedRunId !== null && settledLastRuns.current.get(id) !== persistedRunId
+      ? persistedRunId : undefined);
+    if (runId === undefined) return true;
     try {
       const run = await api.getRun(projectId, runId);
-      if (!["succeeded", "failed", "cancelled", "interrupted"].includes(run.status)) return false;
-      if (launchedRuns.current.get(id) === run.id) {
-        launchedRuns.current.delete(id); setStartingIds((current) => { const next = new Set(current); next.delete(id); return next; });
+      if (!terminalRunStatuses.has(run.status)) return false;
+      if (activeRuns.current.get(id) === run.id) {
+        settledLastRuns.current.set(id, run.id); activeRuns.current.delete(id);
+        setStartingIds((current) => { const next = new Set(current); next.delete(id); return next; });
       }
       return true;
     } catch (error) { setMessage(error instanceof Error ? error.message : "检查运行状态失败"); return false; }
@@ -249,7 +294,7 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
       if (onExecute !== undefined) { onExecute(latest); return; }
       const run = await api.startRun(projectId, latest.id, crypto.randomUUID(), parsed.value);
       launched = true;
-      launchedRuns.current.set(latest.id, run.id);
+      activeRuns.current.set(latest.id, run.id);
       setSelectedRuns((current) => ({ ...current, [latest.id]: run.id }));
       schedule(latest.id, { lastRunId: run.id }); setView("debug");
     } catch (error) { setMessage(error instanceof Error ? error.message : "启动运行失败"); }
@@ -261,6 +306,8 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
 
   if (tabs === null) return <p role="status">正在恢复调试 Tabs…</p>;
   return <section className="debug-workspace" aria-label="Tool 调试工作台">
+    {[...startingIds].map((tabId) => { const runId = activeRuns.current.get(tabId); return runId === undefined ? null
+      : <ActiveRunObserver key={`${tabId}:${runId}`} api={api} projectId={projectId} tabId={tabId} runId={runId} onUpdate={handleActiveObservation} />; })}
     {message !== null && <p role="alert">{message}</p>}
     <div className="workspace-global-nav"><button type="button" aria-current={view === "global-history" ? "page" : undefined}
       onClick={() => { setActiveReadOnlyId(null); setView("global-history"); }}>运行历史</button></div>

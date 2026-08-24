@@ -426,12 +426,13 @@ function decodeRunDetail(value: unknown, projectId: string): RunDetail {
     request: { arguments: raw.request.arguments, jsonrpc: raw.request.jsonrpc, http: raw.request.http ?? null }, response, events };
 }
 
-function decodeRunPage(value: unknown, projectId: string): RunPage {
+function decodeRunPage(value: unknown, projectId: string, tabId?: string): RunPage {
   if (!isObject(value) || !Array.isArray(value.runs) || !(value.nextCursor === null ||
       (typeof value.nextCursor === "string" && value.nextCursor.length > 0 && value.nextCursor.length <= 4096 && /^[A-Za-z0-9_-]+$/.test(value.nextCursor)))) {
     throw new Error("Invalid Run response");
   }
   const runs = value.runs.map((run) => decodeRunSummary(run, projectId));
+  if (tabId !== undefined && runs.some((run) => run.tabId !== tabId)) throw new Error("Invalid Run response");
   if (new Set(runs.map(({ id }) => id)).size !== runs.length) throw new Error("Invalid Run response");
   if (runs.some((run, index) => index > 0 && (run.createdAt > runs[index - 1]!.createdAt ||
       (run.createdAt === runs[index - 1]!.createdAt && run.id >= runs[index - 1]!.id)))) throw new Error("Invalid Run response");
@@ -584,7 +585,7 @@ export function createApiClient(sessionToken: string): InspectorApiClient {
       const search = new URLSearchParams(); if (cursor !== undefined) search.set("cursor", cursor); if (tabId !== undefined) search.set("tabId", tabId);
       const query = search.size === 0 ? "" : `?${search.toString()}`;
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/runs${query}`, { headers });
-      return decodeRunPage(await decodeResponse<unknown>(response), projectId);
+      return decodeRunPage(await decodeResponse<unknown>(response), projectId, tabId);
     },
     async openRunEventStream(projectId, runId, after, signal) {
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/runs/${encodeURIComponent(runId)}/events?after=${after}`, {

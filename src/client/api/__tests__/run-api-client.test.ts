@@ -41,5 +41,7 @@ describe("Run API client", () => {
     await expect(api.listRuns(projectId)).rejects.toThrow("Invalid Run response");
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ runs: [run], nextCursor: "not a cursor" }), { status: 200 }));
     await expect(api.listRuns(projectId)).rejects.toThrow("Invalid Run response");
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ runs: [{ ...run, tabId: "00000000-0000-4000-8000-000000000799" }], nextCursor: null }), { status: 200 }));
+    await expect(api.listRuns(projectId, undefined, tabId)).rejects.toThrow("Invalid Run response");
   });
 });

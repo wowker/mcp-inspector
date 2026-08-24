@@ -42,6 +42,38 @@ describe("Run workspace", () => {
     expect(client.startRun).not.toHaveBeenCalled();
   });
 
+  it("restores a nonterminal lastRunId as the active execution gate after reload", async () => {
+    const running = { ...detail(), status: "running" as const, completedAt: null, durationMs: null, response: null };
+    let streamSignal: AbortSignal | undefined;
+    const client = api({ listTabs: vi.fn(async () => [{ ...tab, lastRunId: runId }]), getRun: vi.fn(async () => running),
+      openRunEventStream: vi.fn((_project, _run, _after, signal) => {
+        streamSignal = signal; return new Promise<Response>((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }));
+      }) });
+    const view = render(<DebugWorkspace api={client} projectId={projectId} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "执行中…" })).toBeDisabled());
+    expect(client.openRunEventStream).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(screen.getByLabelText("a"), { key: "Enter", ctrlKey: true }); expect(client.startRun).not.toHaveBeenCalled();
+    view.unmount(); expect(streamSignal?.aborted).toBe(true);
+  });
+
+  it("uses one observer per actual active Run and aborts it when its Tab is deleted", async () => {
+    const secondTabId = "00000000-0000-4000-8000-000000000851"; const secondRunId = "00000000-0000-4000-8000-000000000852";
+    const firstTab = { ...tab, lastRunId: runId }; const secondTab = { ...tab, id: secondTabId, title: "sum (2)", position: 1, lastRunId: secondRunId };
+    const signals = new Map<string, AbortSignal>();
+    const client = api({ listTabs: vi.fn(async () => [firstTab, secondTab]),
+      getRun: vi.fn(async (_project, id) => ({ ...detail(id === runId ? tabId : secondTabId), id, tabId: id === runId ? tabId : secondTabId,
+        status: "running" as const, completedAt: null, durationMs: null, response: null })),
+      openRunEventStream: vi.fn((_project, id, _after, signal) => { signals.set(id, signal);
+        return new Promise<Response>((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true })); }),
+      closeTab: vi.fn(async () => undefined) });
+    render(<DebugWorkspace api={client} projectId={projectId} />);
+    await waitFor(() => expect(client.openRunEventStream).toHaveBeenCalledTimes(2));
+    expect(signals.get(runId)?.aborted).toBe(false); expect(signals.get(secondRunId)?.aborted).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "关闭 sum" }));
+    await waitFor(() => expect(signals.get(runId)?.aborted).toBe(true));
+    expect(signals.get(secondRunId)?.aborted).toBe(false); expect(client.openRunEventStream).toHaveBeenCalledTimes(2);
+  });
+
   it("uses the same single-POST path for Ctrl+Enter and recovers after a start error", async () => {
     const startRun = vi.fn().mockRejectedValueOnce(new Error("server unavailable")).mockResolvedValueOnce(summary);
     const client = api({ startRun }); render(<DebugWorkspace api={client} projectId={projectId} />);
@@ -111,5 +143,27 @@ describe("Run workspace", () => {
     await waitFor(() => expect(screen.getByRole("tab", { name: "sum (2)" })).toHaveAttribute("aria-selected", "true"));
     fireEvent.click(await screen.findByRole("button", { name: "执行" }));
     await waitFor(() => expect(startRun).toHaveBeenCalledTimes(2)); expect(startRun.mock.calls[1]?.[1]).toBe(secondTabId);
+  });
+
+  it("keeps observing an active Run while old history is inspected and clears its gate only when that active Run completes", async () => {
+    const activeRunId = "00000000-0000-4000-8000-000000000850";
+    const activeSummary = { ...summary, id: activeRunId, idempotencyKey: "active", status: "running" as const };
+    const running = { ...detail(), ...activeSummary, completedAt: null, durationMs: null, response: null };
+    const completed = { ...detail(), ...activeSummary, status: "succeeded" as const };
+    let terminal = false; let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const encoder = new TextEncoder();
+    const client = api({ listTabs: vi.fn(async () => [{ ...tab, lastRunId: activeRunId }]),
+      getRun: vi.fn(async (_project, id) => id === activeRunId ? (terminal ? completed : running) : detail()),
+      openRunEventStream: vi.fn(async () => new Response(new ReadableStream<Uint8Array>({ start(controller) { streamController = controller; } }))),
+      listRuns: vi.fn(async () => ({ runs: [summary], nextCursor: null })) });
+    render(<DebugWorkspace api={client} projectId={projectId} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "执行中…" })).toBeDisabled());
+    fireEvent.click(screen.getByRole("button", { name: "当前 Tab 历史" }));
+    fireEvent.click(await screen.findByRole("button", { name: `打开运行 ${runId}` })); await screen.findByText(/"answer": 2/);
+    expect(screen.getByRole("button", { name: "执行中…" })).toBeDisabled();
+    terminal = true; streamController!.enqueue(encoder.encode(`data: ${JSON.stringify({ runId: activeRunId, sequence: 9, kind: "run-status",
+      occurredAt: "2026-08-17T00:00:01.000Z", payload: { status: "succeeded" } })}\n\n`));
+    await waitFor(() => expect(screen.getByRole("button", { name: "执行" })).toBeEnabled());
+    expect(client.startRun).not.toHaveBeenCalled();
   });
 });
