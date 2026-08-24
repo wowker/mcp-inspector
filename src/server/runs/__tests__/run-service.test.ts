@@ -6,13 +6,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CallToolResult } from "@modelcontextprotocol/client";
 import { FakeMcpSession } from "../../../../test-support/fake-mcp-session.js";
 import { createConnectionService } from "../../connections/connection-service.js";
-import { CallTimeoutError } from "../../connections/connection-runtime.js";
+import { CallTimeoutError, type WireObservation } from "../../connections/connection-runtime.js";
 import { createProjectService } from "../../projects/project-service.js";
 import { createTabService } from "../../tabs/tab-service.js";
 import { ToolRepository } from "../../tools/tool-repository.js";
 import { createToolService } from "../../tools/tool-service.js";
 import { RunRepository } from "../run-repository.js";
 import { RunEventBus } from "../run-event-bus.js";
+import type { RunEvent } from "../run-types.js";
 import { RunIdempotencyConflictError, RunValidationError, createRunService } from "../run-service.js";
 
 const projectId = "00000000-0000-4000-8000-000000000701";
@@ -236,6 +237,23 @@ describe("RunService", () => {
     } finally { projects.close(); }
   });
 
+  it("closes the scoped observer immediately when an external cancel wins", async () => {
+    const pending = deferred<CallToolResult>(); let observer: ((event: WireObservation) => void) | undefined;
+    const { projects, connections, service, tabA } = fixture(async ({ observe }) => { observer = observe; return pending.promise; });
+    try {
+      await connections.connect(projectId, connectionId);
+      const run = service.start({ projectId, tabId: tabA.id, idempotencyKey: "cancel-observer", arguments: { a: 1 } });
+      await vi.waitFor(() => expect(service.get(projectId, run.id).status).toBe("running"));
+      expect(service.cancel(projectId, run.id)).toBe(true);
+      const count = service.get(projectId, run.id).events.length;
+      observer?.({ kind: "rpc-in", at: "2026-08-17T00:00:09.000Z", message: { late: "after-cancel" } });
+      expect(service.get(projectId, run.id).events).toHaveLength(count);
+      pending.resolve({ content: [{ type: "text", text: "late" }] });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(service.get(projectId, run.id).status).toBe("cancelled");
+    } finally { projects.close(); }
+  });
+
   it("normalizes connection factory failures without persisting their details", async () => {
     const { projects, service, tabA } = fixture(undefined, async () => {
       throw new Error("dial failed with secret at /Users/test/key");
@@ -273,7 +291,7 @@ describe("RunService", () => {
       const run = service.start({ projectId, tabId: tabA.id, idempotencyKey: "trace-fail", arguments: { a: 1 } });
       const detail = await terminal(service, run.id);
       expect(detail.status).toBe("failed");
-      expect(detail.response?.error).toEqual({ code: "TRACE_PERSIST_FAILED", message: "Tool call completed but trace persistence failed" });
+      expect(detail.response?.error).toEqual({ code: "TRACE_PERSIST_FAILED", message: "Run recording failed" });
       expect(detail.response?.result).toEqual({ content: [{ type: "text", text: "completed" }] });
     } finally { projects.close(); }
   });
@@ -322,21 +340,37 @@ describe("RunService", () => {
 
   it("publishes a synthetic failed event when terminal events remain unavailable", async () => {
     const result = deferred<CallToolResult>();
-    const { projects, connections, service, tabA } = fixture(async () => result.promise);
+    let lateObserver: ((event: WireObservation) => void) | undefined;
+    const { projects, connections, service, tabA } = fixture(async ({ observe }) => {
+      lateObserver = observe as typeof lateObserver;
+      return result.promise;
+    });
     try {
       await connections.connect(projectId, connectionId);
       const run = service.start({ projectId, tabId: tabA.id, idempotencyKey: "persistent-event-fail", arguments: { a: 1 } });
       await vi.waitFor(() => expect(service.get(projectId, run.id).status).toBe("running"));
       projects.open(projectId).database.exec(`CREATE TRIGGER reject_every_terminal_event BEFORE INSERT ON run_events
         WHEN NEW.kind = 'run-status' BEGIN SELECT RAISE(ABORT, 'event store unavailable'); END`);
-      const live: Array<{ payload: unknown }> = [];
+      const live: RunEvent[] = [];
       const unsubscribe = service.eventBus.subscribe(run.id, (event) => live.push(event));
       result.resolve({ content: [{ type: "text", text: "completed" }] });
-      const detail = await terminal(service, run.id); unsubscribe();
+      const detail = await terminal(service, run.id);
       expect(detail.status).toBe("failed");
       expect(detail.response?.error?.code).toBe("TRACE_PERSIST_FAILED");
       expect(detail.events.at(-1)?.payload).toEqual({ status: "running" });
       expect(live.at(-1)?.payload).toEqual({ status: "failed", synthetic: true, code: "TRACE_PERSIST_FAILED" });
+      const synthetic = live.at(-1)!; const persistedLast = detail.events.at(-1)!;
+      expect(synthetic.sequence).toBe(persistedLast.sequence + 1);
+      const persistedCount = detail.events.length; const liveCount = live.length;
+      projects.open(projectId).database.exec("DROP TRIGGER reject_every_terminal_event");
+      lateObserver?.({ kind: "rpc-in", at: "2026-08-17T00:00:09.000Z", message: { late: true } });
+      const direct = new RunRepository(projects.open(projectId), service.eventBus).append(
+        run.id, "rpc-in", "2026-08-17T00:00:10.000Z", { late: "direct" });
+      expect(direct).toBeNull();
+      expect(service.get(projectId, run.id).events).toHaveLength(persistedCount);
+      expect(service.events(projectId, run.id, persistedLast.sequence)).toEqual([]);
+      expect(live).toHaveLength(liveCount);
+      unsubscribe();
     } finally { projects.close(); }
   });
 

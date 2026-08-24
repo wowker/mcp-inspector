@@ -67,6 +67,11 @@ export interface RunServiceWithEvents extends RunService {
   assertExists(projectId: string, runId: string): RunSummary;
 }
 
+interface ActiveRun {
+  controller: AbortController;
+  observationsClosed: boolean;
+}
+
 export function createRunService(projects: ProjectService, connections: ConnectionService, tabs: TabService,
   options: { createId?: () => string; now?: () => Date; eventBus?: RunEventBus; clientInfo?: Record<string, unknown>;
     maxResponseBytes?: number } = {},
@@ -75,7 +80,7 @@ export function createRunService(projects: ProjectService, connections: Connecti
   const now = options.now ?? (() => new Date());
   const eventBus = options.eventBus ?? new RunEventBus();
   const clientInfo = options.clientInfo ?? { name: "dsers-mcp-inspector", version: "0.1.0" };
-  const controllers = new Map<string, AbortController>();
+  const activeRuns = new Map<string, ActiveRun>();
   const repository = (projectId: string) => new RunRepository(projects.open(projectId), eventBus,
     { maxResponseBytes: options.maxResponseBytes });
   const key = (projectId: string, runId: string) => `${projectId}:${runId}`;
@@ -94,8 +99,9 @@ export function createRunService(projects: ProjectService, connections: Connecti
 
   async function execute(projectId: string, runId: string): Promise<void> {
     const controllerKey = key(projectId, runId);
-    const controller = controllers.get(controllerKey);
-    if (controller === undefined) return;
+    const activeRun = activeRuns.get(controllerKey);
+    if (activeRun === undefined) return;
+    const { controller } = activeRun;
     const repo = repository(projectId);
     let traceFailure = false;
     let requestAt: string | null = null;
@@ -105,7 +111,7 @@ export function createRunService(projects: ProjectService, connections: Connecti
     let networkDurationMs: number | null = null;
     let fallbackNetworkDurationMs: number | null = null;
     const observe = (observation: WireObservation) => {
-      if (traceFailure) return;
+      if (activeRun.observationsClosed || traceFailure) return;
       try {
         const safeObservation = redactWireObservation(observation);
         repo.append(runId, safeObservation.kind, safeObservation.at, safeObservation);
@@ -151,17 +157,19 @@ export function createRunService(projects: ProjectService, connections: Connecti
       const result = await runtime.callTool(run.connectionId, {
         name: run.toolName, arguments: run.request.arguments, signal: controller.signal, observe,
       });
+      activeRun.observationsClosed = true;
       const completedAt = timestamp();
       const latest = repo.get(projectId, runId);
       if (latest === null || terminal.has(latest.status)) return;
       const failed = traceFailure || result.isError === true;
       networkDurationMs ??= fallbackNetworkDurationMs;
       const response = traceFailure
-        ? { result, error: { code: "TRACE_PERSIST_FAILED", message: "Tool call completed but trace persistence failed" } }
+        ? { result, error: { code: "TRACE_PERSIST_FAILED", message: "Run recording failed" } }
         : { result };
       finishSafely(repo, projectId, runId, failed ? "failed" : "succeeded", completedAt,
         elapsed(latest.createdAt, completedAt), networkDurationMs, response);
     } catch (error) {
+      activeRun.observationsClosed = true;
       const latest = repo.get(projectId, runId);
       if (latest !== null && !terminal.has(latest.status)) {
         networkDurationMs ??= fallbackNetworkDurationMs;
@@ -173,7 +181,8 @@ export function createRunService(projects: ProjectService, connections: Connecti
           { error: normalized });
       }
     } finally {
-      controllers.delete(controllerKey);
+      activeRun.observationsClosed = true;
+      if (activeRuns.get(controllerKey) === activeRun) activeRuns.delete(controllerKey);
     }
   }
 
@@ -216,19 +225,23 @@ export function createRunService(projects: ProjectService, connections: Connecti
             result.identity.canonicalArguments !== canonicalArguments) throw new RunIdempotencyConflictError();
         return result.run;
       }
-      controllers.set(key(input.projectId, id), new AbortController());
+      activeRuns.set(key(input.projectId, id), { controller: new AbortController(), observationsClosed: false });
       queueMicrotask(() => { void execute(input.projectId, id).catch(() => undefined); });
       return result.run;
     },
     cancel(projectId, runId) {
       const run = requireRun(projectId, runId);
       if (terminal.has(run.status)) return false;
+      const activeRun = activeRuns.get(key(projectId, runId));
+      if (activeRun !== undefined) activeRun.observationsClosed = true;
       const completedAt = timestamp();
       const changed = finishSafely(repository(projectId), projectId, runId, "cancelled", completedAt,
         elapsed(run.createdAt, completedAt), run.networkDurationMs, { error: { code: "CALL_CANCELLED", message: "MCP Tool call was cancelled" } });
       if (!changed) return false;
-      const controller = controllers.get(key(projectId, runId));
-      controllers.delete(key(projectId, runId)); controller?.abort();
+      if (activeRun !== undefined) {
+        activeRuns.delete(key(projectId, runId));
+        activeRun.controller.abort();
+      }
       return true;
     },
     list(projectId, cursor) {

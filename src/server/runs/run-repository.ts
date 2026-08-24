@@ -191,7 +191,7 @@ export class RunRepository {
   failRecording(projectId: string, runId: string, at: string, durationMs: number,
     networkDurationMs: number | null, result?: unknown): boolean {
     const stored = this.responseRecord(result);
-    const error = { code: "TRACE_PERSIST_FAILED", message: "Tool call completed but trace persistence failed" };
+    const error = { code: "TRACE_PERSIST_FAILED", message: "Run recording failed" };
     const persist = (withEvent: boolean) => this.store.database.transaction(() => {
       const placeholders = active.map(() => "?").join(",");
       const changed = this.store.database.prepare(`UPDATE runs SET status = 'failed', completed_at = ?, duration_ms = ?, network_duration_ms = ?
@@ -220,6 +220,8 @@ export class RunRepository {
       this.bus.publish(persisted);
       return true;
     } catch {
+      // This event is intentionally live-only: storage is known to reject terminal events.
+      // The failed Run row and TRACE_PERSIST_FAILED response remain the reconnect authority.
       const lastResort = persist(false);
       if (lastResort === null) return false;
       this.bus.publish(lastResort);
@@ -227,15 +229,18 @@ export class RunRepository {
     }
   }
 
-  append(runId: string, kind: string, occurredAt: string, payload: unknown): RunEvent {
+  append(runId: string, kind: string, occurredAt: string, payload: unknown): RunEvent | null {
     const created = this.store.database.transaction(() => {
+      const run = this.store.database.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: RunStatus } | undefined;
+      if (run === undefined) throw new Error("Run not found while appending an event");
+      if (!active.includes(run.status)) return null;
       const row = this.store.database.prepare("SELECT COALESCE(MAX(sequence), 0) + 1 AS sequence FROM run_events WHERE run_id = ?")
         .get(runId) as { sequence: number };
       this.store.database.prepare(`INSERT INTO run_events (run_id, sequence, kind, occurred_at, payload_json)
         VALUES (?, ?, ?, ?, ?)`).run(runId, row.sequence, kind, occurredAt, JSON.stringify(payload));
       return { runId, sequence: row.sequence, kind, occurredAt, payload } satisfies RunEvent;
     })();
-    this.bus.publish(created);
+    if (created !== null) this.bus.publish(created);
     return created;
   }
 
