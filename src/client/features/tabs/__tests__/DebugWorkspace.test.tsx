@@ -34,7 +34,20 @@ function tab(id: string, title: string, args: Record<string, unknown>): DebugTab
 }
 
 describe("DebugWorkspace", () => {
-  afterEach(() => { cleanup(); vi.useRealTimers(); });
+  afterEach(() => { cleanup(); sessionStorage.clear(); vi.useRealTimers(); });
+
+  it("restores the active Tab selection across a workspace remount", async () => {
+    const tabs = [tab("00000000-0000-4000-8000-000000000653", "sum", { a: 1 }),
+      { ...tab("00000000-0000-4000-8000-000000000654", "sum (2)", { a: 2 }), position: 1 }];
+    const api = { listTabs: vi.fn(async () => tabs), getTool: vi.fn(async () => tool), updateTab: vi.fn() } as unknown as InspectorApiClient;
+    const first = render(<DebugWorkspace api={api} projectId={projectId} />);
+    await screen.findByRole("tab", { name: "sum" });
+    fireEvent.click(screen.getByRole("tab", { name: "sum (2)" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "sum (2)" })).toHaveAttribute("aria-selected", "true"));
+    first.unmount();
+    render(<DebugWorkspace api={api} projectId={projectId} />);
+    expect(await screen.findByRole("tab", { name: "sum (2)" })).toHaveAttribute("aria-selected", "true");
+  });
 
   it("restores independently edited same-Tool Tabs after remount", async () => {
     let saved = Array.from({ length: 8 }, (_, index) => ({
@@ -59,9 +72,9 @@ describe("DebugWorkspace", () => {
     first.unmount();
     await waitFor(() => expect(api.updateTab).toHaveBeenCalled());
     render(<DebugWorkspace api={api} projectId={projectId} />);
-    expect(await screen.findByLabelText("a")).toHaveValue(2);
-    fireEvent.click(screen.getByRole("tab", { name: /sum \(8\)/ }));
-    await waitFor(() => expect(screen.getByLabelText("a")).toHaveValue(800));
+    expect(await screen.findByLabelText("a")).toHaveValue(800);
+    fireEvent.click(screen.getByRole("tab", { name: /^sum$/ }));
+    await waitFor(() => expect(screen.getByLabelText("a")).toHaveValue(2));
   });
 
   it("keeps invalid Raw text lossless, preserves canonical arguments, and blocks execute/Form", () => {

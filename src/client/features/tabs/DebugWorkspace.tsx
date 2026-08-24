@@ -15,6 +15,7 @@ interface Props {
 
 type WorkspaceView = "debug" | "definition" | "history" | "global-history";
 const PERSIST_DELAY = 300;
+const ACTIVE_TAB_KEY_PREFIX = "dsers-inspector-active-tab:";
 interface PendingSave { revision: number; patch: Partial<DebugTabSummary> }
 interface BoundToolDetail { tabId: string; connectionId: string; toolName: string; value: ToolDetailSummary }
 interface SubtreeDraft { text: string; base: string }
@@ -95,7 +96,13 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
       return retained;
     });
   }
-  function activate(id: string | null): void { activeRef.current = id; setActiveId(id); if (id !== null) setActiveReadOnlyId(null); }
+  function activate(id: string | null): void {
+    activeRef.current = id; setActiveId(id); if (id !== null) setActiveReadOnlyId(null);
+    try {
+      if (id === null) sessionStorage.removeItem(`${ACTIVE_TAB_KEY_PREFIX}${projectId}`);
+      else sessionStorage.setItem(`${ACTIVE_TAB_KEY_PREFIX}${projectId}`, id);
+    } catch { /* The workspace remains usable when browser storage is unavailable. */ }
+  }
 
   const flush = useCallback(async (tabId?: string): Promise<boolean> => {
     async function drain(id: string): Promise<boolean> {
@@ -149,7 +156,9 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
     const generation = ++loadGeneration.current; setTabs(null); setMessage(null);
     void api.listTabs(projectId).then((loaded) => {
       if (loadGeneration.current !== generation) return;
-      assign(loaded); activate(loaded[0]?.id ?? null);
+      let stored: string | null = null;
+      try { stored = sessionStorage.getItem(`${ACTIVE_TAB_KEY_PREFIX}${projectId}`); } catch { /* Ignore unavailable storage. */ }
+      assign(loaded); activate(loaded.some(({ id }) => id === stored) ? stored : loaded[0]?.id ?? null);
     }).catch((error: unknown) => { if (loadGeneration.current === generation) setMessage(error instanceof Error ? error.message : "加载 Tabs 失败"); });
     const scope = ++workspaceGeneration.current;
     return () => { loadGeneration.current += 1; if (workspaceGeneration.current === scope) workspaceGeneration.current += 1;

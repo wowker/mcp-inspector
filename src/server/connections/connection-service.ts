@@ -59,6 +59,7 @@ export interface ConnectionService {
   connect(projectId: string, connectionId: string): Promise<ConnectionRecord>;
   disconnect(projectId: string, connectionId: string): Promise<ConnectionRecord>;
   runtime(projectId: string): ConnectionRuntime;
+  close(): Promise<void>;
 }
 
 export function createConnectionService(projects: ProjectService, options: {
@@ -156,5 +157,13 @@ export function createConnectionService(projects: ProjectService, options: {
     },
 
     runtime,
+
+    async close() {
+      const results = await Promise.allSettled([...runtimes.values()].map((projectRuntime) =>
+        projectRuntime.close()));
+      runtimes.clear();
+      const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+      if (failed !== undefined) throw failed.reason;
+    },
   };
 }

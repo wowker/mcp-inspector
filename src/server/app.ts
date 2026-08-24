@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { readFile } from "node:fs/promises";
+import { extname, relative, resolve } from "node:path";
 import { createConnectionService, type ConnectionService } from "./connections/connection-service.js";
 import { createConnectionRoutes } from "./connections/routes.js";
 import type { ProjectService } from "./projects/project-service.js";
@@ -13,13 +15,39 @@ import { createRunService, type RunServiceWithEvents } from "./runs/run-service.
 
 export interface AppDependencies {
   sessionToken: string;
-  allowedOrigin: string;
+  allowedOrigin: string | (() => string);
   version: string;
   projects?: ProjectService;
   connections?: ConnectionService;
   tools?: ToolService;
   tabs?: TabService;
   runs?: RunServiceWithEvents;
+  staticRoot?: string;
+}
+
+const contentTypes: Readonly<Record<string, string>> = {
+  ".css": "text/css; charset=utf-8",
+  ".html": "text/html; charset=utf-8",
+  ".ico": "image/x-icon",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".map": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+};
+
+function safeStaticPath(root: string, requestPath: string): string | null {
+  let decoded: string;
+  try { decoded = decodeURIComponent(requestPath); } catch { return null; }
+  if (decoded.includes("\0")) return null;
+  const candidate = resolve(root, `.${decoded}`);
+  const child = relative(resolve(root), candidate);
+  return child === "" || child.startsWith("..") || child.includes("/../") ? null : candidate;
+}
+
+function isApiPath(path: string): boolean {
+  return path === "/api" || path.startsWith("/api/");
 }
 
 export function createApp(deps: AppDependencies): Hono {
@@ -49,6 +77,33 @@ export function createApp(deps: AppDependencies): Hono {
       deps.runs ?? createRunService(deps.projects, connections, tabs),
     ));
   }
+
+  if (deps.staticRoot !== undefined) {
+    app.get("*", async (context) => {
+      if (isApiPath(context.req.path)) return context.json({ error: "Not found" }, 404);
+      const accept = context.req.header("Accept") ?? "";
+      const navigation = accept.includes("text/html") && extname(context.req.path) === "";
+      const requestedPath = navigation || context.req.path === "/" ? "/index.html" : context.req.path;
+      const file = safeStaticPath(deps.staticRoot!, requestedPath);
+      if (file === null) return context.text("Not found", 404);
+      try {
+        const body = await readFile(file);
+        return context.body(body, 200, {
+          "Content-Type": contentTypes[extname(file).toLowerCase()] ?? "application/octet-stream",
+          "X-Content-Type-Options": "nosniff",
+        });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT" || (error as NodeJS.ErrnoException).code === "EISDIR") {
+          return context.text("Not found", 404);
+        }
+        throw error;
+      }
+    });
+  }
+
+  app.notFound((context) => isApiPath(context.req.path)
+    ? context.json({ error: "Not found" }, 404)
+    : context.text("Not found", 404));
 
   return app;
 }

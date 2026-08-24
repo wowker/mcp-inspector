@@ -14,12 +14,15 @@ function tokensMatch(actual: string, expected: string): boolean {
 }
 
 export function sessionAuth(options: {
-  allowedOrigin: string;
+  allowedOrigin: string | (() => string);
   sessionToken: string;
 }): MiddlewareHandler {
   return async (context, next) => {
     const origin = context.req.header("Origin");
-    if (origin !== undefined && origin !== options.allowedOrigin) {
+    const allowedOrigin = typeof options.allowedOrigin === "function"
+      ? options.allowedOrigin()
+      : options.allowedOrigin;
+    if (origin !== undefined && origin !== allowedOrigin) {
       return context.json({ error: "Forbidden origin" }, 403);
     }
 

@@ -1,8 +1,15 @@
 {
   "name": "dsers-mcp-inspector",
-  "private": true,
   "version": "0.1.0",
   "type": "module",
+  "bin": {
+    "dsers-inspector": "bin/dsers-inspector.mjs"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md"
+  ],
   "engines": {
     "node": ">=22"
   },
@@ -10,11 +17,12 @@
     "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\"",
     "dev:server": "tsx watch src/server/main.ts",
     "dev:client": "vite",
-    "build": "vite build && tsup && node scripts/copy-static.mjs",
+    "start": "node bin/dsers-inspector.mjs",
+    "build": "node scripts/clean-dist.mjs && vite build && tsup && node scripts/copy-static.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.server.json",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "verify": "npm run typecheck && npm run test && npm run build"
+    "verify": "npm run typecheck && npm run test && npm run build && npm run test:e2e"
   },
   "dependencies": {
     "@hono/node-server": "1.19.14",

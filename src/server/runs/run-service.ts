@@ -65,6 +65,7 @@ function isToolsCallRequest(observation: WireObservation): observation is Extrac
 export interface RunServiceWithEvents extends RunService {
   readonly eventBus: RunEventBus;
   assertExists(projectId: string, runId: string): RunSummary;
+  close(): Promise<void>;
 }
 
 interface ActiveRun {
@@ -81,6 +82,7 @@ export function createRunService(projects: ProjectService, connections: Connecti
   const eventBus = options.eventBus ?? new RunEventBus();
   const clientInfo = options.clientInfo ?? { name: "dsers-mcp-inspector", version: "0.1.0" };
   const activeRuns = new Map<string, ActiveRun>();
+  const executions = new Set<Promise<void>>();
   const repository = (projectId: string) => new RunRepository(projects.open(projectId), eventBus,
     { maxResponseBytes: options.maxResponseBytes });
   const key = (projectId: string, runId: string) => `${projectId}:${runId}`;
@@ -226,7 +228,11 @@ export function createRunService(projects: ProjectService, connections: Connecti
         return result.run;
       }
       activeRuns.set(key(input.projectId, id), { controller: new AbortController(), observationsClosed: false });
-      queueMicrotask(() => { void execute(input.projectId, id).catch(() => undefined); });
+      queueMicrotask(() => {
+        const operation = execute(input.projectId, id).catch(() => undefined);
+        executions.add(operation);
+        void operation.finally(() => executions.delete(operation));
+      });
       return result.run;
     },
     cancel(projectId, runId) {
@@ -258,6 +264,14 @@ export function createRunService(projects: ProjectService, connections: Connecti
       requireSummary(projectId, runId);
       if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1 || limit > 1_000)) throw new InvalidRunError();
       return repository(projectId).events(runId, after, limit);
+    },
+    async close() {
+      for (const activeRun of activeRuns.values()) {
+        activeRun.observationsClosed = true;
+        activeRun.controller.abort();
+      }
+      await Promise.allSettled([...executions]);
+      activeRuns.clear();
     },
   };
 }

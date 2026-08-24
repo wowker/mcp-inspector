@@ -33,6 +33,7 @@ export interface ConnectionRuntime {
     input: Parameters<McpSession["callTool"]>[0],
   ): Promise<CallToolResult>;
   disconnect(connectionId: string): Promise<void>;
+  close(): Promise<void>;
 }
 
 export class McpConnectError extends Error {
@@ -237,6 +238,13 @@ export function createConnectionRuntime(options: {
       });
       entry.disconnect = operation;
       return operation;
+    },
+
+    async close() {
+      const results = await Promise.allSettled([...entries.keys()].map((connectionId) =>
+        runtime.disconnect(connectionId)));
+      const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+      if (failed !== undefined) throw failed.reason;
     },
   };
   return runtime;

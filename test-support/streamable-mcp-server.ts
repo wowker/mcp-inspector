@@ -14,8 +14,13 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
 
 export async function startStreamableMcpServer(): Promise<{
   url: string;
+  completedTotals: number[];
+  readonly maxConcurrentCalls: number;
   stop(): Promise<void>;
 }> {
+  const completedTotals: number[] = [];
+  let concurrentCalls = 0;
+  let maxConcurrentCalls = 0;
   const mcp = new McpServer({ name: "loopback-fixture", version: "1.0.0" });
   mcp.registerTool("echo", {
     description: "Echo a message",
@@ -26,12 +31,17 @@ export async function startStreamableMcpServer(): Promise<{
     inputSchema: { a: z.number(), b: z.number(), delayMs: z.number().optional() },
     outputSchema: { total: z.number() },
   }, async ({ a, b, delayMs }) => {
-    if (delayMs !== undefined) await new Promise((resolve) => setTimeout(resolve, delayMs));
-    const total = a + b;
-    return {
-      content: [{ type: "text", text: String(total) }],
-      structuredContent: { total },
-    };
+    concurrentCalls += 1;
+    maxConcurrentCalls = Math.max(maxConcurrentCalls, concurrentCalls);
+    try {
+      if (delayMs !== undefined) await new Promise((resolve) => setTimeout(resolve, delayMs));
+      const total = a + b;
+      completedTotals.push(total);
+      return {
+        content: [{ type: "text", text: String(total) }],
+        structuredContent: { total },
+      };
+    } finally { concurrentCalls -= 1; }
   });
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: randomUUID });
   await mcp.connect(transport);
@@ -60,6 +70,8 @@ export async function startStreamableMcpServer(): Promise<{
 
   return {
     url: `http://127.0.0.1:${address.port}/mcp`,
+    completedTotals,
+    get maxConcurrentCalls() { return maxConcurrentCalls; },
     async stop() {
       if (stopped) return;
       stopped = true;

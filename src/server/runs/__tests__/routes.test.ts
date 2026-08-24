@@ -20,7 +20,7 @@ function fake(overrides: Partial<RunServiceWithEvents> = {}): RunServiceWithEven
   return {
     eventBus: new RunEventBus(), start: () => summary, cancel: () => true,
     list: () => ({ runs: [summary], nextCursor: null }), get: () => detail,
-    assertExists: () => summary, events: () => [], ...overrides,
+    assertExists: () => summary, events: () => [], close: async () => undefined, ...overrides,
   };
 }
 

@@ -111,6 +111,19 @@ describe("ConnectionRuntime", () => {
     expect(runtime.get(connection.id)).toBeUndefined();
   });
 
+  it("closes every connected session during runtime shutdown", async () => {
+    const first = new FakeMcpSession(); const second = new FakeMcpSession();
+    const runtime = createConnectionRuntime({
+      resolveConnection: (id) => ({ ...connection, id }),
+      factory: async (record) => record.id === connection.id ? first : second,
+    });
+    const secondId = "00000000-0000-4000-8000-000000000402";
+    await Promise.all([runtime.connect(connection.id), runtime.connect(secondId)]);
+    await runtime.close();
+    expect(first.closeCount).toBe(1); expect(second.closeCount).toBe(1);
+    expect(runtime.get(connection.id)).toBeUndefined(); expect(runtime.get(secondId)).toBeUndefined();
+  });
+
   it("waits for disconnect before establishing a replacement session", async () => {
     const first = new FakeMcpSession();
     const second = new FakeMcpSession();
