@@ -32,6 +32,17 @@ describe("Run API client", () => {
     await expect(createApiClient("session").getRun(projectId, run.id)).rejects.toThrow("Invalid Run response");
   });
 
+  it("loads a lightweight status summary with strict project and Run identity", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ run: { ...run, status: "running" } }), { status: 200 }));
+    const api = createApiClient("session");
+    await expect(api.getRunSummary(projectId, run.id)).resolves.toEqual({ ...run, status: "running" });
+    expect(fetchMock).toHaveBeenLastCalledWith(`/api/projects/${projectId}/runs/${run.id}/status`, expect.objectContaining({ signal: undefined }));
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ run: { ...run, id: "00000000-0000-4000-8000-000000000899" } }), { status: 200 }));
+    await expect(api.getRunSummary(projectId, run.id)).rejects.toThrow("Invalid Run response");
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ run: { ...run, projectId: "00000000-0000-4000-8000-000000000899" } }), { status: 200 }));
+    await expect(api.getRunSummary(projectId, run.id)).rejects.toThrow("Invalid Run response");
+  });
+
   it("requests server-filtered Tab history and rejects duplicate IDs or malformed cursors", async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ runs: [run], nextCursor: "next_page" }), { status: 200 }));
     const api = createApiClient("session");

@@ -40,6 +40,23 @@ export function reportStartupFailure(_error: unknown,
   write("Unable to start DSers MCP Inspector");
 }
 
+export async function runInspectorCli(options: {
+  start?: () => Promise<InspectorRuntime>;
+  writeInfo?: (message: string) => void;
+  writeError?: (message: string) => void;
+} = {}): Promise<0 | 1> {
+  try {
+    const runtime = await (options.start ?? (() => startInspector()))();
+    (options.writeInfo ?? ((message) => { console.info(message); }))(
+      `DSers MCP Inspector listening on ${runtime.address.origin}`,
+    );
+    return 0;
+  } catch (error) {
+    reportStartupFailure(error, options.writeError);
+    return 1;
+  }
+}
+
 function closeServer(server: ServerType): Promise<void> {
   if (!server.listening) return Promise.resolve();
   return new Promise((resolve, reject) => {
@@ -156,10 +173,6 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
 
 const invokedPath = process.argv[1];
 if (invokedPath !== undefined && fileURLToPath(import.meta.url) === resolve(invokedPath)) {
-  void startInspector({ clientOrigin: "http://127.0.0.1:5173" }).then((runtime) => {
-    console.info(`DSers MCP Inspector listening on ${runtime.address.origin}`);
-  }).catch((error: unknown) => {
-    reportStartupFailure(error);
-    process.exitCode = 1;
-  });
+  void runInspectorCli({ start: () => startInspector({ clientOrigin: "http://127.0.0.1:5173" }) })
+    .then((exitCode) => { process.exitCode = exitCode; });
 }

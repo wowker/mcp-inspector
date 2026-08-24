@@ -42,7 +42,9 @@ export async function consumeRunEventStream(response: Response, runId: string, s
 
 export interface RunEventState { run: RunDetail | null; error: string | null; observing: boolean }
 
-export function useRunPolling(api: InspectorApiClient, projectId: string, runId: string | null): RunEventState {
+const statusDelays = [1_000, 2_000, 4_000, 8_000];
+
+export function useRunPolling(api: InspectorApiClient, projectId: string, tabId: string, runId: string | null): RunEventState {
   const [state, setState] = useState<RunEventState>({ run: null, error: null, observing: false });
   useEffect(() => {
     const controller = new AbortController(); let current = true;
@@ -52,18 +54,24 @@ export function useRunPolling(api: InspectorApiClient, projectId: string, runId:
       let attempt = 0;
       while (current && !controller.signal.aborted) {
         try {
-          const run = await api.getRun(projectId, runId);
+          const summary = await api.getRunSummary(projectId, runId, controller.signal);
           if (!current || controller.signal.aborted) return;
-          const observing = !terminal.has(run.status);
-          setState({ run, error: null, observing });
-          if (!observing) return;
+          if (summary.tabId !== tabId) throw new Error("Invalid Run response");
+          if (terminal.has(summary.status)) {
+            const run = await api.getRun(projectId, runId, controller.signal);
+            if (!current || controller.signal.aborted) return;
+            if (run.tabId !== tabId || !terminal.has(run.status)) throw new Error("Invalid Run response");
+            setState({ run, error: null, observing: false });
+            return;
+          }
+          setState({ run: null, error: null, observing: true });
           attempt = 0;
-          await wait(delays[0]!, controller.signal);
+          await wait(statusDelays[0]!, controller.signal);
         } catch (cause) {
           if (!current || controller.signal.aborted) return;
           setState((previous) => ({ ...previous,
             error: cause instanceof Error ? cause.message : "加载运行失败", observing: true }));
-          await wait(delays[Math.min(attempt, delays.length - 1)]!, controller.signal);
+          await wait(statusDelays[Math.min(attempt, statusDelays.length - 1)]!, controller.signal);
           attempt += 1;
         }
       }
@@ -72,7 +80,7 @@ export function useRunPolling(api: InspectorApiClient, projectId: string, runId:
         error: cause instanceof Error ? cause.message : "加载运行失败", observing: false });
     });
     return () => { current = false; controller.abort(); };
-  }, [api, projectId, runId]);
+  }, [api, projectId, runId, tabId]);
   return state;
 }
 

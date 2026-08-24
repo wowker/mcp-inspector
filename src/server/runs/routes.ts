@@ -60,6 +60,10 @@ export function createRunRoutes(runs: RunServiceWithEvents): Hono {
     try { return c.json(runs.list(c.req.param("projectId"), c.req.query("cursor"), tabId)); }
     catch (error) { return errorResponse(c, error); }
   });
+  routes.get("/:projectId/runs/:runId/status", (c) => {
+    try { return c.json({ run: runs.getSummary(c.req.param("projectId"), c.req.param("runId")) }); }
+    catch (error) { return errorResponse(c, error); }
+  });
   routes.get("/:projectId/runs/:runId", (c) => {
     try { return c.json({ run: runs.get(c.req.param("projectId"), c.req.param("runId")) }); }
     catch (error) { return errorResponse(c, error); }

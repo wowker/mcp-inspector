@@ -20,7 +20,8 @@ function detail(owner: string | null = tabId): RunDetail { return { ...summary, 
   response: { result: { structuredContent: { answer: 2 } }, error: null, truncated: false, originalBytes: 10 }, events: [] }; }
 function api(overrides: Partial<InspectorApiClient> = {}): InspectorApiClient { return { listTabs: vi.fn(async () => [tab]), getTool: vi.fn(async () => tool),
   updateTab: vi.fn(async (_p, _id, patch) => ({ ...tab, ...patch })), startRun: vi.fn(async () => summary), getRun: vi.fn(async () => detail()),
-  listRuns: vi.fn(async () => ({ runs: [], nextCursor: null })), openTab: vi.fn(), ...overrides } as unknown as InspectorApiClient; }
+  getRunSummary: vi.fn(async () => summary), listRuns: vi.fn(async () => ({ runs: [], nextCursor: null })), openTab: vi.fn(),
+  ...overrides } as unknown as InspectorApiClient; }
 
 describe("Run workspace", () => {
   afterEach(() => cleanup());
@@ -59,20 +60,44 @@ describe("Run workspace", () => {
   it("uses one SSE only for the selected active Run and promotes a background observer after selection changes", async () => {
     const secondTabId = "00000000-0000-4000-8000-000000000851"; const secondRunId = "00000000-0000-4000-8000-000000000852";
     const firstTab = { ...tab, lastRunId: runId }; const secondTab = { ...tab, id: secondTabId, title: "sum (2)", position: 1, lastRunId: secondRunId };
-    const signals = new Map<string, AbortSignal>();
+    const signals = new Map<string, AbortSignal>(); const pollingSignals = new Map<string, AbortSignal>();
     const client = api({ listTabs: vi.fn(async () => [firstTab, secondTab]),
       getRun: vi.fn(async (_project, id) => ({ ...detail(id === runId ? tabId : secondTabId), id, tabId: id === runId ? tabId : secondTabId,
         status: "running" as const, completedAt: null, durationMs: null, response: null })),
+      getRunSummary: vi.fn((_project, id, signal) => { pollingSignals.set(id, signal!);
+        return new Promise<RunSummary>(() => undefined); }),
       openRunEventStream: vi.fn((_project, id, _after, signal) => { signals.set(id, signal);
+        if (id === secondRunId) expect(pollingSignals.get(id)?.aborted).toBe(true);
         return new Promise<Response>((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true })); }),
       closeTab: vi.fn(async () => undefined) });
     render(<DebugWorkspace api={client} projectId={projectId} />);
     await waitFor(() => expect(client.openRunEventStream).toHaveBeenCalledTimes(1));
     expect(signals.get(runId)?.aborted).toBe(false); expect(signals.has(secondRunId)).toBe(false);
+    await waitFor(() => expect(pollingSignals.get(secondRunId)?.aborted).toBe(false));
     fireEvent.click(screen.getByRole("button", { name: "关闭 sum" }));
     await waitFor(() => expect(signals.get(runId)?.aborted).toBe(true));
+    await waitFor(() => expect(pollingSignals.get(secondRunId)?.aborted).toBe(true));
     await waitFor(() => expect(client.openRunEventStream).toHaveBeenCalledTimes(2));
     expect(signals.get(secondRunId)?.aborted).toBe(false);
+  });
+
+  it("clears a background Tab execution gate after its lightweight status reaches terminal", async () => {
+    const secondTabId = "00000000-0000-4000-8000-000000000853"; const secondRunId = "00000000-0000-4000-8000-000000000854";
+    const firstTab = { ...tab, lastRunId: runId }; const secondTab = { ...tab, id: secondTabId, title: "sum (2)", position: 1, lastRunId: secondRunId };
+    const running = { ...detail(), status: "running" as const, completedAt: null, durationMs: null, response: null };
+    const completed = { ...detail(), id: secondRunId, tabId: secondTabId };
+    const client = api({ listTabs: vi.fn(async () => [firstTab, secondTab]),
+      getRunSummary: vi.fn(async (_project, id) => id === secondRunId ? completed : running),
+      getRun: vi.fn(async (_project, id) => id === secondRunId ? completed : running),
+      openRunEventStream: vi.fn((_project, _id, _after, signal) =>
+        new Promise<Response>((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }))),
+    });
+    render(<DebugWorkspace api={client} projectId={projectId} />);
+    await waitFor(() => expect(client.getRunSummary).toHaveBeenCalledWith(projectId, secondRunId, expect.any(AbortSignal)));
+    const secondTabButton = screen.getByRole("tab", { name: "sum (2)" }); fireEvent.click(secondTabButton);
+    await waitFor(() => expect(secondTabButton).toHaveAttribute("aria-selected", "true"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "执行" })).toBeEnabled());
+    expect(client.openRunEventStream).toHaveBeenCalledTimes(1);
   });
 
   it("uses the same single-POST path for Ctrl+Enter and recovers after a start error", async () => {

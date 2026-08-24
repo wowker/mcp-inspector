@@ -117,7 +117,8 @@ export interface InspectorApiClient {
   closeOtherTabs(projectId: string, tabId: string): Promise<DebugTabSummary[]>;
   closeTabsRight(projectId: string, tabId: string): Promise<DebugTabSummary[]>;
   startRun(projectId: string, tabId: string, idempotencyKey: string, args: Record<string, unknown>): Promise<RunSummary>;
-  getRun(projectId: string, runId: string): Promise<RunDetail>;
+  getRunSummary(projectId: string, runId: string, signal?: AbortSignal): Promise<RunSummary>;
+  getRun(projectId: string, runId: string, signal?: AbortSignal): Promise<RunDetail>;
   listRuns(projectId: string, cursor?: string, tabId?: string): Promise<RunPage>;
   openRunEventStream(projectId: string, runId: string, after: number, signal: AbortSignal): Promise<Response>;
 }
@@ -575,8 +576,16 @@ export function createApiClient(sessionToken: string): InspectorApiClient {
       if (run.tabId !== tabId || run.idempotencyKey !== idempotencyKey) throw new Error("Invalid Run response");
       return run;
     },
-    async getRun(projectId, runId) {
-      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/runs/${encodeURIComponent(runId)}`, { headers });
+    async getRunSummary(projectId, runId, signal) {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/runs/${encodeURIComponent(runId)}/status`, { headers, signal });
+      const value = await decodeResponse<unknown>(response);
+      if (!isObject(value) || !("run" in value)) throw new Error("Invalid Run response");
+      const run = decodeRunSummary(value.run, projectId);
+      if (run.id !== runId) throw new Error("Invalid Run response");
+      return run;
+    },
+    async getRun(projectId, runId, signal) {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/runs/${encodeURIComponent(runId)}`, { headers, signal });
       const run = decodeRunDetail(await decodeResponse<unknown>(response), projectId);
       if (run.id !== runId) throw new Error("Invalid Run response");
       return run;

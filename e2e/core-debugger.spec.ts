@@ -12,6 +12,7 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
   let mcp: Awaited<ReturnType<typeof startStreamableMcpServer>> | undefined;
   let browserUrl = "";
   let inspector: InspectorRuntime | undefined;
+  let primaryFailure: unknown;
   try {
     mcp = await startStreamableMcpServer({ controlCalls: true });
     inspector = await startInspector({
@@ -114,8 +115,10 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
       await detail.getByRole("tab", { name: "RPC" }).click();
       await expect(detail.locator(".result-view")).toContainText("tools/call");
       await expect(detail.locator(".result-view")).toContainText(`"a": ${inputs[index].a}`);
+      await expect(detail.locator(".result-view")).toContainText(`"b": ${inputs[index].b}`);
       for (const other of inputs.filter((_, otherIndex) => otherIndex !== index)) {
         await expect(detail.locator(".result-view")).not.toContainText(`"a": ${other.a}`);
+        await expect(detail.locator(".result-view")).not.toContainText(`"b": ${other.b}`);
       }
       await detail.getByRole("tab", { name: "HTTP" }).click();
       await expect(detail.locator(".result-view")).toContainText("200");
@@ -134,8 +137,13 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
       await tab.click();
       await expect(tab).toHaveAttribute("aria-selected", "true");
       await expect(page.getByRole("tab", { name: index % 2 === 0 ? "Form" : "Raw JSON" })).toHaveAttribute("aria-selected", "true");
-      if (index % 2 === 0) await expect(page.getByLabel(/^a（必填）$/)).toHaveValue(String(inputs[index].a));
-      else await expect(page.getByLabel("完整 arguments JSON")).toHaveValue(new RegExp(`"a":${inputs[index].a}`));
+      if (index % 2 === 0) {
+        await expect(page.getByLabel(/^a（必填）$/)).toHaveValue(String(inputs[index].a));
+        await expect(page.getByLabel(/^b（必填）$/)).toHaveValue(String(inputs[index].b));
+      } else {
+        const raw = await page.getByLabel("完整 arguments JSON").inputValue();
+        expect(JSON.parse(raw)).toEqual({ a: inputs[index].a, b: inputs[index].b });
+      }
       await page.locator("article.run-result").getByRole("tab", { name: "格式化结果" }).click();
       await expect(page.locator("article.run-result .json-block").filter({ hasText: "结构化内容" }).locator("pre"))
         .toContainText(`"total": ${inputs[index].total}`);
@@ -171,20 +179,29 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
       expect(payload.run.events.filter(({ kind }) => kind === "http-request")).toHaveLength(1);
       expect(payload.run.events.filter(({ kind }) => kind === "http-response")).toHaveLength(1);
       const terminalStatuses = new Set(["succeeded", "failed", "cancelled", "interrupted"]);
-      const terminalEvents = payload.run.events.filter(({ kind, payload: eventPayload }) => {
-        if (kind === "run-error") return true;
-        return kind === "run-status" && typeof eventPayload === "object" && eventPayload !== null &&
-          terminalStatuses.has(String((eventPayload as { status?: string }).status));
-      });
+      const terminalEvents = payload.run.events.filter(({ kind, payload: eventPayload }) => kind === "run-status" &&
+        typeof eventPayload === "object" && eventPayload !== null &&
+        terminalStatuses.has(String((eventPayload as { status?: string }).status)));
       expect(terminalEvents).toHaveLength(1);
+      expect(payload.run.events.filter(({ kind }) => kind === "run-error")).toHaveLength(0);
     }
+  } catch (error) {
+    primaryFailure = error;
   } finally {
-    await page.close().catch(() => undefined);
-    try { mcp?.releaseAll(); } catch { /* Continue deterministic cleanup after assertion failures. */ }
-    await Promise.allSettled([
+    const cleanupErrors: unknown[] = [];
+    try { await page.close(); } catch (error) { cleanupErrors.push(error); }
+    try { mcp?.releaseAll(); } catch (error) { cleanupErrors.push(error); }
+    const closeResults = await Promise.allSettled([
       inspector?.close() ?? Promise.resolve(),
       mcp?.stop() ?? Promise.resolve(),
     ]);
-    rmSync(dataRoot, { recursive: true, force: true });
+    for (const result of closeResults) if (result.status === "rejected") cleanupErrors.push(result.reason);
+    try { rmSync(dataRoot, { recursive: true, force: true }); } catch (error) { cleanupErrors.push(error); }
+    if (primaryFailure !== undefined || cleanupErrors.length > 0) {
+      throw new AggregateError([
+        ...(primaryFailure === undefined ? [] : [primaryFailure]),
+        ...cleanupErrors,
+      ], primaryFailure === undefined ? "E2E cleanup failed" : "E2E failed and cleanup was incomplete");
+    }
   }
 });

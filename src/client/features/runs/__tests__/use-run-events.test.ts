@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, render, renderHook, waitFor } from "@testing-library/react";
+import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { InspectorApiClient, RunDetail } from "../../../api/api-client.js";
-import { consumeRunEventStream, useRunEvents } from "../use-run-events.js";
+import type { InspectorApiClient, RunDetail, RunSummary } from "../../../api/api-client.js";
+import { consumeRunEventStream, useRunEvents, useRunPolling } from "../use-run-events.js";
 
 describe("consumeRunEventStream", () => {
   afterEach(() => { vi.useRealTimers(); });
@@ -113,5 +114,94 @@ describe("consumeRunEventStream", () => {
     await waitFor(() => expect(firstSignal).toBeDefined()); hook.rerender({ project: nextProject });
     await waitFor(() => expect(firstSignal?.aborted).toBe(true));
     await waitFor(() => expect(hook.result.current.run?.projectId).toBe(nextProject)); hook.unmount();
+  });
+});
+
+describe("useRunPolling", () => {
+  const projectId = "00000000-0000-4000-8000-000000000822";
+  const tabId = "00000000-0000-4000-8000-000000000825";
+  const runId = "00000000-0000-4000-8000-000000000821";
+  const running: RunSummary = { id: runId, projectId, connectionId: "00000000-0000-4000-8000-000000000823", tabId,
+    toolName: "sum", toolSnapshotId: "00000000-0000-4000-8000-000000000824", idempotencyKey: "once", status: "running",
+    createdAt: "2026-08-17T00:00:00.000Z", startedAt: "2026-08-17T00:00:00.000Z", completedAt: null,
+    durationMs: null, networkDurationMs: null };
+  const finished: RunDetail = { ...running, status: "succeeded", completedAt: "2026-08-17T00:00:01.000Z", durationMs: 1_000,
+    toolSnapshotHash: "a".repeat(64), protocolVersion: null, serverInfo: null, clientInfo: {}, request: { arguments: {}, jsonrpc: {}, http: null },
+    response: { result: {}, error: null, truncated: false, originalBytes: 2 }, events: [] };
+
+  afterEach(() => { vi.useRealTimers(); });
+
+  it("polls lightweight status at one-second cadence, refreshes detail once at terminal, and stops", async () => {
+    vi.useFakeTimers();
+    const getRunSummary = vi.fn().mockResolvedValueOnce(running).mockResolvedValueOnce({ ...running, status: "succeeded" });
+    const getRun = vi.fn(async () => finished);
+    const client = { getRunSummary, getRun } as unknown as InspectorApiClient;
+    const hook = renderHook(() => useRunPolling(client, projectId, tabId, runId));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(getRunSummary).toHaveBeenCalledTimes(1); expect(getRun).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(999); }); expect(getRunSummary).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(getRunSummary).toHaveBeenCalledTimes(2); expect(getRun).toHaveBeenCalledTimes(1);
+    expect(hook.result.current.run?.status).toBe("succeeded");
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(getRunSummary).toHaveBeenCalledTimes(2); expect(getRun).toHaveBeenCalledTimes(1); expect(vi.getTimerCount()).toBe(0);
+    hook.unmount();
+  });
+
+  it("backs status errors off exponentially with an eight-second ceiling", async () => {
+    vi.useFakeTimers();
+    const getRunSummary = vi.fn().mockRejectedValue(new Error("offline"));
+    const client = { getRunSummary, getRun: vi.fn() } as unknown as InspectorApiClient;
+    const hook = renderHook(() => useRunPolling(client, projectId, tabId, runId));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); }); expect(getRunSummary).toHaveBeenCalledTimes(1);
+    for (const [elapsed, calls] of [[999, 1], [1, 2], [1_999, 2], [1, 3], [3_999, 3], [1, 4], [7_999, 4], [1, 5]] as const) {
+      await act(async () => { await vi.advanceTimersByTimeAsync(elapsed); }); expect(getRunSummary).toHaveBeenCalledTimes(calls);
+    }
+    expect(hook.result.current.error).toBe("offline"); hook.unmount();
+  });
+
+  it("aborts old status requests and timers across run, tab, project, selection, and unmount changes", async () => {
+    vi.useFakeTimers(); const signals: AbortSignal[] = [];
+    const getRunSummary = vi.fn((_project: string, _run: string, signal?: AbortSignal) => {
+      signals.push(signal!); return new Promise<RunSummary>(() => undefined);
+    });
+    const client = { getRunSummary, getRun: vi.fn() } as unknown as InspectorApiClient;
+    const hook = renderHook(({ project, tab, run, selected }) => useRunPolling(client, project, tab, selected ? null : run), {
+      initialProps: { project: projectId, tab: tabId, run: runId, selected: false },
+    });
+    await act(async () => { await Promise.resolve(); }); expect(signals[0]?.aborted).toBe(false);
+    hook.rerender({ project: projectId, tab: tabId, run: "00000000-0000-4000-8000-000000000826", selected: false });
+    expect(signals[0]?.aborted).toBe(true);
+    hook.rerender({ project: projectId, tab: "00000000-0000-4000-8000-000000000827", run: "00000000-0000-4000-8000-000000000826", selected: false });
+    expect(signals[1]?.aborted).toBe(true);
+    hook.rerender({ project: "00000000-0000-4000-8000-000000000828", tab: "00000000-0000-4000-8000-000000000827", run: "00000000-0000-4000-8000-000000000826", selected: false });
+    expect(signals[2]?.aborted).toBe(true);
+    hook.rerender({ project: "00000000-0000-4000-8000-000000000828", tab: "00000000-0000-4000-8000-000000000827", run: "00000000-0000-4000-8000-000000000826", selected: true });
+    expect(signals[3]?.aborted).toBe(true); expect(getRunSummary).toHaveBeenCalledTimes(4);
+    hook.unmount(); await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(getRunSummary).toHaveBeenCalledTimes(4); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("bounds N background Tabs to at most one lightweight request per Run per second", async () => {
+    vi.useFakeTimers(); const count = 32;
+    const targets = Array.from({ length: count }, (_, index) => ({
+      tabId: `00000000-0000-4000-8000-${String(100_000_000_000 + index)}`,
+      runId: `00000000-0000-4000-8001-${String(100_000_000_000 + index)}`,
+    }));
+    const getRunSummary = vi.fn(async (project: string, run: string) => {
+      const target = targets.find(({ runId: id }) => id === run)!;
+      return { ...running, id: run, projectId: project, tabId: target.tabId };
+    });
+    const client = { getRunSummary, getRun: vi.fn() } as unknown as InspectorApiClient;
+    function Observer({ tab, run }: { tab: string; run: string }) { useRunPolling(client, projectId, tab, run); return null; }
+    const view = render(createElement("div", null, targets.map((target) =>
+      createElement(Observer, { key: target.runId, tab: target.tabId, run: target.runId }))));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(getRunSummary).toHaveBeenCalledTimes(count);
+    await act(async () => { await vi.advanceTimersByTimeAsync(9_999); });
+    expect(getRunSummary).toHaveBeenCalledTimes(count * 10);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(getRunSummary).toHaveBeenCalledTimes(count * 11); expect(client.getRun).not.toHaveBeenCalled();
+    view.unmount(); expect(vi.getTimerCount()).toBe(0);
   });
 });

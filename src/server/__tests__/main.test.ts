@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
-import { reportStartupFailure, startInspector } from "../main.js";
+import { reportStartupFailure, runInspectorCli, startInspector } from "../main.js";
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "dsers-inspector-main-"));
@@ -165,6 +165,21 @@ describe("startInspector", () => {
     expect(process.listenerCount("SIGTERM")).toBe(before.sigterm);
     rmSync(root, { recursive: true, force: true });
     expect(existsSync(root)).toBe(false);
+  });
+});
+
+describe("runInspectorCli", () => {
+  test("routes an adversarial startup error through the shared fixed logger", async () => {
+    const secretUrl = "http://127.0.0.1:3000/?session=top-secret";
+    const errors: string[] = []; const infos: string[] = [];
+    const exitCode = await runInspectorCli({
+      start: async () => { throw new Error(`open failed: ${secretUrl}`); },
+      writeError: (message) => { errors.push(message); },
+      writeInfo: (message) => { infos.push(message); },
+    });
+    expect(exitCode).toBe(1); expect(infos).toEqual([]);
+    expect(errors).toEqual(["Unable to start DSers MCP Inspector"]);
+    expect(errors.join("\n")).not.toContain(secretUrl); expect(errors.join("\n")).not.toContain("top-secret");
   });
 });
 

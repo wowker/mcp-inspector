@@ -259,6 +259,7 @@ export function createRunService(projects: ProjectService, connections: Connecti
         throw error;
       }
     },
+    getSummary: requireSummary,
     get: requireRun,
     events(projectId, runId, after = 0, limit): RunEvent[] {
       requireSummary(projectId, runId);

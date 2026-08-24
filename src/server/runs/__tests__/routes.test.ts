@@ -19,7 +19,7 @@ const detail: RunDetail = { ...summary, toolSnapshotHash: "a".repeat(64), protoc
 function fake(overrides: Partial<RunServiceWithEvents> = {}): RunServiceWithEvents {
   return {
     eventBus: new RunEventBus(), start: () => summary, cancel: () => true,
-    list: () => ({ runs: [summary], nextCursor: null }), get: () => detail,
+    list: () => ({ runs: [summary], nextCursor: null }), getSummary: () => summary, get: () => detail,
     assertExists: () => summary, events: () => [], close: async () => undefined, ...overrides,
   };
 }
@@ -52,6 +52,14 @@ describe("run routes", () => {
     const list = vi.fn(() => ({ runs: [summary], nextCursor: null }));
     const response = await createRunRoutes(fake({ list })).request(`/${projectId}/runs?tabId=${tabId}&cursor=opaque`);
     expect(response.status).toBe(200); expect(list).toHaveBeenCalledWith(projectId, "opaque", tabId);
+  });
+
+  it("returns only the lightweight project-scoped Run summary for status observation", async () => {
+    const getSummary = vi.fn(() => summary);
+    const response = await createRunRoutes(fake({ getSummary })).request(`/${projectId}/runs/${runId}/status`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ run: summary });
+    expect(getSummary).toHaveBeenCalledWith(projectId, runId);
   });
 
   it("subscribes before backlog, deduplicates the race, and releases the subscription on abort", async () => {

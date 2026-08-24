@@ -27,7 +27,7 @@ function ActiveRunObserver({ api, projectId, tabId, runId, selected, onUpdate }:
   onUpdate: (tabId: string, runId: string, observation: ActiveObservation) => void;
 }) {
   const streamed = useRunEvents(api, projectId, selected ? runId : null);
-  const polled = useRunPolling(api, projectId, selected ? null : runId);
+  const polled = useRunPolling(api, projectId, tabId, selected ? null : runId);
   const observation = selected ? streamed : polled;
   useEffect(() => { onUpdate(tabId, runId, { run: observation.run, error: observation.error }); },
     [observation.error, observation.run, onUpdate, runId, tabId]);
