@@ -177,18 +177,18 @@ describe("connection routes", () => {
     const updated = await runtimeApp.request(
       `/api/projects/${project.id}/connections/00000000-0000-4000-8000-000000000301`,
       { method: "PATCH", headers, body: JSON.stringify({
-        name: " Fixed MCP ", url: "https://mcp.example.test/mcp", timeoutMs: 20_000,
+        name: " Fixed MCP ", url: "https://mcp.example.test/mcp", authMode: "oauth", timeoutMs: 20_000,
       }) },
     );
 
     expect(updated.status).toBe(200);
     expect(await updated.json()).toEqual({ connection: expect.objectContaining({
       name: "Fixed MCP", url: "https://mcp.example.test/mcp", timeoutMs: 20_000,
-      transport: "streamable-http", authMode: "none", status: "disconnected",
+      transport: "streamable-http", authMode: "oauth", status: "disconnected",
     }) });
     const invalid = await runtimeApp.request(
       `/api/projects/${project.id}/connections/00000000-0000-4000-8000-000000000301`,
-      { method: "PATCH", headers, body: JSON.stringify({ authMode: "oauth" }) },
+      { method: "PATCH", headers, body: JSON.stringify({ transport: "sse" }) },
     );
     expect(invalid.status).toBe(400);
     expect((await runtimeApp.request(

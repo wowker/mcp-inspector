@@ -1,6 +1,6 @@
 # DSers MCP Inspector
 
-DSers MCP Inspector 是一款运行在测试人员电脑上的 MCP Tool 调试工作台。当前 Core 版本专注于未经认证的 Streamable HTTP MCP Server，并以类似接口调试工具的方式组织连接、Tools、请求参数、结果和协议详情。
+DSers MCP Inspector 是一款运行在测试人员电脑上的 MCP Tool 调试工作台。当前版本支持无认证与 OAuth 的 Streamable HTTP MCP Server，并以类似接口调试工具的方式组织连接、Tools、请求参数、结果和协议详情。
 
 ## 环境要求与启动
 
@@ -33,14 +33,14 @@ make stop     # 优雅停止当前项目启动的 Inspector
 
 ## 当前已交付的 Core 能力
 
-- 保存并连接未经认证的 Streamable HTTP MCP Server。
+- 保存并连接无认证或 OAuth 自动授权的 Streamable HTTP MCP Server。
 - 获取、搜索和查看 Tools 及其 JSON Schema 定义。
 - 使用 Schema Form 或 Raw JSON 编辑 `arguments`。
 - 为同一个 Tool 打开多个互相隔离且可恢复的调试 Tab。
 - 执行 Tool 并自动保存 Run 历史。
 - 查看格式化结果、Raw 响应、JSON-RPC、HTTP 摘要和有序时间线，并复制相关内容。
 
-当前版本尚未提供 OAuth、Bearer Token、旧版 SSE transport、保存测试用例、回放/差异比较、项目导入导出以及跨设备同步。
+当前版本支持无认证和 OAuth 自动授权的 Streamable HTTP MCP 连接。OAuth 使用浏览器授权、PKCE、受保护资源发现和动态客户端注册；访问令牌仅保存在 Inspector 服务进程内，重启后需要重新授权，不会写入 SQLite、导出数据或浏览器存储。当前尚未提供 Bearer Token、旧版 SSE transport、保存测试用例、回放/差异比较、项目导入导出以及跨设备同步。
 
 ## 开发与验证
 

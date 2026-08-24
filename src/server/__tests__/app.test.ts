@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { createApp } from "../app.js";
 import { createRuntimeConfig } from "../config/runtime-config.js";
 
@@ -82,6 +82,31 @@ describe("createApp", () => {
     });
 
     expect(response.status).toBe(403);
+  });
+});
+
+describe("OAuth callback", () => {
+  test("completes a callback without exposing the Inspector session token", async () => {
+    const completeOAuth = vi.fn(async () => "connection-1");
+    const app = createApp({
+      sessionToken: "test-session", allowedOrigin: "http://127.0.0.1:5173", version: "0.1.0",
+      connections: { completeOAuth } as never,
+    });
+    const response = await app.request("/oauth/callback?state=state-1&code=code-1");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(await response.text()).not.toContain("test-session");
+    expect(completeOAuth).toHaveBeenCalledOnce();
+  });
+
+  test("returns a generic failure page for invalid or replayed state", async () => {
+    const app = createApp({
+      sessionToken: "test-session", allowedOrigin: "http://127.0.0.1:5173", version: "0.1.0",
+      connections: { completeOAuth: vi.fn(async () => { throw new Error("secret upstream details"); }) } as never,
+    });
+    const response = await app.request("/oauth/callback?state=bad&error=access_denied");
+    expect(response.status).toBe(400);
+    expect(await response.text()).not.toContain("secret upstream details");
   });
 });
 

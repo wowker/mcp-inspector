@@ -63,7 +63,7 @@ describe("ConnectionService", () => {
       name: " Catalog MCP ",
       url: " https://mcp.example.test:443/tools/list?cursor=a%2Fb ",
       transport: "streamable-http" as const,
-      authMode: "none" as const,
+      authMode: "oauth" as const,
       timeoutMs: 600_000,
     };
 
@@ -71,6 +71,7 @@ describe("ConnectionService", () => {
       name: "Catalog MCP",
       url: "https://mcp.example.test/tools/list?cursor=a%2Fb",
       timeoutMs: 600_000,
+      authMode: "oauth",
     }));
     expect(() => service.create(project.id, { ...valid, name: " " })).toThrow(/invalid/i);
     expect(() => service.create(project.id, { ...valid, timeoutMs: 99 })).toThrow(/invalid/i);
@@ -82,10 +83,6 @@ describe("ConnectionService", () => {
     expect(() => service.create(project.id, {
       ...valid,
       transport: "sse" as "streamable-http",
-    })).toThrow(/invalid/i);
-    expect(() => service.create(project.id, {
-      ...valid,
-      authMode: "oauth" as "none",
     })).toThrow(/invalid/i);
     expect(() => service.create(project.id, {
       ...valid,
@@ -112,7 +109,7 @@ describe("ConnectionService", () => {
     expect(service.list(project.id)[0]?.lastError).not.toBeNull();
 
     const updated = await service.update(project.id, connectionId, {
-      name: " Fixed MCP ", url: " https://mcp.example.test:443/mcp ", timeoutMs: 25_000,
+      name: " Fixed MCP ", url: " https://mcp.example.test:443/mcp ", authMode: "oauth", timeoutMs: 25_000,
     });
 
     expect(updated).toEqual(expect.objectContaining({
@@ -120,6 +117,7 @@ describe("ConnectionService", () => {
       name: "Fixed MCP",
       url: "https://mcp.example.test/mcp",
       timeoutMs: 25_000,
+      authMode: "oauth",
       status: "disconnected",
       lastProtocolVersion: null,
       lastServerInfo: null,

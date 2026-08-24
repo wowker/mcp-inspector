@@ -53,6 +53,22 @@ function isApiPath(path: string): boolean {
 export function createApp(deps: AppDependencies): Hono {
   const app = new Hono();
 
+  app.get("/oauth/callback", async (context) => {
+    if (deps.connections?.completeOAuth === undefined) return context.text("OAuth callback is unavailable", 404);
+    try {
+      await deps.connections.completeOAuth(new URL(context.req.url).searchParams);
+      return context.html("<!doctype html><meta charset=utf-8><title>授权成功</title><main><h1>授权成功</h1><p>可以关闭此页面并返回 DSers MCP Inspector。</p></main>", 200, {
+        "Cache-Control": "no-store", "Content-Security-Policy": "default-src 'none'",
+        "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff",
+      });
+    } catch {
+      return context.html("<!doctype html><meta charset=utf-8><title>授权失败</title><main><h1>授权失败</h1><p>授权请求已失效，请返回 Inspector 后重新连接。</p></main>", 400, {
+        "Cache-Control": "no-store", "Content-Security-Policy": "default-src 'none'",
+        "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff",
+      });
+    }
+  });
+
   app.use(
     "/api/*",
     sessionAuth({

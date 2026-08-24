@@ -68,18 +68,20 @@ interface ConnectionFormDialogProps {
   name: string;
   url: string;
   timeoutMs: string;
+  authMode: "none" | "oauth";
   submitting: boolean;
   error: string | null;
   onNameChange: (value: string) => void;
   onUrlChange: (value: string) => void;
   onTimeoutChange: (value: string) => void;
+  onAuthModeChange: (value: "none" | "oauth") => void;
   onSubmit: (event: FormEvent) => void;
   onClose: () => void;
 }
 
 export function ConnectionFormDialog({
-  mode, name, url, timeoutMs, submitting, error,
-  onNameChange, onUrlChange, onTimeoutChange, onSubmit, onClose,
+  mode, name, url, timeoutMs, authMode, submitting, error,
+  onNameChange, onUrlChange, onTimeoutChange, onAuthModeChange, onSubmit, onClose,
 }: ConnectionFormDialogProps) {
   const nameInput = useRef<HTMLInputElement>(null);
   const title = mode === "create" ? "添加连接" : "编辑连接";
@@ -145,10 +147,17 @@ export function ConnectionFormDialog({
               required
             />
           </label>
+          <label>
+            <span>认证方式</span>
+            <select value={authMode} onChange={(event) => onAuthModeChange(event.target.value as "none" | "oauth")}>
+              <option value="none">无认证</option>
+              <option value="oauth">OAuth 自动授权</option>
+            </select>
+            {authMode === "oauth" && <small>首次连接会打开浏览器完成授权。</small>}
+          </label>
         </div>
         <dl className="connection-fixed-options">
           <div><dt>传输方式</dt><dd>Streamable HTTP</dd></div>
-          <div><dt>认证方式</dt><dd>无认证</dd></div>
         </dl>
         <div className="dialog-actions">
           <button type="button" className="button-secondary" disabled={submitting} onClick={onClose}>取消</button>

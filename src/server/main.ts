@@ -91,11 +91,14 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
   const clientOrigin = options.clientOrigin === undefined ? undefined : validateClientOrigin(options.clientOrigin);
   const staticRoot = options.staticRoot ?? (clientOrigin === undefined ? resolveStaticRoot() : undefined);
   const projects = createProjectService({ dataRoot: options.dataRoot ?? resolveDefaultDataRoot() });
-  const connections = createConnectionService(projects);
+  let allowedOrigin = clientOrigin ?? "";
+  const connections = createConnectionService(projects, {
+    oauthRedirectUrl: () => `${allowedOrigin}/oauth/callback`,
+    openAuthorizationUrl: options.openBrowser ?? (async (url) => { await open(url); }),
+  });
   const tools = createToolService(projects, connections);
   const tabs = createTabService(projects, connections, { tools });
   const runs = createRunService(projects, connections, tabs);
-  let allowedOrigin = clientOrigin ?? "";
   const app = createApp({
     sessionToken: config.sessionToken,
     allowedOrigin: () => allowedOrigin,

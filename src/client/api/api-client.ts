@@ -14,7 +14,7 @@ export interface ConnectionSummary {
   name: string;
   url: string;
   transport: "streamable-http";
-  authMode: "none";
+  authMode: "none" | "oauth";
   timeoutMs: number;
   status: "disconnected" | "connecting" | "connected" | "failed";
   lastProtocolVersion: string | null;
@@ -26,12 +26,12 @@ export interface CreateConnectionRequest {
   name: string;
   url: string;
   transport: "streamable-http";
-  authMode: "none";
+  authMode: "none" | "oauth";
   timeoutMs: number;
 }
 
 export type UpdateConnectionRequest = Partial<Pick<CreateConnectionRequest,
-  "name" | "url" | "timeoutMs">>;
+  "name" | "url" | "authMode" | "timeoutMs">>;
 
 export interface ToolSnapshotSummary {
   id: string;
@@ -195,7 +195,7 @@ function decodeConnection(value: unknown, projectId: string): ConnectionSummary 
     typeof name !== "string" || name.trim() !== name || name.length < 1 || name.length > 120 ||
     (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") ||
     parsedUrl.hostname.length === 0 || parsedUrl.username.length > 0 || parsedUrl.password.length > 0 ||
-    transport !== "streamable-http" || authMode !== "none" || !isConnectionStatus(status) ||
+    transport !== "streamable-http" || (authMode !== "none" && authMode !== "oauth") || !isConnectionStatus(status) ||
     typeof timeoutMs !== "number" || !Number.isInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 600_000 ||
     !(lastProtocolVersion === null || typeof lastProtocolVersion === "string") ||
     !isNullableObject(lastServerInfo) || !validError

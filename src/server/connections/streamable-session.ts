@@ -13,6 +13,7 @@ import { z } from "zod";
 import { toolDefinitionSchema } from "../../shared/tool-definition.js";
 import { DialectAwareJsonSchemaValidator } from "./dialect-aware-validator.js";
 import { createObservedFetch } from "./observed-fetch.js";
+import type { OAuthFlowCoordinator } from "./oauth-flow.js";
 import type {
   McpSession,
   McpSessionFactory,
@@ -49,6 +50,7 @@ export function createStreamableMcpSessionFactory(options: {
   fetch?: FetchLike;
   createClient?: () => ClientLike;
   createTransport?: (url: URL, fetch: FetchLike) => TransportLike;
+  oauth?: OAuthFlowCoordinator;
 } = {}): McpSessionFactory {
   const observerContext = new AsyncLocalStorage<Observer | undefined>();
   const baseFetch: FetchLike = options.fetch ?? globalThis.fetch;
@@ -62,8 +64,18 @@ export function createStreamableMcpSessionFactory(options: {
       (observerContext.getStore() ?? connectionObserver)(event);
     };
     const observedFetch = createObservedFetch(baseFetch, dispatch);
+    let oauthTransport: StreamableHTTPClientTransport | undefined;
+    const authProvider = connection.authMode === "oauth" && options.oauth !== undefined
+      ? options.oauth.provider(connection.id, () => {
+        if (oauthTransport === undefined) throw new Error("OAuth transport is unavailable");
+        return oauthTransport;
+      })
+      : undefined;
     const transport = options.createTransport?.(new URL(connection.url), observedFetch)
-      ?? new StreamableHTTPClientTransport(new URL(connection.url), { fetch: observedFetch });
+      ?? (oauthTransport = new StreamableHTTPClientTransport(new URL(connection.url), {
+        fetch: observedFetch,
+        authProvider,
+      }));
     const client = createClient();
     try {
       await client.connect(transport, { timeout: connection.timeoutMs });

@@ -56,7 +56,7 @@ describe("connection API response decoding", () => {
     ["non-HTTP URL", { connections: [validConnection({ url: "file:///tmp/server" })] }],
     ["credential URL", { connections: [validConnection({ url: "https://user:secret@mcp.example.test/mcp" })] }],
     ["unsupported transport", { connections: [validConnection({ transport: "sse" })] }],
-    ["unsupported auth", { connections: [validConnection({ authMode: "oauth" })] }],
+    ["unsupported auth", { connections: [validConnection({ authMode: "bearer" })] }],
     ["unknown runtime state", { connections: [validConnection({ status: "ready" })] }],
     ["invalid timeout", { connections: [validConnection({ timeoutMs: 99 })] }],
     ["invalid protocol", { connections: [validConnection({ lastProtocolVersion: 42 })] }],

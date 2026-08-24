@@ -34,7 +34,7 @@ function parseError(value: string | null): ConnectionError | null {
 }
 
 function toRecord(row: ConnectionRow): ConnectionRecord {
-  if (row.transport !== "streamable-http" || row.auth_mode !== "none") {
+  if (row.transport !== "streamable-http" || (row.auth_mode !== "none" && row.auth_mode !== "oauth")) {
     throw new Error("Connection configuration is not supported by this application version");
   }
   return {
@@ -104,13 +104,13 @@ export class ConnectionRepository {
     return row === undefined ? null : toRecord(row);
   }
 
-  update(connection: Pick<ConnectionRecord, "id" | "projectId" | "name" | "url" | "timeoutMs"> & {
+  update(connection: Pick<ConnectionRecord, "id" | "projectId" | "name" | "url" | "authMode" | "timeoutMs"> & {
     updatedAt: string;
     resetDiagnostics: boolean;
   }): ConnectionRecord | null {
     const result = this.store.database.prepare(`
       UPDATE connections
-      SET name = ?, url = ?, timeout_ms = ?, updated_at = ?,
+      SET name = ?, url = ?, auth_mode = ?, timeout_ms = ?, updated_at = ?,
           last_protocol_version = CASE WHEN ? THEN NULL ELSE last_protocol_version END,
           last_server_info_json = CASE WHEN ? THEN NULL ELSE last_server_info_json END,
           last_error_json = CASE WHEN ? THEN NULL ELSE last_error_json END
@@ -118,6 +118,7 @@ export class ConnectionRepository {
     `).run(
       connection.name,
       connection.url,
+      connection.authMode,
       connection.timeoutMs,
       connection.updatedAt,
       Number(connection.resetDiagnostics),

@@ -12,17 +12,18 @@ import {
   type McpSessionFactory,
 } from "./connection-runtime.js";
 import { createStreamableMcpSessionFactory } from "./streamable-session.js";
+import { OAuthFlowCoordinator } from "./oauth-flow.js";
 
 const connectionIdSchema = z.string().uuid();
 const createConnectionSchema = z.object({
   name: z.string().trim().min(1).max(120),
   url: z.string().trim().min(1).max(8192),
   transport: z.literal("streamable-http"),
-  authMode: z.literal("none"),
+  authMode: z.enum(["none", "oauth"]),
   timeoutMs: z.number().int().min(100).max(600_000),
 }).strict();
 const updateConnectionSchema = createConnectionSchema
-  .pick({ name: true, url: true, timeoutMs: true })
+  .pick({ name: true, url: true, authMode: true, timeoutMs: true })
   .partial()
   .strict()
   .refine((value) => Object.keys(value).length > 0);
@@ -66,16 +67,23 @@ export interface ConnectionService {
   disconnect(projectId: string, connectionId: string): Promise<ConnectionRecord>;
   runtime(projectId: string): ConnectionRuntime;
   close(): Promise<void>;
+  completeOAuth?(params: URLSearchParams): Promise<string>;
 }
 
 export function createConnectionService(projects: ProjectService, options: {
   createId?: () => string;
   now?: () => Date;
   sessionFactory?: McpSessionFactory;
+  oauthRedirectUrl?: () => string;
+  openAuthorizationUrl?: (url: string) => void | Promise<void>;
 } = {}): ConnectionService {
   const createId = options.createId ?? randomUUID;
   const now = options.now ?? (() => new Date());
-  const sessionFactory = options.sessionFactory ?? createStreamableMcpSessionFactory();
+  const oauth = new OAuthFlowCoordinator({
+    redirectUrl: options.oauthRedirectUrl ?? (() => "http://127.0.0.1:3000/oauth/callback"),
+    openAuthorizationUrl: options.openAuthorizationUrl ?? (() => { throw new Error("OAuth browser opener is unavailable"); }),
+  });
+  const sessionFactory = options.sessionFactory ?? createStreamableMcpSessionFactory({ oauth });
   const runtimes = new Map<string, ConnectionRuntime>();
 
   function repository(projectId: string): ConnectionRepository {
@@ -152,19 +160,23 @@ export function createConnectionService(projects: ProjectService, options: {
         url: parsed.data.url ?? existing.url,
         timeoutMs: parsed.data.timeoutMs ?? existing.timeoutMs,
         transport: existing.transport,
-        authMode: existing.authMode,
+        authMode: parsed.data.authMode ?? existing.authMode,
       });
       if (!next.success) throw new InvalidConnectionError();
       const normalizedUrl = normalizeUrl(next.data.url);
       await runtime(projectId).disconnect(connectionId);
+      if (normalizedUrl !== existing.url || next.data.authMode !== existing.authMode) {
+        oauth.clear(connectionId);
+      }
       const updated = repository(projectId).update({
         id: connectionId,
         projectId,
         name: next.data.name,
         url: normalizedUrl,
         timeoutMs: next.data.timeoutMs,
+        authMode: next.data.authMode,
         updatedAt: now().toISOString(),
-        resetDiagnostics: normalizedUrl !== existing.url || next.data.timeoutMs !== existing.timeoutMs,
+        resetDiagnostics: normalizedUrl !== existing.url || next.data.timeoutMs !== existing.timeoutMs || next.data.authMode !== existing.authMode,
       });
       if (updated === null) throw new ConnectionNotFoundError();
       return { ...updated, status: "disconnected" };
@@ -176,6 +188,7 @@ export function createConnectionService(projects: ProjectService, options: {
       if (!repository(projectId).delete(projectId, connectionId)) {
         throw new ConnectionNotFoundError();
       }
+      oauth.clear(connectionId);
     },
 
     async connect(projectId, connectionId) {
@@ -190,6 +203,10 @@ export function createConnectionService(projects: ProjectService, options: {
     },
 
     runtime,
+
+    completeOAuth(params) {
+      return oauth.complete(params);
+    },
 
     async close() {
       const results = await Promise.allSettled([...runtimes.values()].map((projectRuntime) =>

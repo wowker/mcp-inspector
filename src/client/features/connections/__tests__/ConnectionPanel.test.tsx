@@ -236,6 +236,20 @@ describe("ConnectionPanel", () => {
     expect(screen.queryByText(/已连接|连接成功/)).not.toBeInTheDocument();
   });
 
+  it("saves OAuth automatic authorization from the connection dialog", async () => {
+    const createConnection = vi.fn().mockResolvedValue({ ...connection, authMode: "oauth" });
+    const user = userEvent.setup();
+    render(<ConnectionPanel api={api({ listConnections: vi.fn().mockResolvedValue([]), createConnection })} projectId={projectId} />);
+    await screen.findByRole("heading", { name: "连接管理" });
+    await user.click(screen.getByRole("button", { name: "添加连接" }));
+    await user.type(screen.getByLabelText("连接名称"), "OAuth MCP");
+    await user.type(screen.getByLabelText("MCP URL"), "https://mcp.example.test/mcp");
+    await user.selectOptions(screen.getByLabelText("认证方式"), "oauth");
+    await user.click(screen.getByRole("button", { name: "保存连接" }));
+    expect(createConnection).toHaveBeenCalledWith(projectId, expect.objectContaining({ authMode: "oauth" }));
+    expect(await screen.findByText("OAuth")).toBeVisible();
+  });
+
   it("edits a failed saved connection and keeps the form recoverable", async () => {
     const failed = { ...connection, status: "failed" as const,
       lastError: { code: "MCP_CONNECT_FAILED", message: "Unable to connect to MCP server" } };
@@ -264,7 +278,7 @@ describe("ConnectionPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "保存修改" }));
     expect(updateConnection).toHaveBeenLastCalledWith(projectId, connection.id, {
-      name: "Fixed MCP", url: "https://fixed.example.test/mcp", timeoutMs: 20_000,
+      name: "Fixed MCP", url: "https://fixed.example.test/mcp", authMode: "none", timeoutMs: 20_000,
     });
     expect(await screen.findByText("Fixed MCP")).toBeVisible();
     expect(screen.getByText("https://fixed.example.test/mcp")).toBeVisible();

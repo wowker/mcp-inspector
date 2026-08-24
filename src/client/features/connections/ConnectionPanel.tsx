@@ -46,6 +46,7 @@ function ProjectScopedConnectionPanel({
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [timeoutMs, setTimeoutMs] = useState("10000");
+  const [authMode, setAuthMode] = useState<"none" | "oauth">("none");
   const [formMode, setFormMode] = useState<"create" | "edit" | null>(null);
   const [editingConnectionId, setEditingConnectionId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -132,6 +133,7 @@ function ProjectScopedConnectionPanel({
     setName("");
     setUrl("");
     setTimeoutMs("10000");
+    setAuthMode("none");
     setError(null);
     if (restoreFocus) queueMicrotask(() => dialogTrigger.current?.focus());
   }
@@ -143,6 +145,7 @@ function ProjectScopedConnectionPanel({
     setName("");
     setUrl("");
     setTimeoutMs("10000");
+    setAuthMode("none");
     setFormMode("create");
   }
 
@@ -154,6 +157,7 @@ function ProjectScopedConnectionPanel({
     setName(connection.name);
     setUrl(connection.url);
     setTimeoutMs(String(connection.timeoutMs));
+    setAuthMode(connection.authMode);
     setFormMode("edit");
   }
 
@@ -244,7 +248,7 @@ function ProjectScopedConnectionPanel({
           name: name.trim(),
           url: url.trim(),
           transport: "streamable-http",
-          authMode: "none",
+          authMode,
           timeoutMs: Number(timeoutMs),
         });
         if (!mounted.current) return;
@@ -257,6 +261,7 @@ function ProjectScopedConnectionPanel({
         const updated = await api.updateConnection(projectId, editingId, {
           name: name.trim(),
           url: url.trim(),
+          authMode,
           timeoutMs: Number(timeoutMs),
         });
         if (!mounted.current || catalogGenerations.current.get(editingId) !== generation) return;
@@ -357,7 +362,7 @@ function ProjectScopedConnectionPanel({
                   <td data-label="连接名称">
                     <strong>{connection.name}</strong>
                     <span className="connection-meta">
-                      <span>Streamable HTTP</span><span aria-hidden="true"> · </span><span>无认证</span>
+                      <span>Streamable HTTP</span><span aria-hidden="true"> · </span><span>{connection.authMode === "oauth" ? "OAuth" : "无认证"}</span>
                     </span>
                   </td>
                   <td data-label="MCP URL"><span className="connection-url" title={connection.url}>{connection.url}</span></td>
@@ -433,11 +438,13 @@ function ProjectScopedConnectionPanel({
           name={name}
           url={url}
           timeoutMs={timeoutMs}
+          authMode={authMode}
           submitting={submitting}
           error={error}
           onNameChange={setName}
           onUrlChange={setUrl}
           onTimeoutChange={setTimeoutMs}
+          onAuthModeChange={setAuthMode}
           onSubmit={(event) => void save(event)}
           onClose={() => closeForm()}
         />
