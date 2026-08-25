@@ -1,0 +1,144 @@
+.run-result > header,
+.block-toolbar,
+.result-tabs,
+.timeline li { border-color: var(--ui-border); }
+
+.run-result > header {
+  min-height: 38px;
+  margin: 0;
+  padding: 0 4px 8px;
+}
+
+.run-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--ui-text-muted);
+  font: 500 0.76rem/1.4 var(--ui-mono);
+}
+
+.run-status,
+.status-chip { border-radius: 999px; }
+.run-status--succeeded,
+.status-chip--succeeded { color: var(--ui-success); background: var(--ui-success-muted); }
+.run-status--failed,
+.status-chip--failed { color: var(--ui-danger); background: var(--ui-danger-muted); }
+.run-status--running,
+.status-chip--running { color: var(--ui-accent); background: var(--ui-accent-muted); }
+.truncated-warning { color: var(--ui-warning); background: var(--ui-warning-muted); }
+
+.run-metadata {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 28px;
+  margin: 0;
+  padding: 8px 4px 20px;
+}
+
+.run-metadata > div {
+  display: grid;
+  grid-template-columns: minmax(112px, 0.32fr) minmax(0, 1fr);
+  gap: 14px;
+  min-width: 0;
+  padding: 10px 0;
+  border: 0;
+  border-bottom: 1px solid var(--ui-border-muted);
+  border-radius: 0;
+  background: transparent;
+}
+
+.run-metadata dt { font: 500 0.72rem/1.5 var(--ui-mono); }
+.run-metadata dd { margin: 0; font: 500 0.76rem/1.5 var(--ui-mono); }
+.run-metadata dt,
+.timeline time,
+.resource-uri { color: var(--ui-text-muted); }
+
+.run-result .result-tabs {
+  gap: 0;
+  margin: 0;
+  border-bottom: 1px solid var(--ui-border);
+  overflow-x: auto;
+}
+
+.run-result .result-tabs button {
+  min-height: 38px;
+  padding: 7px 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  white-space: nowrap;
+}
+
+.run-result .result-tabs button:hover:not(:disabled) { background: transparent; }
+.run-result .result-tabs [role="tab"][aria-selected="true"] {
+  color: var(--ui-accent);
+  border-color: var(--ui-accent);
+  background: transparent;
+}
+
+.run-result .result-view { padding: 0 4px; }
+.run-overview { display: grid; }
+.result-section { min-width: 0; padding: 12px 0; border-bottom: 1px solid var(--ui-border); }
+.section-toolbar { display: flex; min-height: 30px; align-items: center; justify-content: space-between; gap: 12px; }
+.section-toolbar h2 { margin: 0; color: var(--ui-text); font-size: 0.84rem; line-height: 1.4; }
+
+.result-code {
+  max-height: 220px;
+  margin: 4px 0 0;
+  padding: 8px 0;
+  overflow: auto;
+  color: var(--ui-text);
+  background: transparent;
+  font: 500 0.78rem/1.55 var(--ui-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.result-content-flow > .json-block,
+.result-content-flow > .content-block,
+.raw-disclosure__content > .json-block,
+.trace-list > .json-block,
+.trace-list > .http-exchange {
+  margin: 0;
+  padding: 10px 0;
+  border: 0;
+  border-bottom: 1px solid var(--ui-border-muted);
+  border-radius: 0;
+  background: transparent;
+}
+
+.result-content-flow > :last-child,
+.raw-disclosure__content > :last-child,
+.trace-list > :last-child { border-bottom: 0; }
+.run-result .block-toolbar { min-height: 28px; }
+.run-result .block-toolbar strong { font-size: 0.76rem; }
+.run-result .json-block pre,
+.run-result .content-block pre,
+.run-result .http-exchange pre { margin: 5px 0 0; font: 500 0.78rem/1.55 var(--ui-mono); }
+
+.raw-disclosure { border-bottom: 1px solid var(--ui-border); }
+.raw-disclosure > summary {
+  padding: 11px 0;
+  color: var(--ui-text-muted);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.raw-disclosure[open] > summary { color: var(--ui-text); }
+.raw-disclosure__content { padding: 0 0 8px 16px; border-left: 2px solid var(--ui-border); }
+
+.json-block,
+.content-block,
+.http-exchange,
+.unsupported-block { border-color: var(--ui-border); background: var(--ui-surface-muted); }
+.json-block pre,
+.content-block pre,
+.http-exchange pre { color: var(--ui-text); background: transparent; }
+.copy-control [role="alert"] { color: var(--ui-danger); }
+.history-run { border-color: var(--ui-border); background: var(--ui-surface); }
+.history-run:hover { background: var(--ui-surface-muted); }
+
+@media (max-width: 860px) {
+  .run-metadata { grid-template-columns: minmax(0, 1fr); }
+  .run-summary { gap: 7px; flex-wrap: wrap; }
+}

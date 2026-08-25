@@ -796,35 +796,6 @@ textarea::placeholder { color: var(--ui-text-subtle); opacity: 1; }
 .result-empty h3 { margin: 0; color: var(--ui-text); font-size: 0.9rem; }
 .result-empty p { margin: 2px 0 0; font-size: 0.78rem; }
 
-.run-result > header,
-.block-toolbar,
-.result-tabs,
-.timeline li { border-color: var(--ui-border); }
-.run-status,
-.status-chip { border-radius: 999px; }
-.run-status--succeeded,
-.status-chip--succeeded { color: var(--ui-success); background: var(--ui-success-muted); }
-.run-status--failed,
-.status-chip--failed { color: var(--ui-danger); background: var(--ui-danger-muted); }
-.run-status--running,
-.status-chip--running { color: var(--ui-accent); background: var(--ui-accent-muted); }
-.truncated-warning { color: var(--ui-warning); background: var(--ui-warning-muted); }
-.run-metadata > div { border: 1px solid var(--ui-border); background: var(--ui-surface-muted); }
-.run-metadata dt,
-.timeline time,
-.resource-uri { color: var(--ui-text-muted); }
-
-.json-block,
-.content-block,
-.http-exchange,
-.unsupported-block { border-color: var(--ui-border); background: var(--ui-surface-muted); }
-.json-block pre,
-.content-block pre,
-.http-exchange pre { color: var(--ui-text); background: transparent; }
-.copy-control [role="alert"] { color: var(--ui-danger); }
-.history-run { border-color: var(--ui-border); background: var(--ui-surface); }
-.history-run:hover { background: var(--ui-surface-muted); }
-
 /* Tool definition */
 
 .tool-definition { gap: 24px; padding: 24px; }

@@ -122,12 +122,13 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
       await expect(tab).toHaveAttribute("aria-selected", "true");
       const detail = page.locator("article.run-result");
       await expect(detail.locator(".run-status")).toHaveText("成功");
-      await detail.getByRole("tab", { name: "格式化结果" }).click();
+      await detail.getByRole("tab", { name: "请求与结果" }).click();
       const formattedResult = detail.locator(".json-block").filter({ hasText: "结构化内容" }).locator("pre");
       await expect(formattedResult).toContainText(`"total": ${inputs[index].total}`);
       for (const other of inputs.filter((_, otherIndex) => otherIndex !== index)) {
         await expect(formattedResult).not.toContainText(`"total": ${other.total}`);
       }
+      await detail.getByRole("tab", { name: "调用详情" }).click();
       const runId = await detail.locator(".run-metadata div").filter({ hasText: "Run ID" }).locator("dd").innerText();
       runIds.push(runId);
 
@@ -165,7 +166,7 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
         const raw = await page.getByLabel("完整 arguments JSON").inputValue();
         expect(JSON.parse(raw)).toEqual({ a: inputs[index].a, b: inputs[index].b });
       }
-      await page.locator("article.run-result").getByRole("tab", { name: "格式化结果" }).click();
+      await page.locator("article.run-result").getByRole("tab", { name: "请求与结果" }).click();
       await expect(page.locator("article.run-result .json-block").filter({ hasText: "结构化内容" }).locator("pre"))
         .toContainText(`"total": ${inputs[index].total}`);
     }

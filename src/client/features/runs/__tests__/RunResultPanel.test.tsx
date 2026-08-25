@@ -40,13 +40,30 @@ describe("RunResultPanel", () => {
     expect(screen.getByText(/audio\/wav/)).toBeInTheDocument();
   });
 
-  it("shows the immutable request needed to reproduce the historical call", () => {
+  it("defaults to a compact request and result view with secondary details hidden", () => {
+    render(<RunResultPanel run={run} />);
+    expect(screen.getByRole("tab", { name: "请求与结果" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("heading", { name: "请求参数" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "请求结果" })).toBeVisible();
+    expect(screen.queryByText("Run ID")).not.toBeInTheDocument();
+    expect(screen.queryByText("完整 JSON-RPC")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "调用详情" }));
+    expect(screen.getByText("Run ID")).toBeVisible();
+    expect(screen.getByText(run.id)).toBeVisible();
+  });
+
+  it("keeps immutable raw request material collapsed until requested", () => {
     const writeText = vi.fn().mockRejectedValue(new Error("denied"));
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     render(<RunResultPanel run={{ ...run, request: { arguments: { value: 5 }, jsonrpc: { jsonrpc: "2.0", method: "tools/call", params: { name: "inspect" } },
       http: { method: "POST", url: "https://example.test/mcp", headers: { authorization: "Bearer secret", accept: "application/json" }, body: { safe: true } } } }} />);
-    expect(screen.getByRole("heading", { name: "不可变历史请求" })).toBeVisible();
-    expect(screen.getByText(/"value": 5/)).toBeVisible(); expect(screen.getByText(/"name": "inspect"/)).toBeVisible();
+    expect(screen.getByText(/"value": 5/)).toBeVisible();
+    expect(screen.queryByText(/"name": "inspect"/)).not.toBeInTheDocument();
+    const disclosure = screen.getByText("原始请求与响应").closest("details")!;
+    disclosure.open = true;
+    fireEvent(disclosure, new Event("toggle"));
+    expect(screen.getByText(/"name": "inspect"/)).toBeVisible();
     expect(screen.getAllByText(/\[REDACTED\]/).length).toBeGreaterThan(0); expect(screen.queryByText(/Bearer secret/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "复制 arguments" }));
     return screen.findByRole("alert").then((alert) => expect(alert).toHaveTextContent("复制失败"));
@@ -66,7 +83,7 @@ describe("RunResultPanel", () => {
   });
 
   it("links every result tabpanel back to its selected tab", () => {
-    render(<RunResultPanel run={run} />); const tab = screen.getByRole("tab", { name: "格式化结果" });
+    render(<RunResultPanel run={run} />); const tab = screen.getByRole("tab", { name: "请求与结果" });
     expect(screen.getByRole("tabpanel")).toHaveAttribute("aria-labelledby", tab.id);
   });
 

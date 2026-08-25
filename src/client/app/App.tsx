@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import "./app.css";
 import "./redesign.css";
+import "./run-results.css";
 import {
   createApiClient,
   type InspectorApiClient,

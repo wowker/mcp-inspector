@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { RunDetail, RunEvent } from "../../api/api-client.js";
 
-type View = "formatted" | "raw" | "rpc" | "http" | "timeline";
+type View = "overview" | "details" | "rpc" | "http" | "timeline";
 const terminalLabels: Record<string, string> = { queued: "排队中", connecting: "连接中", authorizing: "授权中",
   running: "运行中", succeeded: "成功", failed: "失败", cancelled: "已取消", interrupted: "已中断" };
 const supportedImages = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
@@ -114,7 +114,9 @@ function metadata(run: RunDetail) {
 }
 
 export function RunResultPanel({ run }: { run: RunDetail }) {
-  const [view, setView] = useState<View>("formatted");
+  const [view, setView] = useState<View>("overview");
+  const [rawOpen, setRawOpen] = useState(false);
+  useEffect(() => { setView("overview"); setRawOpen(false); }, [run.id]);
   const ordered = useMemo(() => [...run.events].sort((left, right) => left.sequence - right.sequence), [run.events]);
   const result = run.response?.result;
   const resultRecord = typeof result === "object" && result !== null && !Array.isArray(result) ? result as Record<string, unknown> : null;
@@ -122,18 +124,14 @@ export function RunResultPanel({ run }: { run: RunDetail }) {
   const requestHttp = typeof run.request.http === "object" && run.request.http !== null && !Array.isArray(run.request.http)
     ? run.request.http as Record<string, unknown> : null;
   const safeRequestHttp = requestHttp === null ? null : { ...requestHttp, headers: redactHeaders(requestHttp.headers) };
-  const labels: Array<[View, string]> = [["formatted", "格式化结果"], ["raw", "Raw"], ["rpc", "RPC"], ["http", "HTTP"], ["timeline", "时间线"]];
+  const labels: Array<[View, string]> = [["overview", "请求与结果"], ["details", "调用详情"], ["rpc", "RPC"], ["http", "HTTP"], ["timeline", "时间线"]];
   const origin = Date.parse(run.createdAt);
   return <article className="run-result" aria-label={`运行 ${run.id} 详情`}>
-    <header><div className={`run-status run-status--${run.status}`}>{terminalLabels[run.status] ?? run.status}</div>
+    <header><div className="run-summary"><div className={`run-status run-status--${run.status}`}>{terminalLabels[run.status] ?? run.status}</div>
+      <span>{run.durationMs === null ? "总耗时未记录" : `${run.durationMs} ms`}</span>
+      {run.networkDurationMs !== null && <span>网络 {run.networkDurationMs} ms</span>}</div>
       <CopyButton value={run.response} label="复制全部结果" /></header>
     {run.response?.truncated && <p role="status" className="truncated-warning">结果已截断（原始大小 {run.response.originalBytes ?? "未知"} bytes），以下仅为安全预览。</p>}
-    <dl className="run-metadata">{metadata(run).map(([name, value]) => <div key={name}><dt>{name}</dt><dd>{value}</dd></div>)}</dl>
-    <section className="historical-request" aria-labelledby={`request-title-${run.id}`}><h2 id={`request-title-${run.id}`}>不可变历史请求</h2>
-      <JsonValue value={run.request.arguments} label="arguments" copyLabel="复制 arguments" />
-      <JsonValue value={run.request.jsonrpc} label="完整 JSON-RPC" copyLabel="复制 JSON-RPC" />
-      <JsonValue value={safeRequestHttp} label="安全 HTTP 摘要" copyLabel="复制 HTTP 摘要" />
-    </section>
     <div role="tablist" aria-label="运行结果视图" className="result-tabs" onKeyDown={(event) => {
       if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
       const index = labels.findIndex(([id]) => id === view); const next = event.key === "Home" ? 0 : event.key === "End" ? labels.length - 1
@@ -142,13 +140,29 @@ export function RunResultPanel({ run }: { run: RunDetail }) {
     }}>{labels.map(([id, label]) => <button id={`result-tab-${id}-${run.id}`} key={id} type="button" role="tab" tabIndex={view === id ? 0 : -1}
       aria-selected={view === id} aria-controls={`result-${id}-${run.id}`} onClick={() => setView(id)}>{label}</button>)}</div>
     <section id={`result-${view}-${run.id}`} role="tabpanel" aria-labelledby={`result-tab-${view}-${run.id}`} className="result-view">
-      {view === "formatted" && <>{run.response === null ? <p role="status">等待运行结果…</p> : <>
-        {run.response.error !== null && <JsonValue value={run.response.error} label="错误" />}
-        {resultRecord !== null && "structuredContent" in resultRecord && <JsonValue value={resultRecord.structuredContent} label="结构化内容" />}
-        {content.map((block, index) => <ContentBlock key={index} value={block} index={index} />)}
-        {result !== null && resultRecord === null && <JsonValue value={result} label="结果" />}
-      </>}</>}
-      {view === "raw" && <JsonValue value={run.response} label="完整响应" />}
+      {view === "overview" && <div className="run-overview">
+        <section className="result-section" aria-labelledby={`request-title-${run.id}`}>
+          <div className="section-toolbar"><h2 id={`request-title-${run.id}`}>请求参数</h2><CopyButton value={run.request.arguments} label="复制 arguments" /></div>
+          <pre className="result-code">{json(run.request.arguments)}</pre>
+        </section>
+        <section className="result-section" aria-labelledby={`response-title-${run.id}`}>
+          <div className="section-toolbar"><h2 id={`response-title-${run.id}`}>请求结果</h2></div>
+          {run.response === null ? <p role="status">等待运行结果…</p> : <div className="result-content-flow">
+            {run.response.error !== null && <JsonValue value={run.response.error} label="错误" />}
+            {resultRecord !== null && "structuredContent" in resultRecord && <JsonValue value={resultRecord.structuredContent} label="结构化内容" />}
+            {content.map((block, index) => <ContentBlock key={index} value={block} index={index} />)}
+            {result !== null && resultRecord === null && <JsonValue value={result} label="结果" />}
+          </div>}
+        </section>
+        <details className="raw-disclosure" open={rawOpen} onToggle={(event) => setRawOpen(event.currentTarget.open)}><summary>原始请求与响应</summary>
+          {rawOpen && <div className="raw-disclosure__content">
+            <JsonValue value={run.request.jsonrpc} label="完整 JSON-RPC" copyLabel="复制 JSON-RPC" />
+            <JsonValue value={safeRequestHttp} label="安全 HTTP 摘要" copyLabel="复制 HTTP 摘要" />
+            <JsonValue value={run.response} label="完整响应" />
+          </div>}
+        </details>
+      </div>}
+      {view === "details" && <dl className="run-metadata">{metadata(run).map(([name, value]) => <div key={name}><dt>{name}</dt><dd>{value}</dd></div>)}</dl>}
       {view === "rpc" && <div className="trace-list">{ordered.filter(({ kind }) => kind === "rpc-out" || kind === "rpc-in").map((event) =>
         <JsonValue key={event.sequence} value={payloadRecord(event)?.message ?? event.payload} label={`#${event.sequence} ${event.kind}`} />)}</div>}
       {view === "http" && <div className="trace-list">{httpExchanges(ordered).map((exchange) => {
