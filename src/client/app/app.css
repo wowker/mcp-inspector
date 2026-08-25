@@ -495,10 +495,6 @@ summary:focus-visible {
 .result-image { display: block; max-width: min(100%, 420px); max-height: 280px; margin-top: 10px; object-fit: contain; }
 .unsupported-block { background: #f9fafb; }
 .resource-uri { color: #667085; overflow-wrap: anywhere; }
-.json-subtree { margin: 6px 0 6px 12px; }
-.json-subtree ul { margin: 4px 0; padding-left: 18px; }
-.json-subtree li > strong { margin-right: 8px; }
-
 .timeline { display: grid; gap: 8px; padding-left: 24px; }
 .timeline li { justify-content: flex-start; flex-wrap: wrap; }
 .timeline time { color: #667085; }

@@ -123,10 +123,12 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
       const detail = page.locator("article.run-result");
       await expect(detail.locator(".run-status")).toHaveText("成功");
       await detail.getByRole("tab", { name: "请求与结果" }).click();
-      const formattedResult = detail.locator(".json-block").filter({ hasText: "结构化内容" }).locator("pre");
-      await expect(formattedResult).toContainText(`"total": ${inputs[index].total}`);
+      const formattedResult = detail.locator(".json-block").filter({ hasText: "结构化内容" }).locator(".json-viewer");
+      await expect(formattedResult.locator(".json-viewer__row").filter({ hasText: /^total:/ }).locator(".json-viewer__number"))
+        .toHaveText(String(inputs[index].total));
       for (const other of inputs.filter((_, otherIndex) => otherIndex !== index)) {
-        await expect(formattedResult).not.toContainText(`"total": ${other.total}`);
+        await expect(formattedResult.locator(".json-viewer__row").filter({ hasText: /^total:/ }).locator(".json-viewer__number"))
+          .not.toHaveText(String(other.total));
       }
       await detail.getByRole("tab", { name: "调用详情" }).click();
       const runId = await detail.locator(".run-metadata div").filter({ hasText: "Run ID" }).locator("dd").innerText();
@@ -134,11 +136,12 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
 
       await detail.getByRole("tab", { name: "RPC" }).click();
       await expect(detail.locator(".result-view")).toContainText("tools/call");
-      await expect(detail.locator(".result-view")).toContainText(`"a": ${inputs[index].a}`);
-      await expect(detail.locator(".result-view")).toContainText(`"b": ${inputs[index].b}`);
+      await detail.locator(".json-viewer__key--clickable").filter({ hasText: /^arguments:/ }).click();
+      await expect(detail.locator(".result-view")).toContainText(`a:${inputs[index].a}`);
+      await expect(detail.locator(".result-view")).toContainText(`b:${inputs[index].b}`);
       for (const other of inputs.filter((_, otherIndex) => otherIndex !== index)) {
-        await expect(detail.locator(".result-view")).not.toContainText(`"a": ${other.a}`);
-        await expect(detail.locator(".result-view")).not.toContainText(`"b": ${other.b}`);
+        await expect(detail.locator(".result-view")).not.toContainText(`a:${other.a}`);
+        await expect(detail.locator(".result-view")).not.toContainText(`b:${other.b}`);
       }
       await detail.getByRole("tab", { name: "HTTP" }).click();
       await expect(detail.locator(".result-view")).toContainText("200");
@@ -167,8 +170,9 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
         expect(JSON.parse(raw)).toEqual({ a: inputs[index].a, b: inputs[index].b });
       }
       await page.locator("article.run-result").getByRole("tab", { name: "请求与结果" }).click();
-      await expect(page.locator("article.run-result .json-block").filter({ hasText: "结构化内容" }).locator("pre"))
-        .toContainText(`"total": ${inputs[index].total}`);
+      await expect(page.locator("article.run-result .json-block").filter({ hasText: "结构化内容" })
+        .locator(".json-viewer__row").filter({ hasText: /^total:/ }).locator(".json-viewer__number"))
+        .toHaveText(String(inputs[index].total));
     }
 
     await page.getByRole("button", { name: "运行历史" }).click();

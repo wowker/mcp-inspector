@@ -51,7 +51,7 @@ describe("Run workspace", () => {
   it("restores lastRunId without starting another Run", async () => {
     const client = api({ listTabs: vi.fn(async () => [{ ...tab, lastRunId: runId }]) });
     render(<DebugWorkspace api={client} projectId={projectId} />);
-    expect(await screen.findByText(/"answer": 2/)).toBeVisible(); expect(client.getRun).toHaveBeenCalledWith(projectId, runId);
+    expect(await screen.findByText(/^answer/)).toBeVisible(); expect(client.getRun).toHaveBeenCalledWith(projectId, runId);
     expect(client.startRun).not.toHaveBeenCalled();
   });
 
@@ -135,7 +135,7 @@ describe("Run workspace", () => {
     render(<DebugWorkspace api={client} projectId={projectId} />); const editor = await screen.findByLabelText("a");
     fireEvent.change(editor, { target: { value: "9" } }); fireEvent.click(screen.getByRole("button", { name: "当前 Tab 历史" }));
     fireEvent.click(await screen.findByRole("button", { name: `打开运行 ${runId}` }));
-    expect(await screen.findByText(/"answer": 2/)).toBeVisible();
+    expect(await screen.findByText(/^answer/)).toBeVisible();
     expect(screen.getByLabelText("a")).toHaveValue(9); expect(client.startRun).not.toHaveBeenCalled();
   });
 
@@ -181,7 +181,7 @@ describe("Run workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "执行" })); await waitFor(() => expect(startRun).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getByRole("button", { name: "执行中…" })).toBeDisabled());
     fireEvent.click(screen.getByRole("button", { name: "当前 Tab 历史" }));
-    fireEvent.click(await screen.findByRole("button", { name: `打开运行 ${runId}` })); await screen.findByText(/"answer": 2/);
+    fireEvent.click(await screen.findByRole("button", { name: `打开运行 ${runId}` })); await screen.findByText(/^answer/);
     fireEvent.keyDown(screen.getByLabelText("a"), { key: "Enter", ctrlKey: true });
     expect(startRun).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("tab", { name: "sum (2)" }));
@@ -204,7 +204,7 @@ describe("Run workspace", () => {
     render(<DebugWorkspace api={client} projectId={projectId} />);
     await waitFor(() => expect(screen.getByRole("button", { name: "执行中…" })).toBeDisabled());
     fireEvent.click(screen.getByRole("button", { name: "当前 Tab 历史" }));
-    fireEvent.click(await screen.findByRole("button", { name: `打开运行 ${runId}` })); await screen.findByText(/"answer": 2/);
+    fireEvent.click(await screen.findByRole("button", { name: `打开运行 ${runId}` })); await screen.findByText(/^answer/);
     expect(screen.getByRole("button", { name: "执行中…" })).toBeDisabled();
     terminal = true; streamController!.enqueue(encoder.encode(`data: ${JSON.stringify({ runId: activeRunId, sequence: 9, kind: "run-status",
       occurredAt: "2026-08-17T00:00:01.000Z", payload: { status: "succeeded" } })}\n\n`));

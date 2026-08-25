@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { RunDetail, RunEvent } from "../../api/api-client.js";
+import { JsonViewer, parseJsonDocument } from "./JsonViewer.js";
 
 type View = "overview" | "details" | "rpc" | "http" | "timeline";
 const terminalLabels: Record<string, string> = { queued: "排队中", connecting: "连接中", authorizing: "授权中",
@@ -23,17 +24,9 @@ function CopyButton({ value, label = "复制" }: { value: unknown; label?: strin
     {error && <span role="alert">复制失败，请手动选择内容</span>}</span>;
 }
 
-function JsonSubtrees({ value, path = "$" }: { value: unknown; path?: string }) {
-  if (typeof value !== "object" || value === null) return <span>{String(value)}</span>;
-  const entries = Array.isArray(value) ? value.map((item, index) => [String(index), item] as const) : Object.entries(value);
-  return <div className="json-subtree"><div><code>{path}</code><CopyButton value={value} label={`复制 ${path}`} /></div>
-    {entries.length > 0 && <ul>{entries.map(([key, child]) => <li key={key}><strong>{key}</strong>{typeof child === "object" && child !== null
-      ? <JsonSubtrees value={child} path={`${path}/${key.replaceAll("~", "~0").replaceAll("/", "~1")}`} /> : <span>{json(child)}</span>}</li>)}</ul>}</div>;
-}
-
 function JsonValue({ value, label = "JSON", copyLabel = "复制" }: { value: unknown; label?: string; copyLabel?: string }) {
-  return <section className="json-block"><div className="block-toolbar"><strong>{label}</strong><CopyButton value={value} label={copyLabel} /></div><pre>{json(value)}</pre>
-    {typeof value === "object" && value !== null && <details><summary>JSON 子树</summary><JsonSubtrees value={value} /></details>}</section>;
+  return <section className="json-block"><div className="block-toolbar"><strong>{label}</strong><CopyButton value={value} label={copyLabel} /></div>
+    <JsonViewer value={value} label={`${label} JSON`} /></section>;
 }
 
 function ImageBlock({ block }: { block: Record<string, unknown> }) {
@@ -63,8 +56,12 @@ function UnsupportedBlock({ block }: { block: Record<string, unknown> }) {
 function ContentBlock({ value, index }: { value: unknown; index: number }) {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return <JsonValue value={value} label={`内容块 ${index + 1}`} />;
   const block = value as Record<string, unknown>;
-  if (block.type === "text" && typeof block.text === "string") return <section className="content-block"><div className="block-toolbar">
-    <strong>文本</strong><CopyButton value={block.text} /></div><pre>{block.text}</pre></section>;
+  if (block.type === "text" && typeof block.text === "string") {
+    const parsed = parseJsonDocument(block.text);
+    return <section className="content-block"><div className="block-toolbar">
+      <strong>{parsed === null ? "文本" : "JSON 文本"}</strong><CopyButton value={block.text} /></div>
+      {parsed === null ? <pre>{block.text}</pre> : <JsonViewer value={parsed} label="JSON 文本" />}</section>;
+  }
   if (block.type === "image") return <ImageBlock block={block} />;
   if (block.type === "resource" && typeof block.resource === "object" && block.resource !== null && !Array.isArray(block.resource)) {
     const resource = block.resource as Record<string, unknown>;
@@ -143,7 +140,7 @@ export function RunResultPanel({ run }: { run: RunDetail }) {
       {view === "overview" && <div className="run-overview">
         <section className="result-section" aria-labelledby={`request-title-${run.id}`}>
           <div className="section-toolbar"><h2 id={`request-title-${run.id}`}>请求参数</h2><CopyButton value={run.request.arguments} label="复制 arguments" /></div>
-          <pre className="result-code">{json(run.request.arguments)}</pre>
+          <JsonViewer value={run.request.arguments} label="请求参数 JSON" />
         </section>
         <section className="result-section" aria-labelledby={`response-title-${run.id}`}>
           <div className="section-toolbar"><h2 id={`response-title-${run.id}`}>请求结果</h2></div>
@@ -170,7 +167,7 @@ export function RunResultPanel({ run }: { run: RunDetail }) {
         const safe = { request: request === null ? null : { ...request, headers: redactHeaders(request.headers) },
           response: response === null ? null : { ...response, headers: redactHeaders(response.headers) } };
         return <section className="http-exchange" key={exchange.key}><div className="block-toolbar"><strong>{request === null ? "未知请求" : `${String(request.method)} ${String(request.url)}`}
-          {response === null ? "" : ` → ${String(response.status)}`}</strong><CopyButton value={safe} /></div><pre>{json(safe)}</pre></section>;
+          {response === null ? "" : ` → ${String(response.status)}`}</strong><CopyButton value={safe} /></div><JsonViewer value={safe} label="HTTP 交换 JSON" /></section>;
       })}</div>}
       {view === "timeline" && <ol className="timeline">{ordered.map((event) => <li key={event.sequence}><span data-testid="timeline-sequence">#{event.sequence}</span>
         <strong>{event.kind}</strong><time>{Number.isFinite(origin) ? `+${Math.max(0, Date.parse(event.occurredAt) - origin)} ms` : event.occurredAt}</time><CopyButton value={event} /></li>)}</ol>}

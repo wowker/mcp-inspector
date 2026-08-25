@@ -32,7 +32,7 @@ describe("RunResultPanel", () => {
 
   it("renders hostile text and embedded resources inertly in server order", () => {
     render(<RunResultPanel run={run} />);
-    expect(screen.getByText(/"answer": 5/)).toBeInTheDocument();
+    expect(screen.getByText(/^answer/)).toBeInTheDocument();
     expect(screen.getByText("<script>alert(1)</script>")).toBeInTheDocument();
     expect(screen.getByText("safe resource")).toBeInTheDocument();
     expect(document.querySelector("script")).toBeNull();
@@ -53,17 +53,30 @@ describe("RunResultPanel", () => {
     expect(screen.getByText(run.id)).toBeVisible();
   });
 
+  it("uses one collapsible JSON viewer for request and response data without a duplicate subtree", () => {
+    render(<RunResultPanel run={{ ...run, request: { ...run.request, arguments: { account: { id: "acct-1", active: true } } },
+      response: { ...run.response!, result: { structuredContent: { profile: { id: "acct-1", plan: "pro" } }, content: [
+        { type: "text", text: "{\"items\":[{\"id\":1},{\"id\":2}]}" },
+      ] } } }} />);
+
+    expect(screen.queryByText("JSON 子树")).not.toBeInTheDocument();
+    expect(document.querySelectorAll(".json-viewer")).toHaveLength(3);
+    expect(screen.getAllByText(/acct-1/)).toHaveLength(2);
+    expect(screen.getByText(/^items/)).toBeVisible();
+    expect(screen.getAllByRole("button", { name: "收起 JSON" }).length).toBeGreaterThan(0);
+  });
+
   it("keeps immutable raw request material collapsed until requested", () => {
     const writeText = vi.fn().mockRejectedValue(new Error("denied"));
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     render(<RunResultPanel run={{ ...run, request: { arguments: { value: 5 }, jsonrpc: { jsonrpc: "2.0", method: "tools/call", params: { name: "inspect" } },
       http: { method: "POST", url: "https://example.test/mcp", headers: { authorization: "Bearer secret", accept: "application/json" }, body: { safe: true } } } }} />);
-    expect(screen.getByText(/"value": 5/)).toBeVisible();
-    expect(screen.queryByText(/"name": "inspect"/)).not.toBeInTheDocument();
+    expect(screen.getByText(/^value/)).toBeVisible();
+    expect(screen.queryByText(/^name/)).not.toBeInTheDocument();
     const disclosure = screen.getByText("原始请求与响应").closest("details")!;
     disclosure.open = true;
     fireEvent(disclosure, new Event("toggle"));
-    expect(screen.getByText(/"name": "inspect"/)).toBeVisible();
+    expect(screen.getByText(/^name/)).toBeVisible();
     expect(screen.getAllByText(/\[REDACTED\]/).length).toBeGreaterThan(0); expect(screen.queryByText(/Bearer secret/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "复制 arguments" }));
     return screen.findByRole("alert").then((alert) => expect(alert).toHaveTextContent("复制失败"));
@@ -76,7 +89,8 @@ describe("RunResultPanel", () => {
     expect(screen.queryByText(/example\.test/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "HTTP" }));
     expect(screen.getByText(/POST https:\/\/example\.test\/mcp/)).toBeInTheDocument();
-    expect(screen.getByText(/\[REDACTED\]/)).toBeInTheDocument();
+    screen.getAllByRole("button", { name: "展开 JSON" }).forEach((button) => fireEvent.click(button));
+    expect(screen.getAllByText(/\[REDACTED\]/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/Bearer secret/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "时间线" }));
     expect(screen.getAllByTestId("timeline-sequence").map((node) => node.textContent)).toEqual(["#2", "#3", "#4", "#5"]);

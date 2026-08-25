@@ -94,6 +94,57 @@
   overflow-wrap: anywhere;
 }
 
+.json-viewer {
+  max-height: 320px;
+  margin: 4px 0 0;
+  padding: 8px 0;
+  overflow: auto;
+  color: var(--ui-text);
+  background: transparent;
+  font: 500 0.76rem/1.55 var(--ui-mono);
+  overflow-wrap: anywhere;
+}
+
+.json-viewer__children {
+  margin: 0;
+  padding: 0 0 0 18px;
+  border-left: 1px solid var(--ui-border-muted);
+  list-style: none;
+}
+
+.json-viewer__row { min-height: 20px; }
+.json-viewer__toggle {
+  display: inline-flex;
+  width: 16px;
+  height: 18px;
+  margin-right: 2px;
+  align-items: center;
+  justify-content: center;
+  color: var(--ui-text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.json-viewer__toggle::before { font-size: 0.66rem; line-height: 1; }
+.json-viewer__toggle--open::before { content: "▾"; }
+.json-viewer__toggle--closed::before { content: "▸"; }
+.json-viewer__toggle:hover,
+.json-viewer__toggle:focus-visible { color: var(--ui-accent); }
+.json-viewer__toggle:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 1px; }
+.json-viewer__collapsed { color: var(--ui-text-muted); cursor: pointer; }
+.json-viewer__collapsed::after { content: " … "; }
+.json-viewer__key { margin-right: 5px; color: var(--ui-text); font-weight: 650; }
+.json-viewer__key--clickable { cursor: pointer; }
+.json-viewer__string { color: var(--ui-success); }
+.json-viewer__number { color: var(--ui-accent); }
+.json-viewer__boolean { color: var(--ui-warning); }
+.json-viewer__null { color: var(--ui-text-muted); font-style: italic; }
+.json-viewer__value,
+.json-viewer__punctuation { color: var(--ui-text-muted); }
+.json-viewer--primitive {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .result-content-flow > .json-block,
 .result-content-flow > .content-block,
 .raw-disclosure__content > .json-block,
@@ -112,7 +163,7 @@
 .trace-list > :last-child { border-bottom: 0; }
 .run-result .block-toolbar { min-height: 28px; }
 .run-result .block-toolbar strong { font-size: 0.76rem; }
-.run-result .json-block pre,
+.run-result .json-block pre:not(.json-viewer),
 .run-result .content-block pre,
 .run-result .http-exchange pre { margin: 5px 0 0; font: 500 0.78rem/1.55 var(--ui-mono); }
 
