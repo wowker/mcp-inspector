@@ -25,6 +25,15 @@ export function TabStrip({ tabs, activeId, onSelect, onClose, onDuplicate, onPin
     const details = event.currentTarget.closest("details"); action();
     details?.removeAttribute("open"); details?.querySelector("summary")?.focus();
   }
+  function positionMenu(details: HTMLDetailsElement): void {
+    const trigger = details.querySelector("summary");
+    if (trigger === null) return;
+    const rect = trigger.getBoundingClientRect();
+    const width = 164;
+    const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8));
+    details.style.setProperty("--tab-menu-top", `${rect.bottom + 4}px`);
+    details.style.setProperty("--tab-menu-left", `${left}px`);
+  }
   return <div ref={strip} className="debug-tabs" role="tablist" aria-label="Tool 调试 Tabs" onKeyDown={(event) => {
     if (!(event.target instanceof HTMLElement) || event.target.getAttribute("role") !== "tab") return;
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
@@ -39,10 +48,10 @@ export function TabStrip({ tabs, activeId, onSelect, onClose, onDuplicate, onPin
         onClick={() => onSelect(tab.id)}>{tab.pinned ? "固定 " : ""}{tab.title}
         {dirtyIds.has(tab.id) && <span aria-label="未保存"> *</span>}
         {runningIds.has(tab.id) && <span aria-label="运行中"> ⟳</span>}</button>
-      <details className="tab-menu"><summary aria-label={`${tab.title} 操作`} onKeyDown={(event) => {
+      <details className="tab-menu" onToggle={(event) => { if (event.currentTarget.open) positionMenu(event.currentTarget); }}><summary aria-label={`${tab.title} 操作`} onKeyDown={(event) => {
         if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault(); const details = event.currentTarget.parentElement;
-        if (details instanceof HTMLDetailsElement) details.open = !details.open;
+        if (details instanceof HTMLDetailsElement) { details.open = !details.open; if (details.open) positionMenu(details); }
       }}><DotsThree size={18} weight="bold" aria-hidden="true" /></summary><div aria-label={`${tab.title} Tab 操作菜单`}>
         <button type="button" onClick={(event) => finishMenuAction(event, () => onDuplicate(tab.id))}>复制 Tab</button>
         <button type="button" onClick={(event) => finishMenuAction(event, () => onPin(tab.id, !tab.pinned))}>{tab.pinned ? "取消固定" : "固定"}</button>

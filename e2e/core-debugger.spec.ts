@@ -123,7 +123,7 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
       const detail = page.locator("article.run-result");
       await expect(detail.locator(".run-status")).toHaveText("成功");
       await detail.getByRole("tab", { name: "请求与结果" }).click();
-      const formattedResult = detail.locator(".json-block").filter({ hasText: "结构化内容" }).locator(".json-viewer");
+      const formattedResult = detail.getByLabel("结构化响应 JSON");
       await expect(formattedResult.locator(".json-viewer__row").filter({ hasText: /^total:/ }).locator(".json-viewer__number"))
         .toHaveText(String(inputs[index].total));
       for (const other of inputs.filter((_, otherIndex) => otherIndex !== index)) {
@@ -193,7 +193,7 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
         expect(JSON.parse(raw)).toEqual({ a: inputs[index].a, b: inputs[index].b });
       }
       await page.locator("article.run-result").getByRole("tab", { name: "请求与结果" }).click();
-      await expect(page.locator("article.run-result .json-block").filter({ hasText: "结构化内容" })
+      await expect(page.getByLabel("结构化响应 JSON")
         .locator(".json-viewer__row").filter({ hasText: /^total:/ }).locator(".json-viewer__number"))
         .toHaveText(String(inputs[index].total));
     }
@@ -201,7 +201,9 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     await page.getByRole("button", { name: "运行历史" }).click();
     const history = page.getByRole("region", { name: "项目运行历史" });
     await expect(history.locator("li")).toHaveCount(8);
-    const historyIds = await history.locator("li button span:first-child").allTextContents();
+    const historyLabels = await history.locator("li button").evaluateAll((buttons) =>
+      buttons.map((button) => button.getAttribute("aria-label") ?? ""));
+    const historyIds = historyLabels.map((label) => label.replace(/^打开运行 /, ""));
     expect(new Set(historyIds).size).toBe(8);
     expect(new Set(historyIds)).toEqual(new Set(runIds));
     await history.locator("li button").first().click();
@@ -246,11 +248,12 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     ]);
     for (const result of closeResults) if (result.status === "rejected") cleanupErrors.push(result.reason);
     try { rmSync(dataRoot, { recursive: true, force: true }); } catch (error) { cleanupErrors.push(error); }
-    if (primaryFailure !== undefined || cleanupErrors.length > 0) {
+    if (cleanupErrors.length > 0) {
       throw new AggregateError([
         ...(primaryFailure === undefined ? [] : [primaryFailure]),
         ...cleanupErrors,
       ], primaryFailure === undefined ? "E2E cleanup failed" : "E2E failed and cleanup was incomplete");
     }
+    if (primaryFailure !== undefined) throw primaryFailure;
   }
 });

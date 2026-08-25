@@ -43,8 +43,13 @@ function expandUsefulLevels(level: number, value: unknown): boolean {
   return level < 2;
 }
 
-export function JsonViewer({ value, label = "JSON 数据" }: { value: unknown; label?: string }) {
+export function JsonViewer({ value, label = "JSON 数据", defaultExpanded = "useful" }: {
+  value: unknown;
+  label?: string;
+  defaultExpanded?: "useful" | "all";
+}) {
   const data = parseJsonDocument(value);
   if (data === null) return <pre className="json-viewer json-viewer--primitive" aria-label={label}>{stringify(value)}</pre>;
-  return <JsonView data={data} aria-label={label} style={viewerStyles} shouldExpandNode={expandUsefulLevels} clickToExpandNode />;
+  return <JsonView data={data} aria-label={label} style={viewerStyles}
+    shouldExpandNode={defaultExpanded === "all" ? () => true : expandUsefulLevels} clickToExpandNode />;
 }

@@ -38,7 +38,8 @@ function api(): InspectorApiClient {
     listTools: vi.fn().mockResolvedValue([]), refreshTools: vi.fn().mockResolvedValue([]), getTool: vi.fn(),
     listTabs: vi.fn().mockResolvedValue([]), openTab: vi.fn(), replaceTabTool: vi.fn(), updateTab: vi.fn(),
     duplicateTab: vi.fn(), reorderTabs: vi.fn(), closeTab: vi.fn(), closeOtherTabs: vi.fn(), closeTabsRight: vi.fn(),
-    startRun: vi.fn(), getRunSummary: vi.fn(), getRun: vi.fn(), listRuns: vi.fn(), openRunEventStream: vi.fn(),
+    startRun: vi.fn(), getRunSummary: vi.fn(), getRun: vi.fn(),
+    listRuns: vi.fn().mockResolvedValue({ runs: [], nextCursor: null }), openRunEventStream: vi.fn(),
     listSavedItems: vi.fn(), getSavedItem: vi.fn(), createSavedItem: vi.fn(), deleteSavedItem: vi.fn(),
   };
 }
@@ -68,6 +69,9 @@ describe("InspectorWorkbench", () => {
     await user.click(screen.getByRole("button", { name: "Tools" }));
     expect(await screen.findByRole("heading", { name: "Tools", level: 1 })).toBeVisible();
     expect(screen.getByText("选择一个已连接的 Server 开始调试")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "运行历史" }));
+    expect(await screen.findByRole("heading", { name: "运行历史", level: 1 })).toBeVisible();
+    expect(screen.getByText("选择一条运行记录")).toBeVisible();
   });
 
   it("adds and activates a Server tab after connecting, then scopes the Tools page to it", async () => {

@@ -23,6 +23,26 @@ const statusLabels: Record<CatalogToolSummary["status"], string> = {
 // Covers common desktop OS double-click windows while keyboard activation stays immediate.
 const POINTER_DOUBLE_CLICK_WINDOW_MS = 500;
 
+function normalizeSearch(value: string): string {
+  return value.normalize("NFKC").toLocaleLowerCase().replace(/[_/.-]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function isSubsequence(needle: string, haystack: string): boolean {
+  let index = 0;
+  for (const character of haystack) {
+    if (character === needle[index]) index += 1;
+    if (index === needle.length) return true;
+  }
+  return needle.length === 0;
+}
+
+function fuzzyMatches(query: string, value: string): boolean {
+  const searchable = normalizeSearch(value);
+  return normalizeSearch(query).split(" ").every((token) =>
+    searchable.includes(token) || isSubsequence(token, searchable)
+  );
+}
+
 export function ToolTree({
   connections,
   catalogs,
@@ -39,13 +59,13 @@ export function ToolTree({
   } | null>(null);
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
-  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const normalizedQuery = normalizeSearch(query);
   const filtered = useMemo(() => Object.fromEntries(connections.map((connection) => [
     connection.id,
     (catalogs[connection.id] ?? []).filter((tool) => {
       const description = tool.currentSnapshot.definition.description;
-      return normalizedQuery.length === 0 || tool.name.toLocaleLowerCase().includes(normalizedQuery) ||
-        (typeof description === "string" && description.toLocaleLowerCase().includes(normalizedQuery));
+      const summary = typeof description === "string" ? summarizeToolDescription(description) : "";
+      return normalizedQuery.length === 0 || fuzzyMatches(normalizedQuery, `${tool.name} ${summary}`);
     }),
   ])), [catalogs, connections, normalizedQuery]);
 
@@ -93,19 +113,15 @@ export function ToolTree({
   return (
     <section className="tool-tree-panel" aria-labelledby="tool-tree-title">
       <div className="tool-tree-panel__heading">
-        <div>
-          <p className="eyebrow">Tool Catalog</p>
-          <h2 id="tool-tree-title">Tools</h2>
-        </div>
-        <label className="tool-search">
-          <span>搜索 Tool</span>
-          <input
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="名称或描述"
-          />
-        </label>
+        <p className="eyebrow" id="tool-tree-title">Tool Catalog</p>
+        <input
+          className="tool-search"
+          type="search"
+          aria-label="搜索 Tool"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="搜索名称或描述"
+        />
       </div>
 
       <ul className="tool-tree" role="tree" aria-label="MCP Tools">

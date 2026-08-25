@@ -490,9 +490,14 @@ describe("DebugWorkspace", () => {
       ["右移", callbacks.onMove], ["关闭其他", callbacks.onCloseOthers], ["关闭右侧", callbacks.onCloseRight],
     ];
     const summary = screen.getByLabelText("sum 操作");
+    vi.spyOn(summary, "getBoundingClientRect").mockReturnValue({
+      x: 720, y: 40, width: 32, height: 32, top: 40, right: 752, bottom: 72, left: 720,
+      toJSON: () => ({}),
+    });
     for (const [index, [name, callback]] of actions.entries()) {
       summary.focus(); await user.keyboard(index % 2 === 0 ? "{Enter}" : " ");
       expect(summary.closest("details")).toHaveAttribute("open");
+      expect(summary.closest("details")).toHaveStyle({ "--tab-menu-top": "76px", "--tab-menu-left": "588px" });
       const button = screen.getAllByRole("button", { name })[0]!;
       for (let step = 0; document.activeElement !== button && step < 8; step += 1) await user.tab();
       expect(button).toHaveFocus(); await user.keyboard("{Enter}");

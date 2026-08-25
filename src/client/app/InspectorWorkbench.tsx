@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import {
-  CaretLeft,
+  ClockCounterClockwise,
   HardDrives,
-  List,
   Moon,
   Plus,
   SidebarSimple,
@@ -14,8 +13,9 @@ import { ConnectionPanel } from "../features/connections/ConnectionPanel.js";
 import { DebugWorkspace, type ToolOpenIntent } from "../features/tabs/DebugWorkspace.js";
 import { applyInitialTheme, toggleTheme, type ThemeMode } from "./theme.js";
 import { isOAuthCompleteEvent, OAUTH_CHANNEL } from "../../shared/oauth-events.js";
+import { RunHistoryPage } from "../features/runs/RunHistoryPage.js";
 
-type WorkbenchPage = "servers" | "tools";
+type WorkbenchPage = "servers" | "tools" | "history";
 
 interface InspectorWorkbenchProps {
   api: InspectorApiClient;
@@ -29,9 +29,9 @@ interface ServerWorkspaceState {
 }
 
 function NavIcon({ type }: { type: WorkbenchPage }) {
-  return type === "servers"
-    ? <HardDrives size={19} weight="regular" aria-hidden="true" />
-    : <Wrench size={19} weight="regular" aria-hidden="true" />;
+  if (type === "servers") return <HardDrives size={19} weight="regular" aria-hidden="true" />;
+  if (type === "tools") return <Wrench size={19} weight="regular" aria-hidden="true" />;
+  return <ClockCounterClockwise size={19} weight="regular" aria-hidden="true" />;
 }
 
 export function InspectorWorkbench({ api, project, version }: InspectorWorkbenchProps) {
@@ -115,7 +115,7 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
           <span className="workbench-brand__text"><strong>MCP</strong><small>Inspector</small></span>
         </div>
         <nav aria-label="工作台导航">
-          {(["servers", "tools"] as const).map((item) => (
+          {(["servers", "tools", "history"] as const).map((item) => (
             <button
               key={item}
               type="button"
@@ -123,7 +123,7 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
               onClick={() => setPage(item)}
             >
               <NavIcon type={item} />
-              <span>{item === "servers" ? "Servers" : "Tools"}</span>
+              <span>{item === "servers" ? "Servers" : item === "tools" ? "Tools" : "运行历史"}</span>
             </button>
           ))}
         </nav>
@@ -141,7 +141,7 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
               className="sidebar-toggle"
               aria-label="收起侧边栏"
               onClick={() => setSidebarCollapsed(true)}
-            ><CaretLeft size={17} aria-hidden="true" /></button>
+            ><SidebarSimple size={17} aria-hidden="true" /></button>
           </div>}
         </div>
       </aside>
@@ -153,7 +153,7 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
             className="sidebar-restore"
             aria-label="展开侧边栏"
             onClick={() => setSidebarCollapsed(false)}
-          ><List size={19} aria-hidden="true" /></button>
+          ><SidebarSimple size={19} aria-hidden="true" /></button>
         )}
         <header className="server-tabbar">
           <div className="server-tabs" role="tablist" aria-label="已连接 Servers">
@@ -179,7 +179,13 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
             ))}
             {servers.tabs.length === 0 && <span className="server-tabs__empty">尚未连接 Server</span>}
           </div>
-          <button type="button" className="add-server-tab" onClick={() => setPage("servers")}><Plus size={17} aria-hidden="true" />添加 Server</button>
+          <div className="server-tabbar__actions">
+            {page === "tools" && servers.activeId !== null && <button type="button" className="topbar-action" aria-controls="tool-catalog"
+              aria-expanded={!catalogCollapsed} onClick={() => setCatalogCollapsed((value) => !value)}>
+              <SidebarSimple size={17} aria-hidden="true" />{catalogCollapsed ? "显示 Tool 目录" : "隐藏 Tool 目录"}
+            </button>}
+            <button type="button" className="topbar-action topbar-action--primary" onClick={() => setPage("servers")}><Plus size={17} aria-hidden="true" />添加 Server</button>
+          </div>
           <div className="project-identity"><span>{project.name}</span><small>当前项目</small></div>
         </header>
 
@@ -198,7 +204,7 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
                 onConnectionsLoaded={restoreConnectedServers}
               />
             </section>
-          ) : (
+          ) : page === "history" ? <RunHistoryPage api={api} projectId={project.id} /> : (
             <section
               id="server-tool-panel"
               className="tools-page"
@@ -207,12 +213,6 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
             >
               <header className="page-heading page-heading--compact">
                 <div><h1 id="tools-page-title">Tools</h1><p>{servers.activeId === null ? "先连接 Server，再开始 Tool 调试。" : "选择 Tool，编辑参数并查看完整调用轨迹。"}</p></div>
-                {servers.activeId !== null && <div className="page-heading-actions">
-                  <button type="button" className="button-secondary catalog-toggle" aria-controls="tool-catalog"
-                    aria-expanded={!catalogCollapsed} onClick={() => setCatalogCollapsed((value) => !value)}>
-                    <SidebarSimple size={17} aria-hidden="true" />{catalogCollapsed ? "显示 Tool 目录" : "隐藏 Tool 目录"}
-                  </button>
-                </div>}
               </header>
               {servers.activeId === null ? (
                 <div className="workbench-empty" role="status">

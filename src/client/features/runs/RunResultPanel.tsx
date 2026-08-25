@@ -12,7 +12,7 @@ function json(value: unknown): string {
   try { return JSON.stringify(value, null, 2) ?? "null"; } catch { return "[无法序列化]"; }
 }
 
-function CopyButton({ value, label = "复制" }: { value: unknown; label?: string }) {
+function CopyButton({ value, label = "复制", className }: { value: unknown; label?: string; className?: string }) {
   const [error, setError] = useState(false);
   async function copy(): Promise<void> {
     try {
@@ -20,13 +20,20 @@ function CopyButton({ value, label = "复制" }: { value: unknown; label?: strin
       await navigator.clipboard.writeText(typeof value === "string" ? value : json(value)); setError(false);
     } catch { setError(true); }
   }
-  return <span className="copy-control"><button type="button" onClick={() => void copy()}>{label}</button>
+  return <span className="copy-control"><button type="button" className={className} onClick={() => void copy()}>{label}</button>
     {error && <span role="alert">复制失败，请手动选择内容</span>}</span>;
 }
 
-function JsonValue({ value, label = "JSON", copyLabel = "复制" }: { value: unknown; label?: string; copyLabel?: string }) {
-  return <section className="json-block"><div className="block-toolbar"><strong>{label}</strong><CopyButton value={value} label={copyLabel} /></div>
-    <JsonViewer value={value} label={`${label} JSON`} /></section>;
+function JsonValue({ value, label = "JSON", copyLabel = "复制", hideLabel = false, defaultExpanded = "useful" }: {
+  value: unknown;
+  label?: string;
+  copyLabel?: string;
+  hideLabel?: boolean;
+  defaultExpanded?: "useful" | "all";
+}) {
+  return <section className="json-block"><div className={`block-toolbar${hideLabel ? " block-toolbar--actions-only" : ""}`}>
+    {!hideLabel && <strong>{label}</strong>}<CopyButton value={value} label={copyLabel} /></div>
+    <JsonViewer value={value} label={`${label} JSON`} defaultExpanded={defaultExpanded} /></section>;
 }
 
 function ImageBlock({ block }: { block: Record<string, unknown> }) {
@@ -58,9 +65,9 @@ function ContentBlock({ value, index }: { value: unknown; index: number }) {
   const block = value as Record<string, unknown>;
   if (block.type === "text" && typeof block.text === "string") {
     const parsed = parseJsonDocument(block.text);
-    return <section className="content-block"><div className="block-toolbar">
-      <strong>{parsed === null ? "文本" : "JSON 文本"}</strong><CopyButton value={block.text} /></div>
-      {parsed === null ? <pre>{block.text}</pre> : <JsonViewer value={parsed} label="JSON 文本" />}</section>;
+    return <section className="content-block"><div className={`block-toolbar${parsed === null ? "" : " block-toolbar--actions-only"}`}>
+      {parsed === null && <strong>文本</strong>}<CopyButton value={block.text} /></div>
+      {parsed === null ? <pre>{block.text}</pre> : <JsonViewer value={parsed} label="响应 JSON" defaultExpanded="all" />}</section>;
   }
   if (block.type === "image") return <ImageBlock block={block} />;
   if (block.type === "resource" && typeof block.resource === "object" && block.resource !== null && !Array.isArray(block.resource)) {
@@ -127,8 +134,8 @@ export function RunResultPanel({ run, onSaveResponse }: { run: RunDetail; onSave
     <header><div className="run-summary"><div className={`run-status run-status--${run.status}`}>{terminalLabels[run.status] ?? run.status}</div>
       <span>{run.durationMs === null ? "总耗时未记录" : `${run.durationMs} ms`}</span>
       {run.networkDurationMs !== null && <span>网络 {run.networkDurationMs} ms</span>}</div>
-      <div className="run-result-actions">{run.response !== null && onSaveResponse !== undefined && <button type="button" onClick={() => onSaveResponse(run.response!)}>保存响应</button>}
-        <CopyButton value={run.response} label="复制全部结果" /></div></header>
+      <div className="run-result-actions">{run.response !== null && onSaveResponse !== undefined && <button type="button" className="run-result-action" onClick={() => onSaveResponse(run.response!)}>保存响应</button>}
+        <CopyButton value={run.response} label="复制全部结果" className="run-result-action" /></div></header>
     {run.response?.truncated && <p role="status" className="truncated-warning">结果已截断（原始大小 {run.response.originalBytes ?? "未知"} bytes），以下仅为安全预览。</p>}
     <div role="tablist" aria-label="运行结果视图" className="result-tabs" onKeyDown={(event) => {
       if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
@@ -140,16 +147,16 @@ export function RunResultPanel({ run, onSaveResponse }: { run: RunDetail; onSave
     <section id={`result-${view}-${run.id}`} role="tabpanel" aria-labelledby={`result-tab-${view}-${run.id}`} className="result-view">
       {view === "overview" && <div className="run-overview">
         <section className="result-section" aria-labelledby={`request-title-${run.id}`}>
-          <div className="section-toolbar"><h2 id={`request-title-${run.id}`}>请求参数</h2><CopyButton value={run.request.arguments} label="复制 arguments" /></div>
+          <div className="section-toolbar"><h2 id={`request-title-${run.id}`}>请求参数</h2><CopyButton value={run.request.arguments} label="复制参数" /></div>
           <JsonViewer value={run.request.arguments} label="请求参数 JSON" />
         </section>
         <section className="result-section" aria-labelledby={`response-title-${run.id}`}>
           <div className="section-toolbar"><h2 id={`response-title-${run.id}`}>请求结果</h2></div>
           {run.response === null ? <p role="status">等待运行结果…</p> : <div className="result-content-flow">
-            {run.response.error !== null && <JsonValue value={run.response.error} label="错误" />}
-            {resultRecord !== null && "structuredContent" in resultRecord && <JsonValue value={resultRecord.structuredContent} label="结构化内容" />}
+            {run.response.error !== null && <JsonValue value={run.response.error} label="错误" defaultExpanded="all" />}
+            {resultRecord !== null && "structuredContent" in resultRecord && <JsonValue value={resultRecord.structuredContent} label="结构化响应" hideLabel defaultExpanded="all" />}
             {content.map((block, index) => <ContentBlock key={index} value={block} index={index} />)}
-            {result !== null && resultRecord === null && <JsonValue value={result} label="结果" />}
+            {result !== null && resultRecord === null && <JsonValue value={result} label="结果" defaultExpanded="all" />}
           </div>}
         </section>
         <details className="raw-disclosure" open={rawOpen} onToggle={(event) => setRawOpen(event.currentTarget.open)}><summary>原始请求与响应</summary>
@@ -171,7 +178,7 @@ export function RunResultPanel({ run, onSaveResponse }: { run: RunDetail; onSave
           {response === null ? "" : ` → ${String(response.status)}`}</strong><CopyButton value={safe} /></div><JsonViewer value={safe} label="HTTP 交换 JSON" /></section>;
       })}</div>}
       {view === "timeline" && <ol className="timeline">{ordered.map((event) => <li key={event.sequence}><span data-testid="timeline-sequence">#{event.sequence}</span>
-        <strong>{event.kind}</strong><time>{Number.isFinite(origin) ? `+${Math.max(0, Date.parse(event.occurredAt) - origin)} ms` : event.occurredAt}</time><CopyButton value={event} /></li>)}</ol>}
+        <strong>{event.kind}</strong><time>{Number.isFinite(origin) ? `+${Math.max(0, Date.parse(event.occurredAt) - origin)} ms` : event.occurredAt}</time></li>)}</ol>}
     </section>
   </article>;
 }

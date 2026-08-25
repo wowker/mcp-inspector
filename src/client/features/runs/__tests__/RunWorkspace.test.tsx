@@ -139,30 +139,6 @@ describe("Run workspace", () => {
     expect(screen.getByLabelText("a")).toHaveValue(9); expect(client.startRun).not.toHaveBeenCalled();
   });
 
-  it("opens a deleted-origin history Run as a non-persisted read-only Tab", async () => {
-    const orphan = { ...summary, tabId: null }; const client = api({ listRuns: vi.fn(async () => ({ runs: [orphan], nextCursor: null })), getRun: vi.fn(async () => detail(null)) });
-    render(<DebugWorkspace api={client} projectId={projectId} />); await screen.findByRole("tab", { name: "sum" });
-    fireEvent.click(screen.getByRole("button", { name: "运行历史" })); fireEvent.click(await screen.findByRole("button", { name: `打开运行 ${runId}` }));
-    expect(await screen.findByText("只读历史结果，不会重新调用 Tool。")).toBeVisible();
-    expect(screen.queryByRole("button", { name: "执行" })).not.toBeInTheDocument(); expect(client.openTab).not.toHaveBeenCalled(); expect(client.startRun).not.toHaveBeenCalled();
-  });
-
-  it("keeps multiple deleted-origin runs in separate read-only Tabs", async () => {
-    const secondId = "00000000-0000-4000-8000-000000000846";
-    const runs = [{ ...summary, tabId: null }, { ...summary, id: secondId, tabId: null, idempotencyKey: "two",
-      createdAt: "2026-08-16T23:59:59.000Z" }];
-    const client = api({ listRuns: vi.fn(async () => ({ runs, nextCursor: null })), getRun: vi.fn(async (_project, id) => ({ ...detail(null), id, idempotencyKey: id })) });
-    render(<DebugWorkspace api={client} projectId={projectId} />); await screen.findByRole("tab", { name: "sum" });
-    fireEvent.click(screen.getByRole("button", { name: "运行历史" }));
-    fireEvent.click(await screen.findByRole("button", { name: `打开运行 ${runId}` })); await screen.findByText("只读历史结果，不会重新调用 Tool。");
-    fireEvent.click(screen.getByRole("button", { name: "运行历史" }));
-    fireEvent.click(await screen.findByRole("button", { name: `打开运行 ${secondId}` }));
-    await waitFor(() => expect(screen.getAllByRole("tab", { name: /只读 · sum/ })).toHaveLength(2));
-    const historyTabs = screen.getAllByRole("tab", { name: /只读 · sum/ }); historyTabs[0]!.focus();
-    fireEvent.keyDown(historyTabs[0]!, { key: "End" }); expect(historyTabs[1]).toHaveFocus();
-    await waitFor(() => expect(historyTabs[1]).toHaveAttribute("aria-selected", "true"));
-  });
-
   it("keeps the launched Run gate when inspecting an older terminal Run while another Tab remains executable", async () => {
     const secondTabId = "00000000-0000-4000-8000-000000000847";
     const liveRunId = "00000000-0000-4000-8000-000000000848"; const secondRunId = "00000000-0000-4000-8000-000000000849";

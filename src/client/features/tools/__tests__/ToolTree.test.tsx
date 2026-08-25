@@ -45,6 +45,9 @@ describe("ToolTree", () => {
       onRefresh={vi.fn()} onSelectTool={vi.fn()} onOpenTool={vi.fn()}
     />);
     expect(screen.getByRole("tree", { name: "MCP Tools" })).toBeVisible();
+    expect(screen.getByText("Tool Catalog")).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Tools" })).not.toBeInTheDocument();
+    expect(screen.queryByText("搜索 Tool")).not.toBeInTheDocument();
     expect(screen.getByText("已变化")).toBeVisible();
     expect(screen.getByText("已移除")).toBeVisible();
     await user.type(screen.getByRole("searchbox", { name: "搜索 Tool" }), "ADD NUMBERS");
@@ -53,6 +56,22 @@ describe("ToolTree", () => {
     await user.clear(screen.getByRole("searchbox", { name: "搜索 Tool" }));
     await user.click(screen.getByRole("treeitem", { name: "折叠 Catalog MCP" }));
     expect(screen.queryByRole("treeitem", { name: /sum/ })).not.toBeInTheDocument();
+  });
+
+  it("fuzzy-matches incomplete tokens across a Tool name and its description", async () => {
+    const user = userEvent.setup();
+    render(<ToolTree
+      connections={[first]}
+      catalogs={{ [first.id]: [
+        catalog(first.id, "apply_product_mapping", "Store Products · Applies a confirmed supplier mapping", "current"),
+        catalog(first.id, "cancel_supplier_order", "Cancel an asynchronous order", "current"),
+      ] }}
+      onRefresh={vi.fn()} onSelectTool={vi.fn()} onOpenTool={vi.fn()}
+    />);
+
+    await user.type(screen.getByRole("searchbox", { name: "搜索 Tool" }), "prd map");
+    expect(screen.getByRole("treeitem", { name: /apply_product_mapping/ })).toBeVisible();
+    expect(screen.queryByRole("treeitem", { name: /cancel_supplier_order/ })).not.toBeInTheDocument();
   });
 
   it("shows a clean catalog summary instead of raw description markup", () => {

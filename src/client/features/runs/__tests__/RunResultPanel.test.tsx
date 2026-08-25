@@ -60,9 +60,12 @@ describe("RunResultPanel", () => {
       ] } } }} />);
 
     expect(screen.queryByText("JSON 子树")).not.toBeInTheDocument();
+    expect(screen.queryByText("JSON 文本")).not.toBeInTheDocument();
+    expect(screen.queryByText("结构化内容")).not.toBeInTheDocument();
     expect(document.querySelectorAll(".json-viewer")).toHaveLength(3);
     expect(screen.getAllByText(/acct-1/)).toHaveLength(2);
     expect(screen.getByText(/^items/)).toBeVisible();
+    expect(screen.getAllByText(/^id/).length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByRole("button", { name: "收起 JSON" }).length).toBeGreaterThan(0);
   });
 
@@ -78,7 +81,7 @@ describe("RunResultPanel", () => {
     fireEvent(disclosure, new Event("toggle"));
     expect(screen.getByText(/^name/)).toBeVisible();
     expect(screen.getAllByText(/\[REDACTED\]/).length).toBeGreaterThan(0); expect(screen.queryByText(/Bearer secret/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "复制 arguments" }));
+    fireEvent.click(screen.getByRole("button", { name: "复制参数" }));
     return screen.findByRole("alert").then((alert) => expect(alert).toHaveTextContent("复制失败"));
   });
 
@@ -94,6 +97,7 @@ describe("RunResultPanel", () => {
     expect(screen.queryByText(/Bearer secret/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "时间线" }));
     expect(screen.getAllByTestId("timeline-sequence").map((node) => node.textContent)).toEqual(["#2", "#3", "#4", "#5"]);
+    expect(screen.queryByRole("button", { name: "复制" })).not.toBeInTheDocument();
   });
 
   it("links every result tabpanel back to its selected tab", () => {

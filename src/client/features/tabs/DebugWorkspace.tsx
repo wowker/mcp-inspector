@@ -17,7 +17,7 @@ interface Props {
   onExecute?: (tab: DebugTabSummary) => void;
 }
 
-type WorkspaceView = "debug" | "definition" | "history" | "saved" | "global-history";
+type WorkspaceView = "debug" | "definition" | "history" | "saved";
 const PERSIST_DELAY = 300;
 const ACTIVE_TAB_KEY_PREFIX = "dsers-inspector-active-tab:";
 interface PendingSave { revision: number; patch: Partial<DebugTabSummary> }
@@ -320,8 +320,6 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
         onDuplicate={(id) => void duplicate(id)} onPin={(id, pinned) => schedule(id, { pinned })}
         onMove={(id, offset) => void move(id, offset)}
         onCloseOthers={(id) => void bulk(id, "others")} onCloseRight={(id) => void bulk(id, "right")} />
-      <div className="workspace-global-nav"><button type="button" aria-current={view === "global-history" ? "page" : undefined}
-        onClick={() => { setActiveReadOnlyId(null); setView("global-history"); }}>运行历史</button></div>
     </div>
     {readOnlyTabs.length > 0 && <div className="history-tabs" role="tablist" aria-label="只读运行 Tabs" onKeyDown={(event) => {
       if (!(event.target instanceof HTMLElement) || event.target.getAttribute("role") !== "tab" ||
@@ -335,8 +333,7 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
         tabIndex={activeReadOnlyId === run.id || (activeReadOnlyId === null && index === 0) ? 0 : -1}
         aria-selected={activeReadOnlyId === run.id} onClick={() => { activeRef.current = null; setActiveId(null); setActiveReadOnlyId(run.id); setView("debug"); }}>只读 · {run.toolName} · {run.id.slice(0, 8)}</button>
       <button type="button" aria-label={`关闭只读运行 ${run.id}`} onClick={() => closeReadOnly(run.id)}><X size={15} aria-hidden="true" /></button></span>)}</div>}
-    {view === "global-history" ? <RunHistory api={api} projectId={projectId} onOpen={(run) => void openHistory(run)} />
-      : activeReadOnlyId !== null ? <section id={`history-panel-${activeReadOnlyId}`} role="tabpanel" aria-labelledby={`history-tab-${activeReadOnlyId}`} className="read-only-run"><p role="status">只读历史结果，不会重新调用 Tool。</p>
+    {activeReadOnlyId !== null ? <section id={`history-panel-${activeReadOnlyId}`} role="tabpanel" aria-labelledby={`history-tab-${activeReadOnlyId}`} className="read-only-run"><p role="status">只读历史结果，不会重新调用 Tool。</p>
         {observed.error !== null && <p role="alert">{observed.error}</p>}{observed.run === null ? <p role="status">正在加载运行详情…</p> : <RunResultPanel run={observed.run} />}</section>
       : active === null ? <div className="workspace-empty"><h2>选择一个 Tool 开始调试</h2><p>单击复用当前未固定 Tab，双击打开新 Tab。</p></div> : <div id={`tabpanel-${active.id}`} role="tabpanel" aria-labelledby={`tab-${active.id}`}>
       <nav className="workspace-nav" aria-label="当前 Tab 视图">
