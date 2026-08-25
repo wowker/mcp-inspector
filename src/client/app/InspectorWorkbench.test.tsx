@@ -99,4 +99,18 @@ describe("InspectorWorkbench", () => {
     expect(client.listTools).toHaveBeenCalledWith(project.id, second.id);
     expect(client.listTools).not.toHaveBeenCalledWith(project.id, connection.id);
   });
+
+  it("lets the user collapse and restore the Tool catalog without leaving the active Server", async () => {
+    const user = userEvent.setup();
+    const client = api();
+    vi.mocked(client.listConnections).mockResolvedValue([{ ...connection, status: "connected" }]);
+    render(<InspectorWorkbench api={client} project={project} version="0.1.0" />);
+
+    await user.click(await screen.findByRole("tab", { name: "Supplier MCP" }));
+    const catalog = await screen.findByRole("complementary", { name: "Tool 目录" });
+    await user.click(screen.getByRole("button", { name: "隐藏 Tool 目录" }));
+    expect(catalog).toHaveAttribute("hidden");
+    await user.click(screen.getByRole("button", { name: "显示 Tool 目录" }));
+    expect(catalog).not.toHaveAttribute("hidden");
+  });
 });

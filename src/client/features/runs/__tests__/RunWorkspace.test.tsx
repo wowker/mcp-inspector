@@ -36,6 +36,18 @@ describe("Run workspace", () => {
     expect(client.startRun).toHaveBeenCalledWith(projectId, tabId, expect.any(String), { a: 2 });
   });
 
+  it("executes canonical Form arguments even when a retained Raw draft is invalid", async () => {
+    const formTab = { ...tab, inputMode: "form" as const, rawText: '{"a":' };
+    const client = api({ listTabs: vi.fn(async () => [formTab]) });
+
+    render(<DebugWorkspace api={client} projectId={projectId} />);
+    fireEvent.click(await screen.findByRole("button", { name: "执行" }));
+
+    await waitFor(() => expect(client.startRun).toHaveBeenCalledWith(
+      projectId, tabId, expect.any(String), { a: 1 },
+    ));
+  });
+
   it("restores lastRunId without starting another Run", async () => {
     const client = api({ listTabs: vi.fn(async () => [{ ...tab, lastRunId: runId }]) });
     render(<DebugWorkspace api={client} projectId={projectId} />);

@@ -77,16 +77,26 @@ describe("DebugWorkspace", () => {
     await waitFor(() => expect(screen.getByLabelText("a")).toHaveValue(2));
   });
 
-  it("keeps invalid Raw text lossless, preserves canonical arguments, and blocks execute/Form", () => {
+  it("keeps invalid Raw text lossless while allowing a reversible switch to Form", () => {
     const onChange = vi.fn(); const onExecute = vi.fn();
     const rawTab = { ...tab("00000000-0000-4000-8000-000000000613", "sum", { a: 1 }),
       inputMode: "raw" as const, rawText: '{"a":' };
-    render(<ParameterEditor tab={rawTab} schema={tool.tool.currentSnapshot.definition.inputSchema}
+    const view = render(<ParameterEditor tab={rawTab} schema={tool.tool.currentSnapshot.definition.inputSchema}
       onChange={onChange} onExecute={onExecute} />);
     expect(screen.getByLabelText("完整 arguments JSON")).toHaveValue('{"a":');
+    expect(screen.getByRole("alert")).toHaveTextContent("JSON 尚未填写完整");
     expect(screen.getByRole("button", { name: "执行" })).toBeDisabled();
     fireEvent.click(screen.getByRole("tab", { name: "Form" }));
-    expect(onChange).not.toHaveBeenCalled();
+
+    expect(onChange).toHaveBeenCalledWith({ inputMode: "form" });
+    view.rerender(<ParameterEditor tab={{ ...rawTab, inputMode: "form" }} schema={tool.tool.currentSnapshot.definition.inputSchema}
+      onChange={onChange} onExecute={onExecute} />);
+    expect(screen.getByLabelText("a")).toHaveValue(1);
+    fireEvent.click(screen.getByRole("tab", { name: "Raw JSON" }));
+    expect(onChange).toHaveBeenLastCalledWith({ inputMode: "raw" });
+    view.rerender(<ParameterEditor tab={rawTab} schema={tool.tool.currentSnapshot.definition.inputSchema}
+      onChange={onChange} onExecute={onExecute} />);
+    expect(screen.getByLabelText("完整 arguments JSON")).toHaveValue('{"a":');
     expect(onExecute).not.toHaveBeenCalled();
   });
 
@@ -99,6 +109,7 @@ describe("DebugWorkspace", () => {
 
     const rawInput = screen.getByLabelText("完整 arguments JSON");
     expect(rawInput).toHaveAttribute("aria-describedby", screen.getByRole("alert").id);
+    expect(screen.getByRole("alert")).toHaveTextContent("请输入必填参数");
 
     fireEvent.click(screen.getByRole("tab", { name: "Form" }));
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { X } from "@phosphor-icons/react";
+import { TerminalWindow, X } from "@phosphor-icons/react";
 import type { CatalogToolSummary, DebugTabSummary, InspectorApiClient, RunDetail, RunSummary, ToolDetailSummary } from "../../api/api-client.js";
 import { parseRawArguments } from "../../../shared/json.js";
 import { RunHistory } from "../runs/RunHistory.js";
@@ -285,7 +285,7 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
       markedStarting = true; setStartingIds((current) => new Set(current).add(active.id)); setMessage(null);
       if (!(await flush(active.id))) return;
       const latest = tabsRef.current.find(({ id }) => id === active.id); if (latest === undefined) return;
-      const parsed = parseRawArguments(latest.rawText);
+      const parsed = latest.inputMode === "raw" ? parseRawArguments(latest.rawText) : { ok: true as const, value: latest.arguments };
       if (!parsed.ok) { setMessage(parsed.message); return; }
       if (onExecute !== undefined) { onExecute(latest); return; }
       const run = await api.startRun(projectId, latest.id, crypto.randomUUID(), parsed.value);
@@ -306,13 +306,15 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
       : <ActiveRunObserver key={`${tabId}:${runId}`} api={api} projectId={projectId} tabId={tabId} runId={runId}
           selected={tabId === activeId} onUpdate={handleActiveObservation} />; })}
     {message !== null && <p role="alert">{message}</p>}
-    <div className="workspace-global-nav"><button type="button" aria-current={view === "global-history" ? "page" : undefined}
-      onClick={() => { setActiveReadOnlyId(null); setView("global-history"); }}>运行历史</button></div>
-    <TabStrip tabs={tabs} activeId={activeReadOnlyId === null ? activeId : null} dirtyIds={new Set([...pending.current.keys(), ...queues.current.keys()])}
-      runningIds={startingIds} onSelect={(id) => void select(id)} onClose={(id) => void close(id)}
-      onDuplicate={(id) => void duplicate(id)} onPin={(id, pinned) => schedule(id, { pinned })}
-      onMove={(id, offset) => void move(id, offset)}
-      onCloseOthers={(id) => void bulk(id, "others")} onCloseRight={(id) => void bulk(id, "right")} />
+    <div className="workspace-tabbar">
+      <TabStrip tabs={tabs} activeId={activeReadOnlyId === null ? activeId : null} dirtyIds={new Set([...pending.current.keys(), ...queues.current.keys()])}
+        runningIds={startingIds} onSelect={(id) => void select(id)} onClose={(id) => void close(id)}
+        onDuplicate={(id) => void duplicate(id)} onPin={(id, pinned) => schedule(id, { pinned })}
+        onMove={(id, offset) => void move(id, offset)}
+        onCloseOthers={(id) => void bulk(id, "others")} onCloseRight={(id) => void bulk(id, "right")} />
+      <div className="workspace-global-nav"><button type="button" aria-current={view === "global-history" ? "page" : undefined}
+        onClick={() => { setActiveReadOnlyId(null); setView("global-history"); }}>运行历史</button></div>
+    </div>
     {readOnlyTabs.length > 0 && <div className="history-tabs" role="tablist" aria-label="只读运行 Tabs" onKeyDown={(event) => {
       if (!(event.target instanceof HTMLElement) || event.target.getAttribute("role") !== "tab" ||
           !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
@@ -335,7 +337,8 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
           {item === "debug" ? "调试" : item === "definition" ? "Tool 定义" : "当前 Tab 历史"}</button>)}
       </nav>
       {view === "debug" && detail === null && <p role="status">正在加载 Tool 定义…</p>}
-      {view === "debug" && detail !== null && <div className="request-result-split" style={{ gridTemplateRows: `${active.viewState.splitRatio * 100}% 8px 1fr` }}>
+      {view === "debug" && detail !== null && <div className={`request-result-split${selectedRunId === null ? " request-result-split--empty" : ""}`}
+        style={{ gridTemplateRows: selectedRunId === null ? "minmax(0, 1fr) 10px auto" : `${active.viewState.splitRatio * 100}% 10px 1fr` }}>
         <div className="request-pane" ref={(node) => { if (node !== null && node.scrollTop !== active.viewState.editorScrollTop) node.scrollTop = active.viewState.editorScrollTop; }}
           onScroll={(event) => schedule(active.id, { viewState: { ...active.viewState, editorScrollTop: event.currentTarget.scrollTop } })}>
           <ParameterEditor tab={active} schema={detail.tool.currentSnapshot.definition.inputSchema} executing={startingIds.has(active.id)}
@@ -344,14 +347,15 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
               [active.id]: { ...(current[active.id] ?? {}), [path]: { text, base } } }))}
             onChange={(patch) => schedule(active.id, patch)} onExecute={() => void execute()} />
         </div>
-        <label className="split-control">请求区高度
+        <label className="split-control"><span className="sr-only">请求区高度</span>
           <input aria-label="请求区高度" type="range" min="20" max="80" value={active.viewState.splitRatio * 100}
             onChange={(event) => schedule(active.id, { viewState: { ...active.viewState, splitRatio: Number(event.target.value) / 100 } })} />
         </label>
         <div className="result-placeholder" ref={(node) => { if (node !== null && node.scrollTop !== active.viewState.resultScrollTop) node.scrollTop = active.viewState.resultScrollTop; }}
           onScroll={(event) => schedule(active.id, { viewState: { ...active.viewState, resultScrollTop: event.currentTarget.scrollTop } })}>
           {observed.error !== null && <p role="alert">{observed.error}</p>}
-          {selectedRunId === null ? <><h3>调用结果</h3><p>执行 Tool 后在这里查看结果与完整协议轨迹。</p></>
+          {selectedRunId === null ? <div className="result-empty" role="status"><TerminalWindow size={22} aria-hidden="true" />
+            <div><h3>等待执行</h3><p>填写参数并执行 Tool，结果和协议轨迹会显示在这里。</p></div></div>
             : observed.run === null ? <p role="status">正在加载运行详情…</p> : <RunResultPanel run={observed.run} />}</div>
       </div>}
       {view === "definition" && detail !== null && <ToolDefinitionView detail={detail} />}

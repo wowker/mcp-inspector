@@ -5,6 +5,7 @@ import {
   List,
   Moon,
   Plus,
+  SidebarSimple,
   Sun,
   Wrench,
 } from "@phosphor-icons/react";
@@ -35,6 +36,7 @@ function NavIcon({ type }: { type: WorkbenchPage }) {
 export function InspectorWorkbench({ api, project, version }: InspectorWorkbenchProps) {
   const [page, setPage] = useState<WorkbenchPage>("servers");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [catalogCollapsed, setCatalogCollapsed] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => applyInitialTheme());
   const [servers, setServers] = useState<ServerWorkspaceState>({ tabs: [], activeId: null });
   const [toolIntent, setToolIntent] = useState<ToolOpenIntent | null>(null);
@@ -182,6 +184,12 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
             >
               <header className="page-heading page-heading--compact">
                 <div><h1 id="tools-page-title">Tools</h1><p>{servers.activeId === null ? "先连接 Server，再开始 Tool 调试。" : "选择 Tool，编辑参数并查看完整调用轨迹。"}</p></div>
+                {servers.activeId !== null && <div className="page-heading-actions">
+                  <button type="button" className="button-secondary catalog-toggle" aria-controls="tool-catalog"
+                    aria-expanded={!catalogCollapsed} onClick={() => setCatalogCollapsed((value) => !value)}>
+                    <SidebarSimple size={17} aria-hidden="true" />{catalogCollapsed ? "显示 Tool 目录" : "隐藏 Tool 目录"}
+                  </button>
+                </div>}
               </header>
               {servers.activeId === null ? (
                 <div className="workbench-empty" role="status">
@@ -190,8 +198,8 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
                   <button type="button" onClick={() => setPage("servers")}>前往 Servers</button>
                 </div>
               ) : (
-                <div className="tools-layout">
-                  <aside className="tools-catalog">
+                <div className={`tools-layout${catalogCollapsed ? " tools-layout--catalog-collapsed" : ""}`}>
+                  <aside id="tool-catalog" className="tools-catalog" aria-label="Tool 目录" hidden={catalogCollapsed}>
                     <ConnectionPanel
                       api={api}
                       projectId={project.id}

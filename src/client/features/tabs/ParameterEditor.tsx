@@ -12,6 +12,25 @@ interface Props {
   onSubtreeDraftChange?: (path: string, text: string, base: string) => void;
 }
 
+function issueMessage(issue: SchemaIssue): string {
+  if (issue.keyword === "required") return "请输入必填参数";
+  if (issue.keyword === "type") return "参数类型不符合 Tool Schema";
+  if (issue.keyword === "enum") return "请选择 Tool Schema 允许的值";
+  if (issue.keyword === "format") return "参数格式不符合 Tool Schema";
+  if (issue.keyword === "pattern") return "参数内容不符合格式约束";
+  if (["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"].includes(issue.keyword)) {
+    return "参数数值超出允许范围";
+  }
+  if (["minLength", "maxLength"].includes(issue.keyword)) return "参数长度不符合约束";
+  return `参数不符合 ${issue.keyword} 约束`;
+}
+
+function rawErrorMessage(message: string): string {
+  return /unexpected end/i.test(message)
+    ? "JSON 尚未填写完整"
+    : "JSON 语法错误，请检查括号、引号和逗号";
+}
+
 function JsonSubtreeEditor({ id, value, describedBy, draft, objectOnly = false, onDraftChange, onCommit }: {
   id: string; value: unknown; describedBy?: string; draft?: { text: string; base: string };
   objectOnly?: boolean; onDraftChange?: (text: string, base: string) => void; onCommit: (value: unknown) => void;
@@ -34,7 +53,7 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, executing = 
   const parsed = parseRawArguments(tab.rawText);
   const validation = validateJsonSchema(schema, tab.inputMode === "raw" && parsed.ok ? parsed.value : tab.arguments);
   const fields = useMemo(() => fieldsFromSchema(schema, tab.arguments), [schema, tab.arguments]);
-  const canExecute = parsed.ok && validation.issues.length === 0;
+  const canExecute = validation.issues.length === 0 && (tab.inputMode === "form" || parsed.ok);
   const rawErrorId = `raw-${tab.id}-error`;
 
   function commitRaw(): boolean {
@@ -44,7 +63,8 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, executing = 
     return true;
   }
   function mode(mode: "form" | "raw"): boolean {
-    if (mode === "form" && !commitRaw()) return false;
+    if (mode === tab.inputMode) return true;
+    if (tab.inputMode === "raw" && mode === "form" && parsed.ok) commitRaw();
     onChange({ inputMode: mode });
     return true;
   }
@@ -53,7 +73,9 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, executing = 
     onChange({ arguments: args, rawText: formatRawArguments(args) });
   }
   function issuesAt(path: string): SchemaIssue[] { return validation.issues.filter((item) => item.path === path); }
-  function execute(): void { if (!executing && commitRaw() && canExecute) onExecute?.(); }
+  function execute(): void {
+    if (!executing && canExecute && (tab.inputMode === "form" || commitRaw())) onExecute?.();
+  }
   function rawChanged(text: string): void {
     const current = parseRawArguments(text);
     onChange(current.ok ? { rawText: text, arguments: current.value } : { rawText: text });
@@ -79,18 +101,23 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, executing = 
         <button type="button" className="editor-execute" disabled={!canExecute || executing} onClick={execute}>{executing ? "执行中…" : "执行"}</button></div>
     </div>
     {validation.warning !== null && <p role="status" className="editor-warning">{validation.warning}</p>}
+    {tab.inputMode === "form" && !parsed.ok && <p role="status" className="editor-warning">
+      Raw JSON 草稿暂时无效。Form 正在使用上一次有效参数，返回 Raw JSON 后可继续修改草稿。
+    </p>}
     {tab.inputMode === "raw" ? <div id={`panel-raw-${tab.id}`} role="tabpanel" aria-labelledby={`mode-raw-${tab.id}`} className="raw-arguments-panel">
       <div className="raw-arguments-heading"><label htmlFor={`raw-${tab.id}`}>完整 arguments JSON</label><span>JSON Object</span></div>
       <textarea id={`raw-${tab.id}`} value={tab.rawText} onChange={(event) => rawChanged(event.target.value)}
         onBlur={() => commitRaw()} aria-invalid={!parsed.ok || validation.issues.length > 0}
         aria-describedby={!parsed.ok || validation.issues.length > 0 ? rawErrorId : undefined} />
-      {!parsed.ok && (rawTouched || tab.inputMode === "raw") && <p id={rawErrorId} role="alert">{parsed.message}{parsed.offset === null ? "" : `（位置 ${parsed.offset}）`}</p>}
+      {!parsed.ok && (rawTouched || tab.inputMode === "raw") && <p id={rawErrorId} role="alert">
+        {rawErrorMessage(parsed.message)}{parsed.offset === null ? "" : `（位置 ${parsed.offset}）`}
+      </p>}
       {parsed.ok && validation.issues.length > 0 && <div id={rawErrorId} className="validation-summary" role="alert"><strong>参数尚未满足 Tool Schema</strong>
         <p>可以继续在 Form 或 Raw JSON 中修改，满足全部约束后即可执行。</p>
-        <ul>{validation.issues.map((item) => <li key={`${item.path}:${item.keyword}`}><code>{item.path || "/"}</code><span>{item.message}</span></li>)}</ul>
+        <ul>{validation.issues.map((item) => <li key={`${item.path}:${item.keyword}`}><code>{item.path || "/"}</code><span>{issueMessage(item)}</span></li>)}</ul>
       </div>}
     </div> : <div id={`panel-form-${tab.id}`} role="tabpanel" aria-labelledby={`mode-form-${tab.id}`} className="schema-fields">
-      {wholeFallback && <div className="schema-field">
+      {wholeFallback && <div className="schema-field schema-field--json schema-field--whole">
         <label htmlFor={`${tab.id}-whole`}>完整 arguments（复杂 Schema）</label>
         <JsonSubtreeEditor id={`${tab.id}-whole`} value={tab.arguments} draft={subtreeDrafts[""]} objectOnly
           onDraftChange={(text, base) => onSubtreeDraftChange?.("", text, base)}
@@ -99,7 +126,7 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, executing = 
       {!wholeFallback && fields.map((field) => {
         const errors = issuesAt(field.path); const inputId = `${tab.id}-${field.name}`;
         const describedBy = errors.length > 0 ? `${inputId}-error` : undefined;
-        return <div className="schema-field" key={field.name}>
+        return <div className={`schema-field schema-field--${field.kind}`} key={field.name}>
           <label htmlFor={inputId}>{field.name}{field.required ? "（必填）" : ""}{field.additional ? "（附加参数）" : ""}</label>
           {field.description && <p>{field.description}</p>}
           {field.defaultValue !== undefined && field.value === undefined && <p>默认值：{JSON.stringify(field.defaultValue)}</p>}
@@ -121,7 +148,7 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, executing = 
               maxLength={typeof field.constraints.maxLength === "number" ? field.constraints.maxLength : undefined}
               pattern={typeof field.constraints.pattern === "string" ? field.constraints.pattern : undefined}
               onChange={(event) => { const next = valueFromInput(field, event.target.value); if (next.ok) edit(field.name, next.value); }} />}
-          {errors.length > 0 && <p id={`${inputId}-error`} role="alert">{errors.map(({ message }) => message).join("；")}</p>}
+          {errors.length > 0 && <p id={`${inputId}-error`} role="alert">{errors.map(issueMessage).join("；")}</p>}
         </div>;
       })}
     </div>}

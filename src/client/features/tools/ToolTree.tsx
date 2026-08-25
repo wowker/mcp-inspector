@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { ArrowClockwise } from "@phosphor-icons/react";
 import type { CatalogToolSummary, ConnectionSummary } from "../../api/api-client.js";
 import { summarizeToolDescription } from "./tool-description.js";
 
@@ -140,12 +141,13 @@ export function ToolTree({
                 </span>
                 <button
                   type="button"
-                  className="button-secondary"
+                  className="button-secondary tool-refresh-button"
                   aria-label={`刷新 ${connection.name} Tools`}
                   disabled={refreshing || connection.status !== "connected"}
                   onClick={() => onRefresh(connection.id)}
                 >
-                  {refreshing ? "刷新中…" : "刷新"}
+                  <ArrowClockwise size={16} aria-hidden="true" />
+                  <span className="sr-only">{refreshing ? "刷新中" : "刷新"}</span>
                 </button>
               </div>
               {errors[connection.id] !== undefined && (
