@@ -43,7 +43,7 @@ function api(): InspectorApiClient {
   };
 }
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("InspectorWorkbench", () => {
   it("offers an accessible control for switching the application theme", async () => {
@@ -81,6 +81,32 @@ describe("InspectorWorkbench", () => {
     expect(screen.getByRole("button", { name: "Tools" })).toHaveAttribute("aria-current", "page");
     expect(await screen.findByRole("heading", { name: "Tools", level: 1 })).toBeVisible();
     expect(client.listTools).toHaveBeenCalledWith(project.id, connection.id);
+  });
+
+  it("moves to Tools and acknowledges an OAuth callback from the authorization tab", async () => {
+    class FakeBroadcastChannel {
+      static instance: FakeBroadcastChannel | null = null;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      postMessage = vi.fn(); close = vi.fn();
+      constructor(readonly name: string) { FakeBroadcastChannel.instance = this; }
+      emit(data: unknown) { this.onmessage?.(new MessageEvent("message", { data })); }
+    }
+    vi.stubGlobal("BroadcastChannel", FakeBroadcastChannel);
+    vi.spyOn(window, "focus").mockImplementation(() => undefined);
+    const client = api(); vi.mocked(client.listConnections).mockResolvedValue([{ ...connection, status: "connected" }]);
+    render(<InspectorWorkbench api={client} project={project} version="0.1.0" />);
+    await screen.findByRole("heading", { name: "Servers", level: 1 });
+    await screen.findByRole("tab", { name: "Supplier MCP" });
+
+    FakeBroadcastChannel.instance?.emit({ type: "oauth-complete", connectionId: "00000000-0000-4000-8000-000000000799" });
+    expect(screen.getByRole("heading", { name: "Servers", level: 1 })).toBeVisible();
+    expect(FakeBroadcastChannel.instance?.postMessage).not.toHaveBeenCalled();
+    FakeBroadcastChannel.instance?.emit({ type: "oauth-complete", connectionId: connection.id });
+
+    expect(await screen.findByRole("heading", { name: "Tools", level: 1 })).toBeVisible();
+    expect(FakeBroadcastChannel.instance?.postMessage).toHaveBeenCalledWith({
+      type: "oauth-ready", connectionId: connection.id,
+    });
   });
 
   it("restores tabs for Servers that are already connected without leaving management", async () => {

@@ -95,7 +95,19 @@ describe("OAuth callback", () => {
     const response = await app.request("/oauth/callback?state=state-1&code=code-1");
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
-    expect(await response.text()).not.toContain("test-session");
+    const csp = response.headers.get("Content-Security-Policy") ?? "";
+    expect(csp).toContain("script-src 'nonce-");
+    expect(csp).not.toContain("'unsafe-inline'");
+    const html = await response.text();
+    expect(html).toContain("正在返回 Tool 列表");
+    expect(html).toContain("BroadcastChannel");
+    expect(html).toContain("oauth-complete");
+    expect(html).toContain("connection-1");
+    expect(html).toContain("window.close()");
+    const nonce = /script-src 'nonce-([^']+)'/.exec(csp)?.[1];
+    expect(nonce).toBeTruthy();
+    expect(html).toContain(`<script nonce="${nonce}">`);
+    expect(html).not.toContain("test-session");
     expect(completeOAuth).toHaveBeenCalledOnce();
   });
 

@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import {
   CaretLeft,
   HardDrives,
@@ -13,6 +13,7 @@ import type { ConnectionSummary, InspectorApiClient, ProjectSummary } from "../a
 import { ConnectionPanel } from "../features/connections/ConnectionPanel.js";
 import { DebugWorkspace, type ToolOpenIntent } from "../features/tabs/DebugWorkspace.js";
 import { applyInitialTheme, toggleTheme, type ThemeMode } from "./theme.js";
+import { isOAuthCompleteEvent, OAUTH_CHANNEL } from "../../shared/oauth-events.js";
 
 type WorkbenchPage = "servers" | "tools";
 
@@ -40,6 +41,28 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
   const [theme, setTheme] = useState<ThemeMode>(() => applyInitialTheme());
   const [servers, setServers] = useState<ServerWorkspaceState>({ tabs: [], activeId: null });
   const [toolIntent, setToolIntent] = useState<ToolOpenIntent | null>(null);
+  const serversRef = useRef(servers); serversRef.current = servers;
+
+  useEffect(() => {
+    let channel: BroadcastChannel | null = null;
+    const complete = (value: unknown) => {
+      if (!isOAuthCompleteEvent(value)) return;
+      if (!serversRef.current.tabs.some(({ id }) => id === value.connectionId)) return;
+      setServers((current) => ({ ...current, activeId: value.connectionId }));
+      setPage("tools");
+      try { window.focus(); } catch { /* Focus is best-effort when the browser blocks background tabs. */ }
+      channel?.postMessage({ type: "oauth-ready", connectionId: value.connectionId });
+    };
+    const message = (event: MessageEvent) => { if (event.origin === window.location.origin) complete(event.data); };
+    try {
+      if (typeof BroadcastChannel === "function") {
+        channel = new BroadcastChannel(OAUTH_CHANNEL);
+        channel.onmessage = (event) => complete(event.data);
+      }
+    } catch { /* The pending connection still completes when BroadcastChannel is unavailable. */ }
+    window.addEventListener("message", message);
+    return () => { window.removeEventListener("message", message); channel?.close(); };
+  }, []);
 
   function activateServer(connection: ConnectionSummary): void {
     setServers((current) => ({
