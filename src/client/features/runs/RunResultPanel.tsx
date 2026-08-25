@@ -110,7 +110,7 @@ function metadata(run: RunDetail) {
   ];
 }
 
-export function RunResultPanel({ run }: { run: RunDetail }) {
+export function RunResultPanel({ run, onSaveResponse }: { run: RunDetail; onSaveResponse?: (response: NonNullable<RunDetail["response"]>) => void }) {
   const [view, setView] = useState<View>("overview");
   const [rawOpen, setRawOpen] = useState(false);
   useEffect(() => { setView("overview"); setRawOpen(false); }, [run.id]);
@@ -127,7 +127,8 @@ export function RunResultPanel({ run }: { run: RunDetail }) {
     <header><div className="run-summary"><div className={`run-status run-status--${run.status}`}>{terminalLabels[run.status] ?? run.status}</div>
       <span>{run.durationMs === null ? "总耗时未记录" : `${run.durationMs} ms`}</span>
       {run.networkDurationMs !== null && <span>网络 {run.networkDurationMs} ms</span>}</div>
-      <CopyButton value={run.response} label="复制全部结果" /></header>
+      <div className="run-result-actions">{run.response !== null && onSaveResponse !== undefined && <button type="button" onClick={() => onSaveResponse(run.response!)}>保存响应</button>}
+        <CopyButton value={run.response} label="复制全部结果" /></div></header>
     {run.response?.truncated && <p role="status" className="truncated-warning">结果已截断（原始大小 {run.response.originalBytes ?? "未知"} bytes），以下仅为安全预览。</p>}
     <div role="tablist" aria-label="运行结果视图" className="result-tabs" onKeyDown={(event) => {
       if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;

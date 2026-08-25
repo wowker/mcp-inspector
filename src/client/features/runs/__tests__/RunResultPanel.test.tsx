@@ -101,6 +101,12 @@ describe("RunResultPanel", () => {
     expect(screen.getByRole("tabpanel")).toHaveAttribute("aria-labelledby", tab.id);
   });
 
+  it("offers the immutable response to a save workflow", () => {
+    const onSaveResponse = vi.fn(); render(<RunResultPanel run={run} onSaveResponse={onSaveResponse} />);
+    fireEvent.click(screen.getByRole("button", { name: "保存响应" }));
+    expect(onSaveResponse).toHaveBeenCalledWith(run.response);
+  });
+
   it("labels truncated output and surfaces clipboard failures", async () => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn().mockRejectedValue(new Error("denied")) } });
     render(<RunResultPanel run={{ ...run, response: { ...run.response!, truncated: true, originalBytes: 12345 } }} />);

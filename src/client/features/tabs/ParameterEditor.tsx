@@ -7,6 +7,7 @@ import { fieldsFromSchema, requiresWholeArgumentsFallback, valueFromInput } from
 interface Props {
   tab: DebugTabSummary; schema: Record<string, unknown>;
   onChange: (patch: Partial<DebugTabSummary>) => void; onExecute?: () => void;
+  onSaveRequest?: (argumentsValue: Record<string, unknown>) => void;
   executing?: boolean;
   subtreeDrafts?: Readonly<Record<string, { text: string; base: string }>>;
   onSubtreeDraftChange?: (path: string, text: string, base: string) => void;
@@ -48,7 +49,7 @@ function JsonSubtreeEditor({ id, value, describedBy, draft, objectOnly = false, 
     {invalid && <p role="alert">{objectOnly ? "必须是 JSON 对象" : "请输入有效 JSON"}</p>}</>;
 }
 
-export function ParameterEditor({ tab, schema, onChange, onExecute, executing = false, subtreeDrafts = {}, onSubtreeDraftChange }: Props) {
+export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveRequest, executing = false, subtreeDrafts = {}, onSubtreeDraftChange }: Props) {
   const [rawTouched, setRawTouched] = useState(false);
   const parsed = parseRawArguments(tab.rawText);
   const validation = validateJsonSchema(schema, tab.inputMode === "raw" && parsed.ok ? parsed.value : tab.arguments);
@@ -96,7 +97,9 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, executing = 
           <button id={`mode-raw-${tab.id}`} aria-controls={`panel-raw-${tab.id}`} type="button" role="tab" tabIndex={tab.inputMode === "raw" ? 0 : -1} aria-selected={tab.inputMode === "raw"} onClick={() => mode("raw")}>Raw JSON</button>
         </div>
       </div>
-      <div className="editor-actions"><button type="button" onClick={() => void navigator.clipboard?.writeText(
+      <div className="editor-actions">{onSaveRequest !== undefined && <button type="button" disabled={tab.inputMode === "raw" && !parsed.ok}
+        onClick={() => onSaveRequest(tab.inputMode === "raw" && parsed.ok ? parsed.value : tab.arguments)}>保存请求</button>}
+        <button type="button" onClick={() => void navigator.clipboard?.writeText(
         tab.inputMode === "raw" && parsed.ok ? formatRawArguments(parsed.value) : formatRawArguments(tab.arguments))}>复制参数</button>
         <button type="button" className="editor-execute" disabled={!canExecute || executing} onClick={execute}>{executing ? "执行中…" : "执行"}</button></div>
     </div>

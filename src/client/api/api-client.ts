@@ -95,6 +95,17 @@ export interface RunDetail extends RunSummary {
 }
 export interface RunPage { runs: RunSummary[]; nextCursor: string | null }
 
+export type SavedItemKind = "request" | "response";
+export interface SavedItemSummary {
+  id: string; projectId: string; connectionId: string; toolName: string; kind: SavedItemKind;
+  name: string; description: string; sourceRunId: string | null; createdAt: string; updatedAt: string;
+}
+export interface SavedItemDetail extends SavedItemSummary { payload: unknown }
+export interface SavedItemPage { items: SavedItemSummary[]; nextCursor: string | null }
+export interface CreateSavedItemRequest {
+  kind: SavedItemKind; name: string; description: string; payload: unknown; sourceRunId: string | null;
+}
+
 export type UpdateDebugTabRequest = Partial<Pick<DebugTabSummary,
   "title" | "pinned" | "inputMode" | "arguments" | "rawText" | "viewState" | "lastRunId">>;
 
@@ -125,6 +136,10 @@ export interface InspectorApiClient {
   getRun(projectId: string, runId: string, signal?: AbortSignal): Promise<RunDetail>;
   listRuns(projectId: string, cursor?: string, tabId?: string): Promise<RunPage>;
   openRunEventStream(projectId: string, runId: string, after: number, signal: AbortSignal): Promise<Response>;
+  listSavedItems(projectId: string, connectionId: string, toolName: string, cursor?: string): Promise<SavedItemPage>;
+  getSavedItem(projectId: string, connectionId: string, toolName: string, itemId: string): Promise<SavedItemDetail>;
+  createSavedItem(projectId: string, connectionId: string, toolName: string, input: CreateSavedItemRequest): Promise<SavedItemDetail>;
+  deleteSavedItem(projectId: string, connectionId: string, toolName: string, itemId: string): Promise<void>;
 }
 
 interface ApiErrorBody {
@@ -444,6 +459,27 @@ function decodeRunPage(value: unknown, projectId: string, tabId?: string): RunPa
   return { runs, nextCursor: value.nextCursor as string | null };
 }
 
+function decodeSavedItemSummary(value: unknown, projectId: string, connectionId: string, toolName: string): SavedItemSummary {
+  if (!isObject(value)) throw new Error("Invalid saved item response");
+  const { id, projectId: itemProjectId, connectionId: itemConnectionId, toolName: itemToolName, kind,
+    name, description, sourceRunId, createdAt, updatedAt } = value;
+  if (typeof id !== "string" || !uuidPattern.test(id) || itemProjectId !== projectId || itemConnectionId !== connectionId ||
+      itemToolName !== toolName || (kind !== "request" && kind !== "response") || typeof name !== "string" ||
+      name.trim() !== name || name.length < 1 || name.length > 120 || typeof description !== "string" || description.length > 1000 ||
+      !(sourceRunId === null || (typeof sourceRunId === "string" && uuidPattern.test(sourceRunId))) ||
+      typeof createdAt !== "string" || !Number.isFinite(Date.parse(createdAt)) || typeof updatedAt !== "string" || !Number.isFinite(Date.parse(updatedAt))) {
+    throw new Error("Invalid saved item response");
+  }
+  return { id, projectId, connectionId, toolName, kind, name, description, sourceRunId, createdAt, updatedAt };
+}
+
+function decodeSavedItemDetail(value: unknown, projectId: string, connectionId: string, toolName: string, itemId?: string): SavedItemDetail {
+  const summary = decodeSavedItemSummary(value, projectId, connectionId, toolName);
+  if (!isObject(value) || !("payload" in value) || (itemId !== undefined && summary.id !== itemId) ||
+      (summary.kind === "request" && (!isObject(value.payload)))) throw new Error("Invalid saved item response");
+  return { ...summary, payload: value.payload };
+}
+
 export function createApiClient(sessionToken: string): InspectorApiClient {
   const headers = {
     "Content-Type": "application/json",
@@ -615,6 +651,37 @@ export function createApiClient(sessionToken: string): InspectorApiClient {
       });
       if (!response.ok) await decodeResponse<never>(response);
       return response;
+    },
+    async listSavedItems(projectId, connectionId, toolName, cursor) {
+      const base = `/api/projects/${encodeURIComponent(projectId)}/connections/${encodeURIComponent(connectionId)}/tools/${encodeURIComponent(toolName)}/saved-items`;
+      const target = cursor === undefined ? base : `${base}?cursor=${encodeURIComponent(cursor)}`;
+      const value = await decodeResponse<unknown>(await fetch(target, { headers }));
+      if (!isObject(value) || !Array.isArray(value.items) || !(value.nextCursor === null ||
+          (typeof value.nextCursor === "string" && value.nextCursor.length > 0 && value.nextCursor.length <= 4096 && /^[A-Za-z0-9_-]+$/.test(value.nextCursor)))) {
+        throw new Error("Invalid saved item response");
+      }
+      const items = value.items.map((item) => decodeSavedItemSummary(item, projectId, connectionId, toolName));
+      if (new Set(items.map(({ id }) => id)).size !== items.length) throw new Error("Invalid saved item response");
+      return { items, nextCursor: value.nextCursor };
+    },
+    async getSavedItem(projectId, connectionId, toolName, itemId) {
+      const base = `/api/projects/${encodeURIComponent(projectId)}/connections/${encodeURIComponent(connectionId)}/tools/${encodeURIComponent(toolName)}/saved-items`;
+      const value = await decodeResponse<unknown>(await fetch(`${base}/${encodeURIComponent(itemId)}`, { headers }));
+      if (!isObject(value) || !("item" in value)) throw new Error("Invalid saved item response");
+      return decodeSavedItemDetail(value.item, projectId, connectionId, toolName, itemId);
+    },
+    async createSavedItem(projectId, connectionId, toolName, input) {
+      const base = `/api/projects/${encodeURIComponent(projectId)}/connections/${encodeURIComponent(connectionId)}/tools/${encodeURIComponent(toolName)}/saved-items`;
+      const value = await decodeResponse<unknown>(await fetch(base, { method: "POST", headers, body: JSON.stringify(input) }));
+      if (!isObject(value) || !("item" in value)) throw new Error("Invalid saved item response");
+      const item = decodeSavedItemDetail(value.item, projectId, connectionId, toolName);
+      if (item.kind !== input.kind || item.sourceRunId !== input.sourceRunId) throw new Error("Invalid saved item response");
+      return item;
+    },
+    async deleteSavedItem(projectId, connectionId, toolName, itemId) {
+      const base = `/api/projects/${encodeURIComponent(projectId)}/connections/${encodeURIComponent(connectionId)}/tools/${encodeURIComponent(toolName)}/saved-items`;
+      const response = await fetch(`${base}/${encodeURIComponent(itemId)}`, { method: "DELETE", headers });
+      if (!response.ok) await decodeResponse<never>(response);
     },
   };
 }

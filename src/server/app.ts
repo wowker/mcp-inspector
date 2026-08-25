@@ -12,6 +12,8 @@ import { createTabRoutes } from "./tabs/routes.js";
 import { createTabService, type TabService } from "./tabs/tab-service.js";
 import { createRunRoutes } from "./runs/routes.js";
 import { createRunService, type RunServiceWithEvents } from "./runs/run-service.js";
+import { createSavedItemRoutes } from "./saved-items/routes.js";
+import { createSavedItemService, type SavedItemService } from "./saved-items/saved-item-service.js";
 
 export interface AppDependencies {
   sessionToken: string;
@@ -22,6 +24,7 @@ export interface AppDependencies {
   tools?: ToolService;
   tabs?: TabService;
   runs?: RunServiceWithEvents;
+  savedItems?: SavedItemService;
   staticRoot?: string;
 }
 
@@ -91,6 +94,9 @@ export function createApp(deps: AppDependencies): Hono {
     app.route("/api/projects", createTabRoutes(tabs));
     app.route("/api/projects", createRunRoutes(
       deps.runs ?? createRunService(deps.projects, connections, tabs),
+    ));
+    app.route("/api/projects", createSavedItemRoutes(
+      deps.savedItems ?? createSavedItemService(deps.projects),
     ));
   }
 

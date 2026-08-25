@@ -440,6 +440,45 @@ describe("DebugWorkspace", () => {
     expect(onChange).toHaveBeenCalledWith({ arguments: { ok: true }, rawText: '{\n  "ok": true\n}' });
   });
 
+  it("saves named Tool request parameters and opens the saved workspace", async () => {
+    const current = tab("00000000-0000-4000-8000-000000000655", "sum", { a: 4, b: 5 });
+    const saved = { id: "00000000-0000-4000-8000-000000000656", projectId, connectionId, toolName: "sum",
+      kind: "request" as const, name: "nine", description: "known result", sourceRunId: null,
+      createdAt: "2026-08-25T00:00:00.000Z", updatedAt: "2026-08-25T00:00:00.000Z", payload: { a: 4, b: 5 } };
+    const api = { listTabs: vi.fn(async () => [current]), getTool: vi.fn(async () => tool), updateTab: vi.fn(),
+      createSavedItem: vi.fn(async () => saved), listSavedItems: vi.fn(async () => ({ items: [saved], nextCursor: null })),
+      getSavedItem: vi.fn(async () => saved), deleteSavedItem: vi.fn() } as unknown as InspectorApiClient;
+    const user = userEvent.setup(); render(<DebugWorkspace api={api} projectId={projectId} />);
+    await user.click(await screen.findByRole("button", { name: "保存请求" }));
+    const dialog = screen.getByRole("dialog", { name: "保存请求" });
+    await user.type(screen.getByLabelText("名称"), "nine"); await user.type(screen.getByLabelText("描述"), "known result");
+    await user.click(screen.getByRole("button", { name: "确认保存请求" }));
+    expect(api.createSavedItem).toHaveBeenCalledWith(projectId, connectionId, "sum", {
+      kind: "request", name: "nine", description: "known result", payload: { a: 4, b: 5 }, sourceRunId: null,
+    });
+    await waitFor(() => expect(dialog).not.toBeInTheDocument());
+    expect(await screen.findByRole("heading", { name: "已保存" })).toBeVisible();
+  });
+
+  it("keeps a save dialog bound to the Tool that opened it when the active Tab changes", async () => {
+    const first = tab("00000000-0000-4000-8000-000000000657", "sum", { a: 4 });
+    const second = { ...tab("00000000-0000-4000-8000-000000000658", "other", { b: 7 }),
+      position: 1, toolName: "other" };
+    const api = { listTabs: vi.fn(async () => [first, second]), getTool: vi.fn(async (_project: string, _connection: string, name: string) => ({
+      ...tool, tool: { ...tool.tool, name, currentSnapshot: { ...tool.tool.currentSnapshot, toolName: name,
+        definition: { ...tool.tool.currentSnapshot.definition, name } } },
+    })), updateTab: vi.fn(), createSavedItem: vi.fn(async () => ({ id: "00000000-0000-4000-8000-000000000659" })),
+      listSavedItems: vi.fn(async () => ({ items: [], nextCursor: null })) } as unknown as InspectorApiClient;
+    const user = userEvent.setup(); render(<DebugWorkspace api={api} projectId={projectId} />);
+    await user.click(await screen.findByRole("button", { name: "保存请求" }));
+    await user.click(screen.getByRole("tab", { name: "other" }));
+    await user.type(screen.getByLabelText("名称"), "bound case");
+    await user.click(screen.getByRole("button", { name: "确认保存请求" }));
+    expect(api.createSavedItem).toHaveBeenCalledWith(projectId, connectionId, "sum", expect.objectContaining({
+      name: "bound case", payload: { a: 4 },
+    }));
+  });
+
   it("invokes every Tab menu action from the keyboard", async () => {
     const callbacks = { onSelect: vi.fn(), onClose: vi.fn(), onDuplicate: vi.fn(), onPin: vi.fn(),
       onCloseOthers: vi.fn(), onCloseRight: vi.fn(), onMove: vi.fn() };

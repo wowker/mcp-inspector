@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { TerminalWindow, X } from "@phosphor-icons/react";
 import type { CatalogToolSummary, DebugTabSummary, InspectorApiClient, RunDetail, RunSummary, ToolDetailSummary } from "../../api/api-client.js";
-import { parseRawArguments } from "../../../shared/json.js";
+import { formatRawArguments, parseRawArguments } from "../../../shared/json.js";
 import { RunHistory } from "../runs/RunHistory.js";
 import { RunResultPanel } from "../runs/RunResultPanel.js";
 import { useRunEvents, useRunPolling } from "../runs/use-run-events.js";
 import { ParameterEditor } from "./ParameterEditor.js";
 import { TabStrip } from "./TabStrip.js";
 import { ToolDefinitionView } from "./ToolDefinitionView.js";
+import { SavedItemDialog } from "../saved-items/SavedItemDialog.js";
+import { SavedItemsView } from "../saved-items/SavedItemsView.js";
 
 export interface ToolOpenIntent { sequence: number; tool: CatalogToolSummary; newTab: boolean }
 interface Props {
@@ -15,13 +17,17 @@ interface Props {
   onExecute?: (tab: DebugTabSummary) => void;
 }
 
-type WorkspaceView = "debug" | "definition" | "history" | "global-history";
+type WorkspaceView = "debug" | "definition" | "history" | "saved" | "global-history";
 const PERSIST_DELAY = 300;
 const ACTIVE_TAB_KEY_PREFIX = "dsers-inspector-active-tab:";
 interface PendingSave { revision: number; patch: Partial<DebugTabSummary> }
 interface BoundToolDetail { tabId: string; connectionId: string; toolName: string; value: ToolDetailSummary }
 interface SubtreeDraft { text: string; base: string }
 interface ActiveObservation { run: RunDetail | null; error: string | null }
+interface SaveIntent {
+  tabId: string; connectionId: string; toolName: string;
+  kind: "request" | "response"; payload: unknown; sourceRunId: string | null;
+}
 const terminalRunStatuses = new Set(["succeeded", "failed", "cancelled", "interrupted"]);
 
 function ActiveRunObserver({ api, projectId, tabId, runId, selected, onUpdate }: {
@@ -52,6 +58,8 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
   const [activeReadOnlyId, setActiveReadOnlyId] = useState<string | null>(null);
   const [startingIds, setStartingIds] = useState<ReadonlySet<string>>(new Set());
   const [activeObservations, setActiveObservations] = useState<Record<string, ActiveObservation>>({});
+  const [saveIntent, setSaveIntent] = useState<SaveIntent | null>(null);
+  const [savedRevision, setSavedRevision] = useState(0);
   const tabsRef = useRef<DebugTabSummary[]>([]);
   const activeRef = useRef<string | null>(null);
   const pending = useRef(new Map<string, PendingSave>());
@@ -332,9 +340,9 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
         {observed.error !== null && <p role="alert">{observed.error}</p>}{observed.run === null ? <p role="status">正在加载运行详情…</p> : <RunResultPanel run={observed.run} />}</section>
       : active === null ? <div className="workspace-empty"><h2>选择一个 Tool 开始调试</h2><p>单击复用当前未固定 Tab，双击打开新 Tab。</p></div> : <div id={`tabpanel-${active.id}`} role="tabpanel" aria-labelledby={`tab-${active.id}`}>
       <nav className="workspace-nav" aria-label="当前 Tab 视图">
-        {(["debug", "definition", "history"] as const).map((item) => <button type="button" key={item}
+        {(["debug", "definition", "saved", "history"] as const).map((item) => <button type="button" key={item}
           aria-current={view === item ? "page" : undefined} onClick={() => setView(item)}>
-          {item === "debug" ? "调试" : item === "definition" ? "Tool 定义" : "当前 Tab 历史"}</button>)}
+          {item === "debug" ? "调试" : item === "definition" ? "Tool 定义" : item === "saved" ? "已保存" : "当前 Tab 历史"}</button>)}
       </nav>
       {view === "debug" && detail === null && <p role="status">正在加载 Tool 定义…</p>}
       {view === "debug" && detail !== null && <div className={`request-result-split${selectedRunId === null ? " request-result-split--empty" : ""}`}
@@ -345,7 +353,9 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
             subtreeDrafts={subtreeDrafts[active.id]}
             onSubtreeDraftChange={(path, text, base) => setSubtreeDrafts((current) => ({ ...current,
               [active.id]: { ...(current[active.id] ?? {}), [path]: { text, base } } }))}
-            onChange={(patch) => schedule(active.id, patch)} onExecute={() => void execute()} />
+            onChange={(patch) => schedule(active.id, patch)} onExecute={() => void execute()}
+            onSaveRequest={(payload) => setSaveIntent({ tabId: active.id, connectionId: active.connectionId,
+              toolName: active.toolName, kind: "request", payload, sourceRunId: null })} />
         </div>
         <label className="split-control"><span className="sr-only">请求区高度</span>
           <input aria-label="请求区高度" type="range" min="20" max="80" value={active.viewState.splitRatio * 100}
@@ -356,11 +366,19 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
           {observed.error !== null && <p role="alert">{observed.error}</p>}
           {selectedRunId === null ? <div className="result-empty" role="status"><TerminalWindow size={22} aria-hidden="true" />
             <div><h3>等待执行</h3><p>填写参数并执行 Tool，结果和协议轨迹会显示在这里。</p></div></div>
-            : observed.run === null ? <p role="status">正在加载运行详情…</p> : <RunResultPanel run={observed.run} />}</div>
+            : observed.run === null ? <p role="status">正在加载运行详情…</p> : <RunResultPanel run={observed.run}
+              onSaveResponse={(payload) => setSaveIntent({ tabId: active.id, connectionId: active.connectionId,
+                toolName: active.toolName, kind: "response", payload, sourceRunId: observed.run!.id })} />}</div>
       </div>}
       {view === "definition" && detail !== null && <ToolDefinitionView detail={detail} />}
+      {view === "saved" && <SavedItemsView api={api} projectId={projectId} connectionId={active.connectionId} toolName={active.toolName}
+        refreshKey={savedRevision} onLoadRequest={(payload) => { schedule(active.id, { arguments: payload, rawText: formatRawArguments(payload) }); setView("debug"); }} />}
       {view === "history" && <RunHistory api={api} projectId={projectId} tabId={active.id} onOpen={(run) => void openHistory(run)} />}
     </div>}
+    {saveIntent !== null && <SavedItemDialog api={api} projectId={projectId} connectionId={saveIntent.connectionId}
+      toolName={saveIntent.toolName} kind={saveIntent.kind} payload={saveIntent.payload} sourceRunId={saveIntent.sourceRunId}
+      onClose={() => setSaveIntent(null)} onSaved={() => { const saved = saveIntent; setSaveIntent(null); setSavedRevision((value) => value + 1);
+        if (activeRef.current === saved.tabId) setView("saved"); }} />}
     <span className="sr-only" role="status" aria-live="polite">{queues.current.size > 0 ? "正在保存 Tab" : pending.current.size > 0 ? "Tab 有待保存更改" : "Tab 已保存"}</span>
   </section>;
 }

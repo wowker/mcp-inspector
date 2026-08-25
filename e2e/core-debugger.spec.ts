@@ -148,6 +148,29 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     }
     expect(new Set(runIds).size).toBe(8);
 
+    await page.getByRole("button", { name: "保存响应" }).click();
+    const responseDialog = page.getByRole("dialog", { name: "保存响应" });
+    await responseDialog.getByLabel("名称").fill("sum 成功响应");
+    await responseDialog.getByLabel("描述").fill("第八个 Tab 的响应基线");
+    await responseDialog.getByRole("button", { name: "确认保存响应" }).click();
+    await expect(page.getByRole("heading", { name: "已保存" })).toBeVisible();
+    await page.getByRole("tab", { name: "响应 1" }).click();
+    await page.getByRole("button", { name: /^sum 成功响应，/ }).click();
+    const savedResponseJson = page.getByLabel("保存的响应 JSON");
+    await savedResponseJson.locator(".json-viewer__key--clickable").filter({ hasText: /^structuredContent:/ }).click();
+    await expect(savedResponseJson).toContainText(String(inputs[7].total));
+
+    await page.getByRole("button", { name: "调试" }).click();
+    await page.getByRole("button", { name: "保存请求" }).click();
+    const requestDialog = page.getByRole("dialog", { name: "保存请求" });
+    await requestDialog.getByLabel("名称").fill("sum 回归参数");
+    await requestDialog.getByLabel("描述").fill("第八个 Tab 的请求样例");
+    await requestDialog.getByRole("button", { name: "确认保存请求" }).click();
+    await expect(page.getByRole("tab", { name: "请求 1" })).toHaveAttribute("aria-selected", "true");
+    await page.getByRole("button", { name: /^sum 回归参数，/ }).click();
+    await page.getByRole("button", { name: "加载到当前 Tab" }).click();
+    expect(JSON.parse(await page.getByLabel("完整 arguments JSON").inputValue())).toEqual({ a: inputs[7].a, b: inputs[7].b });
+
     const reloadTab = page.getByRole("tab", { name: titles[5], exact: true });
     await reloadTab.click();
     await expect(reloadTab).toHaveAttribute("aria-selected", "true");
