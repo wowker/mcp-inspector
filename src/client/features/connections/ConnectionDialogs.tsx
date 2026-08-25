@@ -1,4 +1,5 @@
 import { useEffect, useRef, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { X } from "@phosphor-icons/react";
 
 interface DialogSurfaceProps {
   children: ReactNode;
@@ -109,7 +110,7 @@ export function ConnectionFormDialog({
           aria-label={`关闭${title}弹窗`}
           disabled={submitting}
           onClick={onClose}
-        >×</button>
+        ><X size={18} aria-hidden="true" /></button>
       </div>
       <form className="connection-dialog-form" onSubmit={onSubmit}>
         {error !== null && <p role="alert" className="connection-error dialog-error">{error}</p>}

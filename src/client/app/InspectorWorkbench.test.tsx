@@ -45,6 +45,17 @@ function api(): InspectorApiClient {
 afterEach(cleanup);
 
 describe("InspectorWorkbench", () => {
+  it("offers an accessible control for switching the application theme", async () => {
+    const user = userEvent.setup();
+    render(<InspectorWorkbench api={api()} project={project} version="0.1.0" />);
+
+    const themeToggle = screen.getByRole("button", { name: "切换到深色主题" });
+    await user.click(themeToggle);
+
+    expect(screen.getByRole("button", { name: "切换到浅色主题" })).toBeVisible();
+    expect(document.documentElement).toHaveAttribute("data-color-mode", "dark");
+  });
+
   it("fills the viewport and switches between Servers and Tools from a collapsible sidebar", async () => {
     const user = userEvent.setup();
     render(<InspectorWorkbench api={api()} project={project} version="0.1.0" />);

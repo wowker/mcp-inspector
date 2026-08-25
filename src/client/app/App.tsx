@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import "./app.css";
+import "./redesign.css";
 import {
   createApiClient,
   type InspectorApiClient,

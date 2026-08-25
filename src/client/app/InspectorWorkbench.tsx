@@ -1,7 +1,17 @@
 import { useState, type KeyboardEvent } from "react";
+import {
+  CaretLeft,
+  HardDrives,
+  List,
+  Moon,
+  Plus,
+  Sun,
+  Wrench,
+} from "@phosphor-icons/react";
 import type { ConnectionSummary, InspectorApiClient, ProjectSummary } from "../api/api-client.js";
 import { ConnectionPanel } from "../features/connections/ConnectionPanel.js";
 import { DebugWorkspace, type ToolOpenIntent } from "../features/tabs/DebugWorkspace.js";
+import { applyInitialTheme, toggleTheme, type ThemeMode } from "./theme.js";
 
 type WorkbenchPage = "servers" | "tools";
 
@@ -17,16 +27,15 @@ interface ServerWorkspaceState {
 }
 
 function NavIcon({ type }: { type: WorkbenchPage }) {
-  return type === "servers" ? (
-    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/><path d="M8 7h.01M8 17h.01"/></svg>
-  ) : (
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6 4 4-8 8H6v-4l8-8Z"/><path d="m12 8 4 4M5 5l2 2M17 17l2 2"/></svg>
-  );
+  return type === "servers"
+    ? <HardDrives size={19} weight="regular" aria-hidden="true" />
+    : <Wrench size={19} weight="regular" aria-hidden="true" />;
 }
 
 export function InspectorWorkbench({ api, project, version }: InspectorWorkbenchProps) {
   const [page, setPage] = useState<WorkbenchPage>("servers");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [theme, setTheme] = useState<ThemeMode>(() => applyInitialTheme());
   const [servers, setServers] = useState<ServerWorkspaceState>({ tabs: [], activeId: null });
   const [toolIntent, setToolIntent] = useState<ToolOpenIntent | null>(null);
 
@@ -95,12 +104,20 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
         </nav>
         <div className="workbench-sidebar__footer">
           <span className="service-indicator"><i aria-hidden="true" /> <span>本地服务 v{version}</span></span>
-          {!sidebarCollapsed && <button
-            type="button"
-            className="sidebar-toggle"
-            aria-label="收起侧边栏"
-            onClick={() => setSidebarCollapsed((value) => !value)}
-          ><span aria-hidden="true">‹</span></button>}
+          {!sidebarCollapsed && <div className="sidebar-controls">
+            <button
+              type="button"
+              className="theme-toggle"
+              aria-label={theme === "light" ? "切换到深色主题" : "切换到浅色主题"}
+              onClick={() => setTheme((current) => toggleTheme(current))}
+            >{theme === "light" ? <Moon size={17} aria-hidden="true" /> : <Sun size={17} aria-hidden="true" />}</button>
+            <button
+              type="button"
+              className="sidebar-toggle"
+              aria-label="收起侧边栏"
+              onClick={() => setSidebarCollapsed(true)}
+            ><CaretLeft size={17} aria-hidden="true" /></button>
+          </div>}
         </div>
       </aside>
 
@@ -111,7 +128,7 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
             className="sidebar-restore"
             aria-label="展开侧边栏"
             onClick={() => setSidebarCollapsed(false)}
-          >☰</button>
+          ><List size={19} aria-hidden="true" /></button>
         )}
         <header className="server-tabbar">
           <div className="server-tabs" role="tablist" aria-label="已连接 Servers">
@@ -137,7 +154,7 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
             ))}
             {servers.tabs.length === 0 && <span className="server-tabs__empty">尚未连接 Server</span>}
           </div>
-          <button type="button" className="add-server-tab" onClick={() => setPage("servers")}>＋ 添加 Server</button>
+          <button type="button" className="add-server-tab" onClick={() => setPage("servers")}><Plus size={17} aria-hidden="true" />添加 Server</button>
           <div className="project-identity"><span>{project.name}</span><small>当前项目</small></div>
         </header>
 
@@ -145,8 +162,7 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
           {page === "servers" ? (
             <section className="servers-page" aria-labelledby="servers-page-title">
               <header className="page-heading">
-                <div><p className="eyebrow">MCP CONNECTIONS</p><h1 id="servers-page-title">Servers</h1></div>
-                <p>管理 MCP Server 连接、认证方式和运行状态。</p>
+                <div><h1 id="servers-page-title">Servers</h1><p>管理 MCP Server 连接、认证方式和运行状态。</p></div>
               </header>
               <ConnectionPanel
                 api={api}
@@ -165,8 +181,7 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
               aria-labelledby={servers.activeId === null ? "tools-page-title" : `server-tab-${servers.activeId}`}
             >
               <header className="page-heading page-heading--compact">
-                <div><p className="eyebrow">MCP TOOL DEBUGGER</p><h1 id="tools-page-title">Tools</h1></div>
-                <p>{servers.activeId === null ? "先连接 Server，再开始 Tool 调试。" : "选择 Tool，编辑参数并查看完整调用轨迹。"}</p>
+                <div><h1 id="tools-page-title">Tools</h1><p>{servers.activeId === null ? "先连接 Server，再开始 Tool 调试。" : "选择 Tool，编辑参数并查看完整调用轨迹。"}</p></div>
               </header>
               {servers.activeId === null ? (
                 <div className="workbench-empty" role="status">

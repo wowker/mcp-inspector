@@ -44,7 +44,7 @@ function SchemaTable({ title, schema }: { title: string; schema: unknown }) {
             <th scope="row"><code>{name}</code></th>
             <td><span className="type-chip">{schemaType(field)}</span></td>
             <td>{required.has(name) ? <span className="required-chip">必填</span> : <span className="optional-chip">可选</span>}</td>
-            <td>{typeof field.description === "string" ? field.description : "—"}</td>
+            <td>{typeof field.description === "string" ? field.description : "未提供"}</td>
           </tr>;
         })}</tbody>
       </table></div>}

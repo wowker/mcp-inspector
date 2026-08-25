@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Plus } from "@phosphor-icons/react";
 import type {
   CatalogToolSummary,
   ConnectionSummary,
@@ -329,7 +330,6 @@ function ProjectScopedConnectionPanel({
     >
       {mode !== "tools" && <div className="connection-panel__heading">
         <div>
-          <p className="eyebrow">本地配置</p>
           <h2 id="connection-panel-title">连接管理</h2>
           <p>集中管理 MCP Server，保存配置后再手动连接。</p>
         </div>
@@ -339,7 +339,7 @@ function ProjectScopedConnectionPanel({
           className="connection-add-button"
           disabled={connections === null}
           onClick={(event) => beginCreate(event.currentTarget)}
-        ><span aria-hidden="true">＋</span> 添加连接</button>
+        ><Plus size={16} weight="bold" aria-hidden="true" />添加连接</button>
       </div>}
 
       {error !== null && formMode === null && pendingDelete === null && (

@@ -1,4 +1,5 @@
 import { useEffect, useRef, type MouseEvent } from "react";
+import { DotsThree, X } from "@phosphor-icons/react";
 import type { DebugTabSummary } from "../../api/api-client.js";
 
 interface Props {
@@ -42,7 +43,7 @@ export function TabStrip({ tabs, activeId, onSelect, onClose, onDuplicate, onPin
         if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault(); const details = event.currentTarget.parentElement;
         if (details instanceof HTMLDetailsElement) details.open = !details.open;
-      }}>⋯</summary><div aria-label={`${tab.title} Tab 操作菜单`}>
+      }}><DotsThree size={18} weight="bold" aria-hidden="true" /></summary><div aria-label={`${tab.title} Tab 操作菜单`}>
         <button type="button" onClick={(event) => finishMenuAction(event, () => onDuplicate(tab.id))}>复制 Tab</button>
         <button type="button" onClick={(event) => finishMenuAction(event, () => onPin(tab.id, !tab.pinned))}>{tab.pinned ? "取消固定" : "固定"}</button>
         <button type="button" disabled={tab.position === 0} onClick={(event) => finishMenuAction(event, () => onMove(tab.id, -1))}>左移</button>
@@ -50,7 +51,7 @@ export function TabStrip({ tabs, activeId, onSelect, onClose, onDuplicate, onPin
         <button type="button" onClick={(event) => finishMenuAction(event, () => onCloseOthers(tab.id))}>关闭其他</button>
         <button type="button" onClick={(event) => finishMenuAction(event, () => onCloseRight(tab.id))}>关闭右侧</button>
       </div></details>
-      <button type="button" aria-label={`关闭 ${tab.title}`} disabled={tab.pinned} onClick={() => onClose(tab.id)}>×</button>
+      <button type="button" aria-label={`关闭 ${tab.title}`} disabled={tab.pinned} onClick={() => onClose(tab.id)}><X size={15} aria-hidden="true" /></button>
     </div>)}
   </div>;
 }

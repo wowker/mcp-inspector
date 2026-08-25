@@ -28,7 +28,7 @@ export function RunHistory({ api, projectId, tabId, onOpen }: Props) {
     {visible.length === 0 && !loading && <p>暂无运行记录</p>}
     <ol>{visible.map((run) => <li key={run.id}><button type="button" className="history-run" aria-label={`打开运行 ${run.id}`} onClick={() => onOpen(run)}>
       <span>{run.id}</span><strong>{run.toolName}</strong><span className={`status-chip status-chip--${run.status}`}>{statusLabel[run.status] ?? run.status}</span>
-      <time>{run.createdAt}</time><span>{run.durationMs === null ? "—" : `${run.durationMs} ms`}</span></button></li>)}</ol>
+      <time>{run.createdAt}</time><span>{run.durationMs === null ? "未记录" : `${run.durationMs} ms`}</span></button></li>)}</ol>
     {loading && <p role="status">正在加载运行历史…</p>}
     {cursor !== null && cursor !== undefined && <button type="button" disabled={loading} onClick={() => void more()}>加载更多</button>}
   </section>;

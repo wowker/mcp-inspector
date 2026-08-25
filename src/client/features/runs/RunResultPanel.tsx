@@ -106,10 +106,10 @@ function httpExchanges(events: RunEvent[]): HttpExchange[] {
 
 function metadata(run: RunDetail) {
   return [
-    ["Run ID", run.id], ["状态", terminalLabels[run.status] ?? run.status], ["总耗时", run.durationMs === null ? "—" : `${run.durationMs} ms`],
-    ["网络耗时", run.networkDurationMs === null ? "—" : `${run.networkDurationMs} ms`], ["创建", run.createdAt],
-    ["开始", run.startedAt ?? "—"], ["完成", run.completedAt ?? "—"], ["Tool 快照哈希", run.toolSnapshotHash],
-    ["协议版本", run.protocolVersion ?? "—"], ["Server", json(run.serverInfo)], ["Inspector Client", json(run.clientInfo)],
+    ["Run ID", run.id], ["状态", terminalLabels[run.status] ?? run.status], ["总耗时", run.durationMs === null ? "未记录" : `${run.durationMs} ms`],
+    ["网络耗时", run.networkDurationMs === null ? "未记录" : `${run.networkDurationMs} ms`], ["创建", run.createdAt],
+    ["开始", run.startedAt ?? "未记录"], ["完成", run.completedAt ?? "未记录"], ["Tool 快照哈希", run.toolSnapshotHash],
+    ["协议版本", run.protocolVersion ?? "未记录"], ["Server", json(run.serverInfo)], ["Inspector Client", json(run.clientInfo)],
   ];
 }
 

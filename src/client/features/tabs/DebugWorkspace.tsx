@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { X } from "@phosphor-icons/react";
 import type { CatalogToolSummary, DebugTabSummary, InspectorApiClient, RunDetail, RunSummary, ToolDetailSummary } from "../../api/api-client.js";
 import { parseRawArguments } from "../../../shared/json.js";
 import { RunHistory } from "../runs/RunHistory.js";
@@ -323,7 +324,7 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
       <button id={`history-tab-${run.id}`} aria-controls={`history-panel-${run.id}`} type="button" role="tab"
         tabIndex={activeReadOnlyId === run.id || (activeReadOnlyId === null && index === 0) ? 0 : -1}
         aria-selected={activeReadOnlyId === run.id} onClick={() => { activeRef.current = null; setActiveId(null); setActiveReadOnlyId(run.id); setView("debug"); }}>只读 · {run.toolName} · {run.id.slice(0, 8)}</button>
-      <button type="button" aria-label={`关闭只读运行 ${run.id}`} onClick={() => closeReadOnly(run.id)}>×</button></span>)}</div>}
+      <button type="button" aria-label={`关闭只读运行 ${run.id}`} onClick={() => closeReadOnly(run.id)}><X size={15} aria-hidden="true" /></button></span>)}</div>}
     {view === "global-history" ? <RunHistory api={api} projectId={projectId} onOpen={(run) => void openHistory(run)} />
       : activeReadOnlyId !== null ? <section id={`history-panel-${activeReadOnlyId}`} role="tabpanel" aria-labelledby={`history-tab-${activeReadOnlyId}`} className="read-only-run"><p role="status">只读历史结果，不会重新调用 Tool。</p>
         {observed.error !== null && <p role="alert">{observed.error}</p>}{observed.run === null ? <p role="status">正在加载运行详情…</p> : <RunResultPanel run={observed.run} />}</section>
