@@ -89,6 +89,8 @@ export interface ToolService {
   deleteRemoved(projectId: string, connectionId: string, toolName: string): void;
   listFolders(projectId: string, connectionId: string): ToolFolder[];
   createFolder(projectId: string, connectionId: string, name: unknown): ToolFolder;
+  renameFolder(projectId: string, connectionId: string, folderId: string, name: unknown): ToolFolder;
+  deleteFolder(projectId: string, connectionId: string, folderId: string): void;
   moveToFolder(projectId: string, connectionId: string, toolName: string, folderId: unknown): CatalogTool;
 }
 
@@ -104,6 +106,15 @@ export function createToolService(
     const exists = connections.list(projectId).some(({ id }) => id === connectionId);
     if (!exists) throw new ConnectionNotFoundError();
     return new ToolRepository(projects.open(projectId));
+  }
+
+  function folderName(value: unknown): string {
+    if (typeof value !== "string") throw new InvalidToolFolderError();
+    const name = value.trim();
+    if (name.length === 0 || name.length > 80 || /[\u0000-\u001f\u007f]/u.test(name)) {
+      throw new InvalidToolFolderError();
+    }
+    return name;
   }
 
   return {
@@ -169,16 +180,28 @@ export function createToolService(
     },
 
     createFolder(projectId, connectionId, value) {
-      if (typeof value !== "string") throw new InvalidToolFolderError();
-      const name = value.trim();
-      if (name.length === 0 || name.length > 80 || /[\u0000-\u001f\u007f]/u.test(name)) {
-        throw new InvalidToolFolderError();
-      }
+      const name = folderName(value);
       const created = repository(projectId, connectionId).createFolder(
         projectId, connectionId, createId(), name, now().toISOString(),
       );
       if (created === null) throw new ToolFolderConflictError();
       return created;
+    },
+
+    renameFolder(projectId, connectionId, folderId, value) {
+      if (folderId.length === 0) throw new ToolFolderNotFoundError();
+      const result = repository(projectId, connectionId).renameFolder(
+        projectId, connectionId, folderId, folderName(value), now().toISOString(),
+      );
+      if (result === "missing") throw new ToolFolderNotFoundError();
+      if (result === "conflict") throw new ToolFolderConflictError();
+      return result;
+    },
+
+    deleteFolder(projectId, connectionId, folderId) {
+      if (folderId.length === 0 || !repository(projectId, connectionId).deleteFolder(
+        projectId, connectionId, folderId,
+      )) throw new ToolFolderNotFoundError();
     },
 
     moveToFolder(projectId, connectionId, toolName, value) {

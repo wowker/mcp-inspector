@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
+import { ArrowsOutSimple, Question, X } from "@phosphor-icons/react";
 import type { RunDetail, RunEvent } from "../../api/api-client.js";
 import { JsonViewer, parseJsonDocument } from "./JsonViewer.js";
 
 type View = "overview" | "details" | "rpc" | "http" | "timeline";
+const resultViews: Array<[View, string]> = [["overview", "请求与结果"], ["details", "调用详情"], ["http", "HTTP"], ["rpc", "RPC"], ["timeline", "时间线"]];
 const terminalLabels: Record<string, string> = { queued: "排队中", connecting: "连接中", authorizing: "授权中",
   running: "运行中", succeeded: "成功", failed: "失败", cancelled: "已取消", interrupted: "已中断" };
 const supportedImages = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
@@ -37,15 +40,68 @@ function CopyButton({ value, label = "复制", className }: { value: unknown; la
     {error && <span role="alert">复制失败，请手动选择内容</span>}</span>;
 }
 
-function JsonValue({ value, label = "JSON", copyLabel = "复制", hideLabel = false, defaultExpanded = "useful" }: {
+function JsonDialogButton({ value, label }: { value: unknown; label: string }) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    closeRef.current?.focus();
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [open]);
+
+  function close(): void {
+    setOpen(false);
+    triggerRef.current?.focus();
+  }
+
+  function handleDialogKeyDown(event: KeyboardEvent<HTMLElement>): void {
+    if (event.key === "Escape") { event.preventDefault(); close(); return; }
+    if (event.key !== "Tab") return;
+    const focusable = [...event.currentTarget.querySelectorAll<HTMLElement>(
+      "button:not([disabled]), [href], [tabindex]:not([tabindex='-1'])",
+    )];
+    if (focusable.length === 0) return;
+    const first = focusable[0]!;
+    const last = focusable.at(-1)!;
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  }
+
+  return <span className="open-json-control"><button ref={triggerRef} type="button" className="run-result-action"
+    onClick={() => setOpen(true)}><ArrowsOutSimple size={15} weight="bold" aria-hidden="true" />放大查看</button>
+    {open && createPortal(<div className="json-inspector-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) close();
+    }}>
+      <section className="json-inspector-dialog" role="dialog" aria-modal="true" aria-labelledby="json-inspector-title"
+        onKeyDown={handleDialogKeyDown}>
+        <header className="json-inspector-dialog__header">
+          <div><span>JSON VIEWER</span><h2 id="json-inspector-title">{label}</h2></div>
+          <button ref={closeRef} type="button" className="json-inspector-dialog__close"
+            aria-label="关闭 JSON 查看器" onClick={close}><X size={20} weight="bold" aria-hidden="true" /></button>
+        </header>
+        <div className="json-inspector-dialog__content">
+          <JsonViewer value={value} label={`${label} JSON`} defaultExpanded="all" />
+        </div>
+      </section>
+    </div>, document.body)}
+  </span>;
+}
+
+function JsonValue({ value, label = "JSON", copyLabel = "复制", hideLabel = false, defaultExpanded = "useful", allowOpenTab = false }: {
   value: unknown;
   label?: string;
   copyLabel?: string;
   hideLabel?: boolean;
   defaultExpanded?: "useful" | "all";
+  allowOpenTab?: boolean;
 }) {
   return <section className="json-block"><div className={`block-toolbar${hideLabel ? " block-toolbar--actions-only" : ""}`}>
-    {!hideLabel && <strong>{label}</strong>}<CopyButton value={value} label={copyLabel} /></div>
+    {!hideLabel && <strong>{label}</strong>}<CopyButton value={value} label={copyLabel} />
+    {allowOpenTab && <JsonDialogButton value={value} label={label} />}</div>
     <JsonViewer value={value} label={`${label} JSON`} defaultExpanded={defaultExpanded} /></section>;
 }
 
@@ -73,13 +129,14 @@ function UnsupportedBlock({ block }: { block: Record<string, unknown> }) {
     <CopyButton value={block} label="复制原始块" /></div><p>此内容不会在页面中执行或自动加载。</p></section>;
 }
 
-function ContentBlock({ value, index }: { value: unknown; index: number }) {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return <JsonValue value={value} label={`内容块 ${index + 1}`} />;
+function ContentBlock({ value, index, allowOpenTab = false }: { value: unknown; index: number; allowOpenTab?: boolean }) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return <JsonValue value={value} label={`内容块 ${index + 1}`} allowOpenTab={allowOpenTab} />;
   const block = value as Record<string, unknown>;
   if (block.type === "text" && typeof block.text === "string") {
     const parsed = parseJsonDocument(block.text);
     return <section className="content-block"><div className={`block-toolbar${parsed === null ? "" : " block-toolbar--actions-only"}`}>
-      {parsed === null && <strong>文本</strong>}<CopyButton value={block.text} /></div>
+      {parsed === null && <strong>文本</strong>}<CopyButton value={block.text} />
+      {parsed !== null && allowOpenTab && <JsonDialogButton value={parsed} label={`响应内容 ${index + 1}`} />}</div>
       {parsed === null ? <pre>{block.text}</pre> : <JsonViewer value={parsed} label="响应 JSON" defaultExpanded="all" />}</section>;
   }
   if (block.type === "image") return <ImageBlock block={block} />;
@@ -121,13 +178,53 @@ function httpExchanges(events: RunEvent[]): HttpExchange[] {
   return [...exchanges.values()];
 }
 
-function metadata(run: RunDetail) {
+interface MetadataEntry { name: string; value: string; help?: string }
+
+function metadata(run: RunDetail): MetadataEntry[] {
   return [
-    ["Run ID", run.id], ["状态", terminalLabels[run.status] ?? run.status], ["总耗时", run.durationMs === null ? "未记录" : `${run.durationMs} ms`],
-    ["网络耗时", run.networkDurationMs === null ? "未记录" : `${run.networkDurationMs} ms`], ["创建", run.createdAt],
-    ["开始", run.startedAt ?? "未记录"], ["完成", run.completedAt ?? "未记录"], ["Tool 快照哈希", run.toolSnapshotHash],
-    ["协议版本", run.protocolVersion ?? "未记录"], ["Server", json(run.serverInfo)], ["Inspector Client", json(run.clientInfo)],
+    { name: "Run ID", value: run.id, help: "每次 Tool 调用的唯一标识，用于关联请求、响应、HTTP、RPC、时间线和运行历史。" },
+    { name: "状态", value: terminalLabels[run.status] ?? run.status },
+    { name: "总耗时", value: run.durationMs === null ? "未记录" : `${run.durationMs} ms` },
+    { name: "网络耗时", value: run.networkDurationMs === null ? "未记录" : `${run.networkDurationMs} ms` },
+    { name: "创建", value: run.createdAt },
+    { name: "开始", value: run.startedAt ?? "未记录" },
+    { name: "完成", value: run.completedAt ?? "未记录" },
+    { name: "Tool 快照哈希", value: run.toolSnapshotHash, help: "执行时 Tool 定义快照的 SHA-256 指纹。哈希变化表示 Tool 描述或 Schema 已更新，用于准确回放和对比历史调用。" },
+    { name: "协议版本", value: run.protocolVersion ?? "未记录" },
+    { name: "Server", value: json(run.serverInfo) },
+    { name: "Inspector Client", value: json(run.clientInfo) },
   ];
+}
+
+function MetadataLabel({ name, help }: Pick<MetadataEntry, "name" | "help">) {
+  const [open, setOpen] = useState(false);
+  return <dt><span>{name}</span>{help !== undefined && <span className="metadata-help">
+    <button type="button" aria-label={`了解${name}`} aria-expanded={open} onClick={() => setOpen((current) => !current)}>
+      <Question size={15} weight="bold" aria-hidden="true" />
+    </button>
+    {open && <p>{help}</p>}
+  </span>}</dt>;
+}
+
+export function EmptyRunResultPanel() {
+  const [view, setView] = useState<View>("overview");
+  return <article className="run-result run-result--empty" aria-label="尚未执行的运行结果">
+    <div className="run-result__sticky-header">
+      <header><div className="run-summary"><div className="run-status run-status--idle">未执行</div><span>总耗时 —</span><span>网络耗时 —</span></div></header>
+      <div role="tablist" aria-label="运行结果视图" className="result-tabs">{resultViews.map(([id, label]) => <button key={id} type="button" role="tab"
+        aria-selected={view === id} onClick={() => setView(id)}>{label}</button>)}</div>
+    </div>
+    <section role="tabpanel" className="result-view">
+      {view === "overview" && <div className="run-overview">
+        <details className="result-disclosure" open><summary>请求参数</summary><div className="result-disclosure__content result-empty-content" /></details>
+        <details className="result-disclosure" open><summary>请求结果</summary><div className="result-disclosure__content result-empty-content" /></details>
+        <details className="raw-disclosure"><summary>原始请求与响应</summary></details>
+      </div>}
+      {view === "details" && <dl className="run-metadata">{["Run ID", "状态", "总耗时", "网络耗时", "Tool 快照哈希", "协议版本"].map((name) =>
+        <div key={name}><dt>{name}</dt><dd /></div>)}</dl>}
+      {(view === "http" || view === "rpc" || view === "timeline") && <div className="result-empty-content result-empty-content--trace" />}
+    </section>
+  </article>;
 }
 
 function formatDuration(durationMs: number): string {
@@ -162,7 +259,6 @@ export function RunResultPanel({ run, onSaveResponse }: { run: RunDetail; onSave
   const requestHttp = typeof run.request.http === "object" && run.request.http !== null && !Array.isArray(run.request.http)
     ? run.request.http as Record<string, unknown> : null;
   const safeRequestHttp = requestHttp === null ? null : { ...requestHttp, headers: redactHeaders(requestHttp.headers) };
-  const labels: Array<[View, string]> = [["overview", "请求与结果"], ["details", "调用详情"], ["http", "HTTP"], ["rpc", "RPC"], ["timeline", "时间线"]];
   const origin = Date.parse(run.createdAt);
   return <article className="run-result" aria-label={`运行 ${run.id} 详情`}>
     <div className="run-result__sticky-header">
@@ -174,10 +270,10 @@ export function RunResultPanel({ run, onSaveResponse }: { run: RunDetail; onSave
       {run.response?.truncated && <p role="status" className="truncated-warning">结果已截断（原始大小 {run.response.originalBytes ?? "未知"} bytes），以下仅为安全预览。</p>}
       <div role="tablist" aria-label="运行结果视图" className="result-tabs" onKeyDown={(event) => {
         if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-        const index = labels.findIndex(([id]) => id === view); const next = event.key === "Home" ? 0 : event.key === "End" ? labels.length - 1
-          : event.key === "ArrowRight" ? (index + 1) % labels.length : (index - 1 + labels.length) % labels.length;
-        event.preventDefault(); const target = labels[next]?.[0]; if (target !== undefined) { setView(target); queueMicrotask(() => document.getElementById(`result-tab-${target}-${run.id}`)?.focus()); }
-      }}>{labels.map(([id, label]) => <button id={`result-tab-${id}-${run.id}`} key={id} type="button" role="tab" tabIndex={view === id ? 0 : -1}
+        const index = resultViews.findIndex(([id]) => id === view); const next = event.key === "Home" ? 0 : event.key === "End" ? resultViews.length - 1
+          : event.key === "ArrowRight" ? (index + 1) % resultViews.length : (index - 1 + resultViews.length) % resultViews.length;
+        event.preventDefault(); const target = resultViews[next]?.[0]; if (target !== undefined) { setView(target); queueMicrotask(() => document.getElementById(`result-tab-${target}-${run.id}`)?.focus()); }
+      }}>{resultViews.map(([id, label]) => <button id={`result-tab-${id}-${run.id}`} key={id} type="button" role="tab" tabIndex={view === id ? 0 : -1}
         aria-selected={view === id} aria-controls={`result-${id}-${run.id}`} onClick={() => setView(id)}>{label}</button>)}</div>
     </div>
     <section id={`result-${view}-${run.id}`} role="tabpanel" aria-labelledby={`result-tab-${view}-${run.id}`} className="result-view">
@@ -193,10 +289,10 @@ export function RunResultPanel({ run, onSaveResponse }: { run: RunDetail; onSave
           <summary>请求结果</summary>
           {responseOpen && <div className="result-disclosure__content">
             {run.response === null ? <p role="status">等待运行结果…</p> : <div className="result-content-flow">
-              {run.response.error !== null && <JsonValue value={run.response.error} label="错误" defaultExpanded="all" />}
-              {structuredContent !== undefined && <JsonValue value={structuredContent} label="结构化响应" hideLabel defaultExpanded="all" />}
-              {visibleContent.map(({ block, index }) => <ContentBlock key={index} value={block} index={index} />)}
-              {result !== null && resultRecord === null && <JsonValue value={result} label="结果" defaultExpanded="all" />}
+              {run.response.error !== null && <JsonValue value={run.response.error} label="错误" defaultExpanded="all" allowOpenTab />}
+              {structuredContent !== undefined && <JsonValue value={structuredContent} label="结构化响应" hideLabel defaultExpanded="all" allowOpenTab />}
+              {visibleContent.map(({ block, index }) => <ContentBlock key={index} value={block} index={index} allowOpenTab />)}
+              {result !== null && resultRecord === null && <JsonValue value={result} label="结果" defaultExpanded="all" allowOpenTab />}
             </div>}
           </div>}
         </details>
@@ -208,7 +304,7 @@ export function RunResultPanel({ run, onSaveResponse }: { run: RunDetail; onSave
           </div>}
         </details>
       </div>}
-      {view === "details" && <dl className="run-metadata">{metadata(run).map(([name, value]) => <div key={name}><dt>{name}</dt><dd>{value}</dd></div>)}</dl>}
+      {view === "details" && <dl className="run-metadata">{metadata(run).map(({ name, value, help }) => <div key={name}><MetadataLabel name={name} help={help} /><dd>{value}</dd></div>)}</dl>}
       {view === "rpc" && <div className="trace-list">{ordered.filter(({ kind }) => kind === "rpc-out" || kind === "rpc-in").map((event) =>
         <JsonValue key={event.sequence} value={payloadRecord(event)?.message ?? event.payload} label={`#${event.sequence} ${event.kind}`} />)}</div>}
       {view === "http" && <div className="trace-list">{httpExchanges(ordered).map((exchange) => {

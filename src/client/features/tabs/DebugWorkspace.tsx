@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { TerminalWindow, X } from "@phosphor-icons/react";
+import { X } from "@phosphor-icons/react";
 import type { CatalogToolSummary, DebugTabSummary, InspectorApiClient, RunDetail, RunSummary, ToolDetailSummary } from "../../api/api-client.js";
 import { formatRawArguments, parseRawArguments } from "../../../shared/json.js";
 import { RunHistory } from "../runs/RunHistory.js";
-import { RunResultPanel } from "../runs/RunResultPanel.js";
+import { EmptyRunResultPanel, RunResultPanel } from "../runs/RunResultPanel.js";
 import { useRunEvents, useRunPolling } from "../runs/use-run-events.js";
 import { ParameterEditor } from "./ParameterEditor.js";
 import { TabStrip } from "./TabStrip.js";
@@ -61,7 +61,9 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActi
   const [startingIds, setStartingIds] = useState<ReadonlySet<string>>(new Set());
   const [activeObservations, setActiveObservations] = useState<Record<string, ActiveObservation>>({});
   const [saveIntent, setSaveIntent] = useState<SaveIntent | null>(null);
+  const [saveNotice, setSaveNotice] = useState<{ sequence: number; message: string } | null>(null);
   const [savedRevision, setSavedRevision] = useState(0);
+  const [parameterExpansion, setParameterExpansion] = useState<Record<string, boolean>>({});
   const tabsRef = useRef<DebugTabSummary[]>([]);
   const activeRef = useRef<string | null>(null);
   const pending = useRef(new Map<string, PendingSave>());
@@ -76,6 +78,12 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActi
   const starts = useRef(new Set<string>());
   const activeRuns = useRef(new Map<string, string>());
   const settledLastRuns = useRef(new Map<string, string>());
+
+  useEffect(() => {
+    if (saveNotice === null) return;
+    const timer = window.setTimeout(() => setSaveNotice((current) => current?.sequence === saveNotice.sequence ? null : current), 2_000);
+    return () => window.clearTimeout(timer);
+  }, [saveNotice]);
 
   function assign(next: DebugTabSummary[]): void {
     tabsRef.current = next; setTabs(next);
@@ -331,6 +339,7 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActi
     boundDetail.toolName === active.toolName ? boundDetail.value : null;
   const noEditableParameters = active !== null && detail !== null && active.inputMode === "form" &&
     !schemaHasEditableArguments(detail.tool.currentSnapshot.definition.inputSchema, active.arguments);
+  const parametersExpanded = active === null ? true : parameterExpansion[active.id] ?? true;
 
   function resizeSplit(event: ReactPointerEvent<HTMLLabelElement>): void {
     if (active === null) return;
@@ -377,10 +386,12 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActi
       : active === null ? <div className="workspace-empty"><h2>选择一个 Tool 开始调试</h2><p>单击复用当前未固定 Tab，双击打开新 Tab。</p></div> : <div className="workspace-tab-panel" id={`tabpanel-${active.id}`} role="tabpanel" aria-labelledby={`tab-${active.id}`}>
       {view === "debug" && detail === null && <p role="status">正在加载 Tool 定义…</p>}
       {view === "debug" && detail !== null && <div className={`request-result-split${selectedRunId === null ? " request-result-split--empty" : ""}${noEditableParameters ? " request-result-split--no-parameters" : ""}`}
-        style={{ gridTemplateRows: noEditableParameters ? "auto 10px minmax(0, 1fr)" : selectedRunId === null ? "minmax(0, 1fr) 10px auto" : `${active.viewState.splitRatio * 100}% 10px 1fr` }}>
+        style={{ gridTemplateRows: noEditableParameters || !parametersExpanded
+          ? "auto 10px minmax(0, 1fr)" : `${active.viewState.splitRatio * 100}% 10px 1fr` }}>
         <div className="request-pane" ref={(node) => { if (node !== null && node.scrollTop !== active.viewState.editorScrollTop) node.scrollTop = active.viewState.editorScrollTop; }}
           onScroll={(event) => schedule(active.id, { viewState: { ...active.viewState, editorScrollTop: event.currentTarget.scrollTop } })}>
           <ParameterEditor tab={active} schema={detail.tool.currentSnapshot.definition.inputSchema} executing={startingIds.has(active.id)}
+            expanded={parametersExpanded} onExpandedChange={(expanded) => setParameterExpansion((current) => ({ ...current, [active.id]: expanded }))}
             subtreeDrafts={subtreeDrafts[active.id]}
             onSubtreeDraftChange={(path, text, base) => setSubtreeDrafts((current) => ({ ...current,
               [active.id]: { ...(current[active.id] ?? {}), [path]: { text, base } } }))}
@@ -397,8 +408,7 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActi
         <div className="result-placeholder" ref={(node) => { if (node !== null && node.scrollTop !== active.viewState.resultScrollTop) node.scrollTop = active.viewState.resultScrollTop; }}
           onScroll={(event) => schedule(active.id, { viewState: { ...active.viewState, resultScrollTop: event.currentTarget.scrollTop } })}>
           {observed.error !== null && <p role="alert">{observed.error}</p>}
-          {selectedRunId === null ? <div className="result-empty" role="status"><TerminalWindow size={22} aria-hidden="true" />
-            <div><h3>等待执行</h3><p>填写参数并执行 Tool，结果和协议轨迹会显示在这里。</p></div></div>
+          {selectedRunId === null ? <EmptyRunResultPanel />
             : observed.run === null ? <p role="status">正在加载运行详情…</p> : <RunResultPanel run={observed.run}
               onSaveResponse={(payload) => setSaveIntent({ tabId: active.id, connectionId: active.connectionId,
                 toolName: active.toolName, kind: "response", payload, sourceRunId: observed.run!.id })} />}</div>
@@ -412,7 +422,8 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActi
     {saveIntent !== null && <SavedItemDialog api={api} projectId={projectId} connectionId={saveIntent.connectionId}
       toolName={saveIntent.toolName} kind={saveIntent.kind} payload={saveIntent.payload} sourceRunId={saveIntent.sourceRunId}
       onClose={() => setSaveIntent(null)} onSaved={() => { const saved = saveIntent; setSaveIntent(null); setSavedRevision((value) => value + 1);
-        if (activeRef.current === saved.tabId) setView("saved"); }} />}
+        setSaveNotice((current) => ({ sequence: (current?.sequence ?? 0) + 1, message: `${saved.kind === "request" ? "请求" : "响应"}保存成功` })); }} />}
+    {saveNotice !== null && <div className="copy-toast" role="status" aria-live="polite">{saveNotice.message}</div>}
     <span className="sr-only" role="status" aria-live="polite">{queues.current.size > 0 ? "正在保存 Tab" : pending.current.size > 0 ? "Tab 有待保存更改" : "Tab 已保存"}</span>
   </section>;
 }

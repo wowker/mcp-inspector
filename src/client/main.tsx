@@ -5,6 +5,7 @@ import "@primer/primitives/dist/css/functional/themes/dark.css";
 import "@primer/css/dist/core.css";
 import { App } from "./app/App.js";
 import { applyInitialTheme } from "./app/theme.js";
+import { JsonDocumentPage } from "./features/runs/JsonDocumentPage.js";
 
 applyInitialTheme();
 
@@ -15,6 +16,6 @@ if (root === null) {
 
 createRoot(root).render(
   <StrictMode>
-    <App />
+    {window.location.pathname === "/json-viewer" ? <JsonDocumentPage /> : <App />}
   </StrictMode>,
 );

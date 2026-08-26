@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RunDetail } from "../../../api/api-client.js";
-import { RunResultPanel } from "../RunResultPanel.js";
+import { EmptyRunResultPanel, RunResultPanel } from "../RunResultPanel.js";
 
 const run: RunDetail = {
   id: "00000000-0000-4000-8000-000000000801", projectId: "00000000-0000-4000-8000-000000000802",
@@ -51,6 +51,28 @@ describe("RunResultPanel", () => {
     fireEvent.click(screen.getByRole("tab", { name: "调用详情" }));
     expect(screen.getByText("Run ID")).toBeVisible();
     expect(screen.getByText(run.id)).toBeVisible();
+  });
+
+  it("explains Run ID and Tool snapshot hash from accessible help controls", () => {
+    render(<RunResultPanel run={run} />);
+    fireEvent.click(screen.getByRole("tab", { name: "调用详情" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "了解Run ID" }));
+    expect(screen.getByText(/每次 Tool 调用的唯一标识/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "了解Tool 快照哈希" }));
+    expect(screen.getByText(/SHA-256 指纹/)).toBeVisible();
+  });
+
+  it("uses the normal result structure before a Tool has been executed", () => {
+    render(<EmptyRunResultPanel />);
+
+    expect(screen.getByLabelText("尚未执行的运行结果")).toBeVisible();
+    expect(screen.getByText("未执行")).toBeVisible();
+    expect(screen.getByText("总耗时 —")).toBeVisible();
+    expect(screen.getByText("请求参数")).toBeVisible();
+    expect(screen.getByText("请求结果")).toBeVisible();
+    expect(screen.queryByText("等待执行")).not.toBeInTheDocument();
+    expect(screen.queryByText(/填写参数并执行 Tool/)).not.toBeInTheDocument();
   });
 
   it("collapses request and result independently and places HTTP before RPC", () => {
@@ -152,6 +174,32 @@ describe("RunResultPanel", () => {
     expect(screen.getByRole("button", { name: "保存响应" })).toHaveClass("run-result-action");
     expect(screen.getByRole("button", { name: "复制全部结果" })).toHaveClass("run-result-action");
     expect(screen.getByRole("button", { name: "复制参数" })).toHaveClass("run-result-action");
+  });
+
+  it("opens response JSON in a large formatted modal after the copy action", () => {
+    render(<RunResultPanel run={run} />);
+
+    const expand = screen.getByRole("button", { name: "放大查看" });
+    const toolbar = expand.closest(".block-toolbar");
+    expect(toolbar).not.toBeNull();
+    const copy = within(toolbar as HTMLElement).getByRole("button", { name: "复制" });
+    expect(copy.compareDocumentPosition(expand) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.click(expand);
+    const dialog = screen.getByRole("dialog", { name: "结构化响应" });
+    expect(dialog).toHaveClass("json-inspector-dialog");
+    expect(within(dialog).getByLabelText("结构化响应 JSON")).toBeVisible();
+    expect(within(dialog).getAllByRole("treeitem", { name: /answer:5/ }).at(-1)).toBeVisible();
+    expect(within(dialog).getByRole("button", { name: "关闭 JSON 查看器" })).toHaveFocus();
+  });
+
+  it("closes the formatted JSON modal with Escape", () => {
+    render(<RunResultPanel run={run} />);
+    const expand = screen.getByRole("button", { name: "放大查看" });
+    fireEvent.click(expand);
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "结构化响应" }), { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "结构化响应" })).not.toBeInTheDocument();
+    expect(expand).toHaveFocus();
   });
 
   it("labels truncated output and surfaces clipboard failures", async () => {

@@ -106,6 +106,23 @@ describe("Tool routes", () => {
     expect(await (await app().request(`${base}/tool-folders`, { headers })).json())
       .toEqual({ folders: [expect.objectContaining({ id: folder.id, name: "Catalog" })] });
 
+    const renamed = await app().request(`${base}/tool-folders/${folder.id}`, {
+      method: "PATCH", headers, body: JSON.stringify({ name: "Products" }),
+    });
+    expect(renamed.status).toBe(200);
+    expect(await renamed.json()).toEqual({ folder: expect.objectContaining({ id: folder.id, name: "Products" }) });
+    const secondFolder = await app().request(`${base}/tool-folders`, {
+      method: "POST", headers, body: JSON.stringify({ name: "Archive" }),
+    });
+    const secondFolderId = (await secondFolder.json() as { folder: { id: string } }).folder.id;
+    const conflict = await app().request(`${base}/tool-folders/${secondFolderId}`, {
+      method: "PATCH", headers, body: JSON.stringify({ name: "products" }),
+    });
+    expect(conflict.status).toBe(409);
+    expect(await conflict.json()).toEqual({
+      error: { code: "TOOL_FOLDER_CONFLICT", message: "Tool folder already exists" },
+    });
+
     const moved = await app().request(`${base}/tools/${encodeURIComponent("catalog/read item")}/folder`, {
       method: "PUT", headers, body: JSON.stringify({ folderId: folder.id }),
     });
@@ -117,11 +134,11 @@ describe("Tool routes", () => {
       tools: Array<{ folderId: string | null }>;
     }).tools[0]?.folderId).toBe(folder.id);
 
-    const unfiled = await app().request(`${base}/tools/${encodeURIComponent("catalog/read item")}/folder`, {
-      method: "PUT", headers, body: JSON.stringify({ folderId: null }),
-    });
-    expect(unfiled.status).toBe(200);
-    expect(await unfiled.json()).toEqual({ tool: expect.objectContaining({ folderId: null }) });
+    expect((await app().request(`${base}/tool-folders/${folder.id}`, { method: "DELETE", headers })).status).toBe(204);
+    expect((await (await app().request(`${base}/tools`, { headers })).json() as {
+      tools: Array<{ folderId: string | null }>;
+    }).tools[0]?.folderId).toBeNull();
+    expect((await app().request(`${base}/tool-folders/${folder.id}`, { method: "DELETE", headers })).status).toBe(404);
   });
 
   it("enforces project ownership and stable missing-resource errors", async () => {

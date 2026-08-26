@@ -156,14 +156,26 @@ describe("DebugWorkspace", () => {
     expect(screen.getByLabelText("a")).toBeVisible();
     expect(screen.queryByText("参数输入", { selector: ".editor-mode-group > span" })).not.toBeInTheDocument();
     const collapse = screen.getByRole("button", { name: "收起参数" });
-    expect(collapse).toHaveTextContent("▾");
-    expect(collapse.querySelector("svg")).toBeNull();
+    expect(collapse.querySelector("svg")).not.toBeNull();
     fireEvent.click(collapse);
     expect(screen.queryByLabelText("a")).not.toBeInTheDocument();
     const expand = screen.getByRole("button", { name: "展开参数" });
-    expect(expand).toHaveTextContent("▸");
+    expect(expand.querySelector("svg")).not.toBeNull();
     fireEvent.click(expand);
     expect(screen.getByLabelText("a")).toBeVisible();
+  });
+
+  it("lets the response pane move up when parameters collapse and restores the saved split when expanded", async () => {
+    const saved = tab("00000000-0000-4000-8000-000000000617", "sum", { a: 1 });
+    const api = { listTabs: vi.fn(async () => [saved]), getTool: vi.fn(async () => tool), updateTab: vi.fn() } as unknown as InspectorApiClient;
+    render(<DebugWorkspace api={api} projectId={projectId} />);
+
+    const split = (await screen.findByRole("button", { name: "收起参数" })).closest(".request-result-split") as HTMLElement;
+    expect(split.style.gridTemplateRows).toBe("50% 10px 1fr");
+    fireEvent.click(screen.getByRole("button", { name: "收起参数" }));
+    expect(split.style.gridTemplateRows).toBe("auto 10px minmax(0, 1fr)");
+    fireEvent.click(screen.getByRole("button", { name: "展开参数" }));
+    expect(split.style.gridTemplateRows).toBe("50% 10px 1fr");
   });
 
   it("resizes request and response panes by vertical pointer movement", async () => {
@@ -201,6 +213,60 @@ describe("DebugWorkspace", () => {
 
     expect(onChange).toHaveBeenCalledWith({ arguments: {}, rawText: "{}" });
     expect(onChange).toHaveBeenCalledWith({ inputMode: "form" });
+  });
+
+  it("renders declared fields when a root anyOf only requires one of those fields", () => {
+    const onChange = vi.fn();
+    const contentUpdateSchema = {
+      type: "object",
+      properties: {
+        import_item_id: { type: "string", description: "Import item ID" },
+        resource_version: { type: "string", description: "Current version" },
+        supplier_product_title: { type: "string", maxLength: 5000 },
+        supplier_product_image_url_list: { type: "array", items: { type: "string", format: "uri" } },
+        package: { type: "object", properties: { weight: { type: "string" } } },
+      },
+      required: ["import_item_id", "resource_version"],
+      additionalProperties: false,
+      anyOf: [
+        { required: ["supplier_product_title"] },
+        { required: ["supplier_product_image_url_list"] },
+        { required: ["package"] },
+      ],
+    };
+    render(<ParameterEditor tab={tab("00000000-0000-4000-8000-000000000619", "update_pre_publish_product_content", {})}
+      schema={contentUpdateSchema} onChange={onChange} />);
+
+    expect(screen.queryByLabelText("完整 arguments（复杂 Schema）")).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/import_item_id/)).toHaveAttribute("placeholder", "请输入必填参数");
+    expect(screen.getByLabelText(/resource_version/)).toHaveAttribute("placeholder", "请输入必填参数");
+    expect(screen.getByLabelText("supplier_product_title")).toBeVisible();
+    expect(screen.getByLabelText("supplier_product_image_url_list")).toBeVisible();
+    expect(screen.getByLabelText("package")).toBeVisible();
+    expect(screen.getByRole("button", { name: "执行" })).toBeDisabled();
+  });
+
+  it("renders declared fields when root allOf conditionally requires another declared field", () => {
+    const managedProductsSchema = {
+      type: "object",
+      properties: {
+        dsers_store_id: { type: "string", description: "Store ID" },
+        supplier_platform_id: { type: "string", description: "Supplier platform" },
+        supplier_product_id: { type: "string", description: "Supplier product" },
+      },
+      required: ["dsers_store_id"],
+      allOf: [{
+        if: { required: ["supplier_product_id"] },
+        then: { required: ["supplier_platform_id"] },
+      }],
+    };
+    render(<ParameterEditor tab={tab("00000000-0000-4000-8000-000000000618", "list_managed_store_products", {})}
+      schema={managedProductsSchema} onChange={vi.fn()} />);
+
+    expect(screen.queryByLabelText("完整 arguments（复杂 Schema）")).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/dsers_store_id/)).toBeVisible();
+    expect(screen.getByLabelText("supplier_platform_id")).toBeVisible();
+    expect(screen.getByLabelText("supplier_product_id")).toBeVisible();
   });
 
   it("marks required Form fields with an asterisk and uses the input placeholder for missing values", () => {
@@ -543,7 +609,7 @@ describe("DebugWorkspace", () => {
     expect(onChange).toHaveBeenCalledWith({ arguments: { ok: true }, rawText: '{\n  "ok": true\n}' });
   });
 
-  it("saves named Tool request parameters and opens the saved workspace", async () => {
+  it("saves named Tool request parameters without leaving Debug and confirms with a toast", async () => {
     const current = tab("00000000-0000-4000-8000-000000000655", "sum", { a: 4, b: 5 });
     const saved = { id: "00000000-0000-4000-8000-000000000656", projectId, connectionId, toolName: "sum",
       kind: "request" as const, name: "nine", description: "known result", sourceRunId: null,
@@ -560,7 +626,9 @@ describe("DebugWorkspace", () => {
       kind: "request", name: "nine", description: "known result", payload: { a: 4, b: 5 }, sourceRunId: null,
     });
     await waitFor(() => expect(dialog).not.toBeInTheDocument());
-    expect(await screen.findByRole("tab", { name: /请求 1/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: "调试" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "已保存" })).not.toHaveAttribute("aria-current");
+    expect(await screen.findByText("请求保存成功")).toHaveClass("copy-toast");
   });
 
   it("shows current Tab history records without repeating the view title", async () => {

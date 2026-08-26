@@ -3,7 +3,8 @@ import {
   type DragEvent, type FormEvent, type MouseEvent,
 } from "react";
 import {
-  ArrowClockwise, FolderPlus, FolderSimple, FolderSimplePlus, MagnifyingGlass, X,
+  ArrowClockwise, CaretRight, DotsThree, FolderPlus, FolderSimple, FolderSimplePlus,
+  MagnifyingGlass, PencilSimple, Trash, X,
 } from "@phosphor-icons/react";
 import type {
   CatalogToolSummary, ConnectionSummary, ToolFolderSummary,
@@ -20,6 +21,8 @@ interface ToolTreeProps {
   onOpenTool: (tool: CatalogToolSummary) => void;
   onDeleteTool?: (tool: CatalogToolSummary) => Promise<void>;
   onCreateFolder?: (name: string) => Promise<void>;
+  onRenameFolder?: (folder: ToolFolderSummary, name: string) => Promise<void>;
+  onDeleteFolder?: (folder: ToolFolderSummary) => Promise<void>;
   onMoveTool?: (tool: CatalogToolSummary, folderId: string | null) => Promise<void>;
   selectedTool?: { connectionId: string; name: string } | null;
 }
@@ -73,6 +76,7 @@ export function ToolTree({
   connections, catalogs, folders = [], refreshingConnectionIds = new Set(), onRefresh,
   onSelectTool, onOpenTool, onDeleteTool = async () => undefined,
   onCreateFolder = async () => undefined, onMoveTool = async () => undefined,
+  onRenameFolder = async () => undefined, onDeleteFolder = async () => undefined,
   selectedTool = null,
 }: ToolTreeProps) {
   const connection = connections[0] ?? null;
@@ -88,6 +92,13 @@ export function ToolTree({
   const [pendingDelete, setPendingDelete] = useState<CatalogToolSummary | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [collapsedFolderIds, setCollapsedFolderIds] = useState<ReadonlySet<string>>(new Set());
+  const [folderMenuId, setFolderMenuId] = useState<string | null>(null);
+  const [renamingFolder, setRenamingFolder] = useState<ToolFolderSummary | null>(null);
+  const [renameName, setRenameName] = useState("");
+  const [deletingFolder, setDeletingFolder] = useState<ToolFolderSummary | null>(null);
+  const [folderActionPending, setFolderActionPending] = useState(false);
+  const folderMenuRef = useRef<HTMLDivElement | null>(null);
   const deleteTrigger = useRef<HTMLButtonElement | null>(null);
   const normalizedQuery = normalizeSearch(query);
   const tools = connection === null ? [] : catalogs[connection.id] ?? [];
@@ -107,6 +118,22 @@ export function ToolTree({
   useEffect(() => () => {
     if (pendingSelection.current !== null) clearTimeout(pendingSelection.current.timer);
   }, []);
+
+  useEffect(() => {
+    if (folderMenuId === null) return;
+    function close(event: PointerEvent): void {
+      if (!folderMenuRef.current?.contains(event.target as Node)) setFolderMenuId(null);
+    }
+    function escape(event: KeyboardEvent): void {
+      if (event.key === "Escape") setFolderMenuId(null);
+    }
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [folderMenuId]);
 
   function select(tool: CatalogToolSummary, event: MouseEvent<HTMLButtonElement>): void {
     if (tool.status === "removed") {
@@ -167,6 +194,23 @@ export function ToolTree({
     finally {
       setMovingToolName(null); setDragTarget(undefined); draggedTool.current = null;
     }
+  }
+
+  async function renameFolder(event: FormEvent): Promise<void> {
+    event.preventDefault();
+    if (renamingFolder === null || folderActionPending || renameName.trim().length === 0) return;
+    setFolderActionPending(true); setOrganizeError(null);
+    try { await onRenameFolder(renamingFolder, renameName.trim()); setRenamingFolder(null); }
+    catch (error) { setOrganizeError(error instanceof Error ? error.message : "无法重命名文件夹"); }
+    finally { setFolderActionPending(false); }
+  }
+
+  async function deleteFolder(): Promise<void> {
+    if (deletingFolder === null || folderActionPending) return;
+    setFolderActionPending(true); setOrganizeError(null);
+    try { await onDeleteFolder(deletingFolder); setDeletingFolder(null); }
+    catch (error) { setOrganizeError(error instanceof Error ? error.message : "无法删除文件夹"); }
+    finally { setFolderActionPending(false); }
   }
 
   function dragStart(event: DragEvent<HTMLLIElement>, tool: CatalogToolSummary): void {
@@ -247,25 +291,50 @@ export function ToolTree({
       <button type="button" className="button-secondary" disabled={folderPending}
         onClick={() => { setCreatingFolder(false); setFolderName(""); }}>取消</button>
     </form>}
-    {organizeError !== null && <p className="tool-organize-error" role="alert">{organizeError}</p>}
+    {organizeError !== null && renamingFolder === null && deletingFolder === null &&
+      <p className="tool-organize-error" role="alert">{organizeError}</p>}
 
     <ul className="tool-tree" role="tree" aria-label="MCP Tools">
       {normalizedQuery.length > 0 ? filteredTools.map(renderTool) : <>
         {activeFolders.map((folder) => {
           const folderTools = tools.filter((tool) => tool.folderId === folder.id);
+          const collapsed = collapsedFolderIds.has(folder.id);
           return <li key={folder.id} role="none"
             className={`tool-folder-group${dragTarget === folder.id ? " tool-folder-group--dragover" : ""}`}
             onDragEnter={(event) => { event.preventDefault(); setDragTarget(folder.id); }}
             onDragOver={(event) => event.preventDefault()} onDrop={(event) => drop(event, folder.id)}>
-            <div className="tool-folder-heading" role="treeitem" tabIndex={0}
-              aria-label={`${folder.name} 文件夹，${folderTools.length} 个 Tool`}>
+            <div className="tool-folder-heading-row">
+            <button type="button" className="tool-folder-heading" role="treeitem"
+              aria-expanded={!collapsed} aria-label={`${folder.name} 文件夹，${folderTools.length} 个 Tool`}
+              onClick={() => setCollapsedFolderIds((current) => {
+                const next = new Set(current);
+                if (next.has(folder.id)) next.delete(folder.id); else next.add(folder.id);
+                return next;
+              })}>
+              <CaretRight className="tool-folder-caret" size={13} weight="bold" aria-hidden="true" />
               <FolderSimple size={16} weight="fill" aria-hidden="true" />
               <strong>{folder.name}</strong><span>{folderTools.length}</span>
+            </button>
+            <div className="tool-folder-menu-wrap" ref={folderMenuId === folder.id ? folderMenuRef : undefined}>
+              <button type="button" className="tool-folder-actions" aria-label={`${folder.name} 文件夹操作`}
+                aria-haspopup="menu" aria-expanded={folderMenuId === folder.id}
+                onClick={() => setFolderMenuId((current) => current === folder.id ? null : folder.id)}>
+                <DotsThree size={18} weight="bold" aria-hidden="true" />
+              </button>
+              {folderMenuId === folder.id && <div className="tool-folder-menu" role="menu">
+                <button type="button" role="menuitem" onClick={() => {
+                  setFolderMenuId(null); setRenameName(folder.name); setRenamingFolder(folder); setOrganizeError(null);
+                }}><PencilSimple size={15} aria-hidden="true" />重命名</button>
+                <button type="button" role="menuitem" className="tool-folder-menu__danger" onClick={() => {
+                  setFolderMenuId(null); setDeletingFolder(folder); setOrganizeError(null);
+                }}><Trash size={15} aria-hidden="true" />删除文件夹</button>
+              </div>}
             </div>
-            <ul role="group" className="tool-items">
+            </div>
+            {!collapsed && <ul role="group" className="tool-items">
               {folderTools.map(renderTool)}
               {folderTools.length === 0 && <li role="none" className="tool-folder-empty">拖拽 Tool 到这里</li>}
-            </ul>
+            </ul>}
           </li>;
         })}
         <li role="none" className={`tool-unfiled${dragTarget === null ? " tool-unfiled--dragover" : ""}`}
@@ -281,6 +350,45 @@ export function ToolTree({
       {normalizedQuery.length > 0 && filteredTools.length === 0 &&
         <li role="none" className="tool-empty">没有匹配的 Tool</li>}
     </ul>
+
+    {renamingFolder !== null && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget && !folderActionPending) setRenamingFolder(null);
+    }}><form className="dialog-surface" role="dialog" aria-modal="true" aria-labelledby="rename-folder-title"
+      onSubmit={(event) => void renameFolder(event)} onKeyDown={(event) => {
+        if (event.key === "Escape" && !folderActionPending) setRenamingFolder(null);
+      }}>
+      <div className="dialog-header dialog-header--compact"><div>
+        <p className="dialog-kicker">TOOL FOLDER</p><h3 id="rename-folder-title">重命名文件夹</h3>
+      </div></div>
+      <label className="tool-folder-dialog-field">文件夹名称
+        <input autoFocus aria-label="文件夹名称" maxLength={80} value={renameName}
+          onChange={(event) => setRenameName(event.target.value)} />
+      </label>
+      {organizeError !== null && <p className="connection-error dialog-error" role="alert">{organizeError}</p>}
+      <div className="dialog-actions">
+        <button type="button" className="button-secondary" disabled={folderActionPending}
+          onClick={() => setRenamingFolder(null)}>取消</button>
+        <button type="submit" disabled={folderActionPending || renameName.trim().length === 0}>保存修改</button>
+      </div>
+    </form></div>}
+
+    {deletingFolder !== null && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget && !folderActionPending) setDeletingFolder(null);
+    }}><section className="dialog-surface" role="dialog" aria-modal="true" aria-labelledby="delete-folder-title"
+      onKeyDown={(event) => { if (event.key === "Escape" && !folderActionPending) setDeletingFolder(null); }}>
+      <div className="dialog-header dialog-header--compact"><div>
+        <p className="dialog-kicker dialog-kicker--danger">TOOL FOLDER</p>
+        <h3 id="delete-folder-title">删除文件夹</h3>
+        <p>删除“{deletingFolder.name}”后，{tools.filter((tool) => tool.folderId === deletingFolder.id).length} 个 Tool 将移到“未分类”。Tool 与历史数据不会删除。</p>
+      </div></div>
+      {organizeError !== null && <p className="connection-error dialog-error" role="alert">{organizeError}</p>}
+      <div className="dialog-actions">
+        <button type="button" className="button-secondary" disabled={folderActionPending}
+          onClick={() => setDeletingFolder(null)}>取消</button>
+        <button type="button" className="button-danger" disabled={folderActionPending}
+          aria-label="确认删除文件夹" onClick={() => void deleteFolder()}>确认删除</button>
+      </div>
+    </section></div>}
 
     {pendingDelete !== null && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget && !deleting) setPendingDelete(null);

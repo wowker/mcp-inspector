@@ -139,6 +139,8 @@ export interface InspectorApiClient {
   deleteTool(projectId: string, connectionId: string, toolName: string): Promise<void>;
   listToolFolders(projectId: string, connectionId: string): Promise<ToolFolderSummary[]>;
   createToolFolder(projectId: string, connectionId: string, name: string): Promise<ToolFolderSummary>;
+  renameToolFolder(projectId: string, connectionId: string, folderId: string, name: string): Promise<ToolFolderSummary>;
+  deleteToolFolder(projectId: string, connectionId: string, folderId: string): Promise<void>;
   moveToolToFolder(projectId: string, connectionId: string, toolName: string, folderId: string | null): Promise<CatalogToolSummary>;
   listTabs(projectId: string): Promise<DebugTabSummary[]>;
   openTab(projectId: string, connectionId: string, toolName: string): Promise<DebugTabSummary>;
@@ -638,6 +640,24 @@ export function createApiClient(sessionToken: string): InspectorApiClient {
       const value = await decodeResponse<unknown>(response);
       if (!isObject(value) || !("folder" in value)) throw new Error("Invalid Tool folder response");
       return decodeToolFolder(value.folder, projectId, connectionId);
+    },
+    async renameToolFolder(projectId, connectionId, folderId, name) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/connections/${encodeURIComponent(connectionId)}/tool-folders/${encodeURIComponent(folderId)}`,
+        { method: "PATCH", headers, body: JSON.stringify({ name }) },
+      );
+      const value = await decodeResponse<unknown>(response);
+      if (!isObject(value) || !("folder" in value)) throw new Error("Invalid Tool folder response");
+      const folder = decodeToolFolder(value.folder, projectId, connectionId);
+      if (folder.id !== folderId) throw new Error("Invalid Tool folder response");
+      return folder;
+    },
+    async deleteToolFolder(projectId, connectionId, folderId) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/connections/${encodeURIComponent(connectionId)}/tool-folders/${encodeURIComponent(folderId)}`,
+        { method: "DELETE", headers },
+      );
+      if (!response.ok) await decodeResponse<never>(response);
     },
     async moveToolToFolder(projectId, connectionId, toolName, folderId) {
       const response = await fetch(

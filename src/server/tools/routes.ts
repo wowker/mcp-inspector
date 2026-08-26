@@ -90,6 +90,34 @@ export function createToolRoutes(tools: ToolService): Hono {
     }
   });
 
+  routes.patch("/:projectId/connections/:connectionId/tool-folders/:folderId", async (context) => {
+    let body: unknown;
+    try { body = await context.req.json(); } catch { return context.json(errors.invalidFolder, 400); }
+    const name = typeof body === "object" && body !== null && !Array.isArray(body)
+      ? (body as { name?: unknown }).name : undefined;
+    try {
+      return context.json({ folder: tools.renameFolder(
+        context.req.param("projectId"), context.req.param("connectionId"),
+        context.req.param("folderId"), name,
+      ) });
+    } catch (error) {
+      if (error instanceof InvalidToolFolderError) return context.json(errors.invalidFolder, 400);
+      if (error instanceof ToolFolderConflictError) return context.json(errors.folderConflict, 409);
+      return resourceError(context, error);
+    }
+  });
+
+  routes.delete("/:projectId/connections/:connectionId/tool-folders/:folderId", (context) => {
+    try {
+      tools.deleteFolder(
+        context.req.param("projectId"), context.req.param("connectionId"), context.req.param("folderId"),
+      );
+      return context.body(null, 204);
+    } catch (error) {
+      return resourceError(context, error);
+    }
+  });
+
   routes.put("/:projectId/connections/:connectionId/tools/:toolName/folder", async (context) => {
     let body: unknown;
     try { body = await context.req.json(); } catch { return context.json(errors.folderNotFound, 400); }

@@ -74,6 +74,20 @@ describe("ToolDefinitionView", () => {
     expect(screen.getByRole("table", { name: "Output Schema 字段" })).toHaveTextContent("message");
   });
 
+  it("explains historical snapshots and dismisses the explanation when clicking elsewhere", () => {
+    render(<><button type="button">页面其他位置</button><ToolDefinitionView detail={detail} /></>);
+
+    const help = screen.getByRole("button", { name: "了解历史快照" });
+    expect(help).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(help);
+    expect(help).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText(/每次 Tool 定义内容发生变化时/)).toBeVisible();
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "页面其他位置" }));
+    expect(screen.queryByText(/每次 Tool 定义内容发生变化时/)).not.toBeInTheDocument();
+    expect(help).toHaveAttribute("aria-expanded", "false");
+  });
+
   it("shows copy success in a temporary toast instead of beside the copy button", async () => {
     vi.useFakeTimers();
     const writeText = vi.fn().mockResolvedValue(undefined);

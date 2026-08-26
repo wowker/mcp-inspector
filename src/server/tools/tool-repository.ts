@@ -148,6 +148,43 @@ export class ToolRepository {
     return folderFromRow(row);
   }
 
+  renameFolder(
+    projectId: string,
+    connectionId: string,
+    folderId: string,
+    name: string,
+    timestamp: string,
+  ): "missing" | "conflict" | ToolFolder {
+    return this.store.database.transaction(() => {
+      const existing = this.store.database.prepare(`
+        SELECT 1 FROM tool_folders
+        WHERE project_id = ? AND connection_id = ? AND id = ?
+      `).get(projectId, connectionId, folderId);
+      if (existing === undefined) return "missing" as const;
+      const duplicate = this.store.database.prepare(`
+        SELECT 1 FROM tool_folders
+        WHERE project_id = ? AND connection_id = ? AND id <> ? AND name = ? COLLATE NOCASE
+      `).get(projectId, connectionId, folderId, name);
+      if (duplicate !== undefined) return "conflict" as const;
+      this.store.database.prepare(`
+        UPDATE tool_folders SET name = ?, updated_at = ?
+        WHERE project_id = ? AND connection_id = ? AND id = ?
+      `).run(name, timestamp, projectId, connectionId, folderId);
+      const row = this.store.database.prepare(`
+        SELECT id, project_id, connection_id, name, created_at, updated_at
+        FROM tool_folders WHERE project_id = ? AND connection_id = ? AND id = ?
+      `).get(projectId, connectionId, folderId) as FolderRow;
+      return folderFromRow(row);
+    })();
+  }
+
+  deleteFolder(projectId: string, connectionId: string, folderId: string): boolean {
+    const result = this.store.database.prepare(`
+      DELETE FROM tool_folders WHERE project_id = ? AND connection_id = ? AND id = ?
+    `).run(projectId, connectionId, folderId);
+    return result.changes === 1;
+  }
+
   moveToFolder(
     projectId: string,
     connectionId: string,

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Question } from "@phosphor-icons/react";
 import type { ToolDetailSummary } from "../../api/api-client.js";
 import { descriptionSections } from "../tools/tool-description.js";
 
@@ -61,7 +62,9 @@ const annotationLabels = {
 
 export function ToolDefinitionView({ detail }: { detail: ToolDetailSummary }) {
   const [copyNotice, setCopyNotice] = useState<{ message: string; kind: "success" | "error" } | null>(null);
+  const [historyHelpOpen, setHistoryHelpOpen] = useState(false);
   const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const historyHelpRef = useRef<HTMLDivElement>(null);
   const snapshot = detail.tool.currentSnapshot;
   const definition = snapshot.definition;
   const annotations = definition.annotations ?? {};
@@ -73,6 +76,17 @@ export function ToolDefinitionView({ detail }: { detail: ToolDetailSummary }) {
   useEffect(() => () => {
     if (dismissTimer.current !== null) clearTimeout(dismissTimer.current);
   }, []);
+  useEffect(() => { setHistoryHelpOpen(false); }, [snapshot.id]);
+  useEffect(() => {
+    if (!historyHelpOpen) return;
+    function dismiss(event: PointerEvent): void {
+      if (event.target instanceof Node && !historyHelpRef.current?.contains(event.target)) setHistoryHelpOpen(false);
+    }
+    function escape(event: KeyboardEvent): void { if (event.key === "Escape") setHistoryHelpOpen(false); }
+    document.addEventListener("pointerdown", dismiss);
+    document.addEventListener("keydown", escape);
+    return () => { document.removeEventListener("pointerdown", dismiss); document.removeEventListener("keydown", escape); };
+  }, [historyHelpOpen]);
 
   function showCopyNotice(message: string, kind: "success" | "error"): void {
     if (dismissTimer.current !== null) clearTimeout(dismissTimer.current);
@@ -127,7 +141,13 @@ export function ToolDefinitionView({ detail }: { detail: ToolDetailSummary }) {
     <SchemaTable title="Output Schema" schema={definition.outputSchema ?? {}} />
 
     <section className="definition-history" aria-labelledby="definition-history-title">
-      <div className="definition-section-heading"><div><p className="definition-kicker">VERSIONS</p><h3 id="definition-history-title">历史快照</h3></div><span>{detail.snapshots.length} 条</span></div>
+      <div className="definition-section-heading"><div><p className="definition-kicker">VERSIONS</p><h3 id="definition-history-title">历史快照</h3></div>
+        <div className="definition-history-heading-actions" ref={historyHelpRef}><span>{detail.snapshots.length} 条</span>
+          <button type="button" className="definition-history-help" aria-label="了解历史快照" aria-expanded={historyHelpOpen}
+            onClick={() => setHistoryHelpOpen((current) => !current)}><Question size={16} weight="bold" aria-hidden="true" /></button>
+          {historyHelpOpen && <p className="definition-history-help-popover" role="tooltip">每次 Tool 定义内容发生变化时，Inspector 会保存一份不可变快照，用于对比版本，并准确还原历史调用当时使用的描述和参数 Schema。重复刷新且内容未变化时不会新增快照。</p>}
+        </div>
+      </div>
       {detail.snapshots.length === 0 ? <p className="definition-empty">暂无历史变化。</p> : <ol>{detail.snapshots.map((item) =>
         <li key={item.id}><time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString()}</time><code>{item.contentHash}</code></li>)}</ol>}
     </section>

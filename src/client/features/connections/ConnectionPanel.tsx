@@ -309,6 +309,30 @@ function ProjectScopedConnectionPanel({
     }));
   }
 
+  async function renameFolder(folder: ToolFolderSummary, name: string): Promise<void> {
+    const updated = await api.renameToolFolder(projectId, folder.connectionId, folder.id, name);
+    if (!mounted.current) return;
+    setFolders((current) => ({
+      ...current,
+      [folder.connectionId]: (current[folder.connectionId] ?? []).map((item) =>
+        item.id === updated.id ? updated : item),
+    }));
+  }
+
+  async function deleteFolder(folder: ToolFolderSummary): Promise<void> {
+    await api.deleteToolFolder(projectId, folder.connectionId, folder.id);
+    if (!mounted.current) return;
+    setFolders((current) => ({
+      ...current,
+      [folder.connectionId]: (current[folder.connectionId] ?? []).filter(({ id }) => id !== folder.id),
+    }));
+    setCatalogs((current) => ({
+      ...current,
+      [folder.connectionId]: (current[folder.connectionId] ?? []).map((tool) =>
+        tool.folderId === folder.id ? { ...tool, folderId: null } : tool),
+    }));
+  }
+
   async function moveTool(tool: CatalogToolSummary, folderId: string | null): Promise<void> {
     const generation = invalidateConnection(tool.connectionId);
     const updated = await api.moveToolToFolder(projectId, tool.connectionId, tool.name, folderId);
@@ -574,6 +598,8 @@ function ProjectScopedConnectionPanel({
           onOpenTool={onOpenTool}
           onDeleteTool={deleteTool}
           onCreateFolder={(name) => createFolder(visibleConnections[0]!.id, name)}
+          onRenameFolder={renameFolder}
+          onDeleteFolder={deleteFolder}
           onMoveTool={moveTool}
           selectedTool={selectedTool}
         />

@@ -107,6 +107,59 @@ describe("ToolTree", () => {
     expect(onMoveTool).toHaveBeenCalledWith(expect.objectContaining({ name: "sum" }), folder.id);
   });
 
+  it("shows folders expanded by default and toggles their Tool groups from the folder heading", async () => {
+    const user = userEvent.setup();
+    const folder: ToolFolderSummary = {
+      id: "00000000-0000-4000-8000-000000000545", projectId, connectionId: first.id,
+      name: "Products", createdAt: "2026-08-17T12:00:00.000Z", updatedAt: "2026-08-17T12:00:00.000Z",
+    };
+    const filed = { ...catalog(first.id, "products/list", "Products", "current"), folderId: folder.id };
+    render(<ToolTree connections={[first]} folders={[folder]} catalogs={{ [first.id]: [filed] }}
+      onRefresh={vi.fn()} onSelectTool={vi.fn()} onOpenTool={vi.fn()} />);
+
+    const heading = screen.getByRole("treeitem", { name: "Products 文件夹，1 个 Tool" });
+    expect(heading).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("treeitem", { name: "products/list" })).toBeVisible();
+    await user.click(heading);
+    expect(heading).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("treeitem", { name: "products/list" })).not.toBeInTheDocument();
+    await user.click(heading);
+    expect(heading).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("treeitem", { name: "products/list" })).toBeVisible();
+  });
+
+  it("renames and deletes a folder from its menu while keeping the collapse action independent", async () => {
+    const user = userEvent.setup();
+    const folder: ToolFolderSummary = {
+      id: "00000000-0000-4000-8000-000000000546", projectId, connectionId: first.id,
+      name: "Products", createdAt: "2026-08-17T12:00:00.000Z", updatedAt: "2026-08-17T12:00:00.000Z",
+    };
+    const filed = { ...catalog(first.id, "products/list", "Products", "current"), folderId: folder.id };
+    const onRenameFolder = vi.fn().mockResolvedValue(undefined);
+    const onDeleteFolder = vi.fn().mockResolvedValue(undefined);
+    render(<ToolTree connections={[first]} folders={[folder]} catalogs={{ [first.id]: [filed] }}
+      onRefresh={vi.fn()} onSelectTool={vi.fn()} onOpenTool={vi.fn()}
+      onRenameFolder={onRenameFolder} onDeleteFolder={onDeleteFolder} />);
+
+    await user.click(screen.getByRole("button", { name: "Products 文件夹操作" }));
+    expect(screen.getByRole("menu")).toBeVisible();
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Products 文件夹操作" }));
+    await user.click(screen.getByRole("menuitem", { name: "重命名" }));
+    const name = screen.getByRole("textbox", { name: "文件夹名称" });
+    expect(name).toHaveValue("Products");
+    await user.clear(name); await user.type(name, "Catalog");
+    await user.click(screen.getByRole("button", { name: "保存修改" }));
+    expect(onRenameFolder).toHaveBeenCalledWith(folder, "Catalog");
+
+    await user.click(screen.getByRole("button", { name: "Products 文件夹操作" }));
+    await user.click(screen.getByRole("menuitem", { name: "删除文件夹" }));
+    expect(screen.getByText(/1 个 Tool 将移到“未分类”/)).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "确认删除文件夹" }));
+    expect(onDeleteFolder).toHaveBeenCalledWith(folder);
+  });
+
   it("fuzzy-matches incomplete tokens across a Tool name and its description", async () => {
     const user = userEvent.setup();
     render(<ToolTree

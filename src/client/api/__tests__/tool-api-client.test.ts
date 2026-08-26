@@ -188,6 +188,8 @@ describe("Tool API response decoding", () => {
     const client = createApiClient("session") as unknown as {
       listToolFolders(projectId: string, connectionId: string): Promise<typeof folder[]>;
       createToolFolder(projectId: string, connectionId: string, name: string): Promise<typeof folder>;
+      renameToolFolder(projectId: string, connectionId: string, folderId: string, name: string): Promise<typeof folder>;
+      deleteToolFolder(projectId: string, connectionId: string, folderId: string): Promise<void>;
       moveToolToFolder(projectId: string, connectionId: string, toolName: string, folderId: string | null): Promise<typeof tool>;
     };
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ folders: [folder] }), {
@@ -203,6 +205,19 @@ describe("Tool API response decoding", () => {
       `/api/projects/${projectId}/connections/${connectionId}/tool-folders`,
       expect.objectContaining({ method: "POST", body: JSON.stringify({ name: "Commerce" }) }),
     );
+
+    const renamed = { ...folder, name: "Products" };
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ folder: renamed }), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    }));
+    await expect(client.renameToolFolder(projectId, connectionId, folder.id, "Products")).resolves.toEqual(renamed);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      `/api/projects/${projectId}/connections/${connectionId}/tool-folders/${folder.id}`,
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ name: "Products" }) }),
+    );
+
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await expect(client.deleteToolFolder(projectId, connectionId, folder.id)).resolves.toBeUndefined();
 
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ tool: { ...tool, folderId: folder.id } }), {
       status: 200, headers: { "Content-Type": "application/json" },

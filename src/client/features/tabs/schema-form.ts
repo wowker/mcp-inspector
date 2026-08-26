@@ -14,9 +14,30 @@ function unsupported(schema: Record<string, unknown>): boolean {
     (schema.type === "array" && Array.isArray(schema.items));
 }
 
+function rootConstraintUsesOnlyDeclaredFields(value: unknown, declared: ReadonlySet<string>): boolean {
+  if (!isObject(value) || "$ref" in value) return false;
+  if (value.type !== undefined && value.type !== "object") return false;
+  if (value.required !== undefined && (!Array.isArray(value.required) ||
+    value.required.some((name) => typeof name !== "string" || !declared.has(name)))) return false;
+  if (value.properties !== undefined && (!isObject(value.properties) ||
+    Object.keys(value.properties).some((name) => !declared.has(name)))) return false;
+  for (const keyword of ["allOf", "anyOf", "oneOf"] as const) {
+    if (!(keyword in value)) continue;
+    const branches = value[keyword];
+    if (!Array.isArray(branches) || branches.length === 0 ||
+      branches.some((branch) => !rootConstraintUsesOnlyDeclaredFields(branch, declared))) return false;
+  }
+  for (const keyword of ["if", "then", "else"] as const) {
+    if (keyword in value && !rootConstraintUsesOnlyDeclaredFields(value[keyword], declared)) return false;
+  }
+  return true;
+}
+
 export function requiresWholeArgumentsFallback(schema: Record<string, unknown>): boolean {
-  return unsupported(schema) || schema.type !== "object" ||
-    ("properties" in schema && !isObject(schema.properties));
+  if (schema.type !== "object" || ("properties" in schema && !isObject(schema.properties))) return true;
+  const properties = isObject(schema.properties) ? schema.properties : {};
+  const declared = new Set(Object.keys(properties));
+  return !rootConstraintUsesOnlyDeclaredFields(schema, declared);
 }
 
 export function schemaHasEditableArguments(

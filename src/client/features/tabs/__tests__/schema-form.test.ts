@@ -28,4 +28,32 @@ describe("schema form", () => {
     expect(requiresWholeArgumentsFallback({ oneOf: [{ type: "object" }, { type: "null" }] })).toBe(true);
     expect(requiresWholeArgumentsFallback({ type: "object", properties: {} })).toBe(false);
   });
+
+  it("keeps declared fields editable when allOf only adds an if/then required dependency", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        dsers_store_id: { type: "string" },
+        supplier_platform_id: { type: "string" },
+        supplier_product_id: { type: "string" },
+      },
+      required: ["dsers_store_id"],
+      allOf: [{
+        if: { required: ["supplier_product_id"] },
+        then: { required: ["supplier_platform_id"] },
+      }],
+    };
+
+    expect(requiresWholeArgumentsFallback(schema)).toBe(false);
+    expect(fieldsFromSchema(schema, {}).map(({ name }) => name)).toEqual([
+      "dsers_store_id", "supplier_platform_id", "supplier_product_id",
+    ]);
+    expect(requiresWholeArgumentsFallback({
+      type: "object", properties: { supplier_product_id: { type: "string" } },
+      allOf: [{
+        if: { required: ["supplier_product_id"] },
+        then: { required: ["undeclared_platform_id"] },
+      }],
+    })).toBe(true);
+  });
 });

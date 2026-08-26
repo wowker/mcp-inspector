@@ -50,6 +50,8 @@ function api(overrides: Partial<InspectorApiClient> = {}): InspectorApiClient {
     deleteTool: vi.fn().mockResolvedValue(undefined),
     listToolFolders: vi.fn().mockResolvedValue([]),
     createToolFolder: vi.fn(),
+    renameToolFolder: vi.fn(),
+    deleteToolFolder: vi.fn(),
     moveToolToFolder: vi.fn(),
     listTabs: vi.fn().mockResolvedValue([]),
     openTab: vi.fn(), replaceTabTool: vi.fn(), updateTab: vi.fn(), duplicateTab: vi.fn(),

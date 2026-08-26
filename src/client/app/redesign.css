@@ -698,6 +698,27 @@ textarea::placeholder { color: var(--ui-text-subtle); opacity: 1; }
   color: var(--ui-text-muted);
   background: var(--ui-surface-muted);
 }
+.tool-folder-heading-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 34px; background: var(--ui-surface-muted); }
+.tool-folder-menu-wrap { position: relative; }
+.tool-folder-actions { display: grid; width: 34px; height: 34px; padding: 0; place-items: center; border: 0; border-radius: 0; color: var(--ui-text-muted); background: transparent; }
+.tool-folder-actions:hover, .tool-folder-actions[aria-expanded="true"] { color: var(--ui-text); background: var(--ui-border-muted); }
+.tool-folder-menu { position: absolute; z-index: 30; top: 30px; right: 4px; display: grid; min-width: 132px; padding: 4px; border: 1px solid var(--ui-border); border-radius: var(--ui-control-radius); background: var(--ui-surface); box-shadow: var(--ui-shadow-overlay); }
+.tool-folder-menu button { display: flex; gap: 8px; align-items: center; width: 100%; padding: 7px 9px; border: 0; color: var(--ui-text); background: transparent; text-align: left; }
+.tool-folder-menu button:hover { background: var(--ui-surface-muted); }
+.tool-folder-menu .tool-folder-menu__danger { color: var(--ui-danger); }
+.tool-folder-dialog-field { display: grid; gap: 7px; padding: 18px 22px; color: var(--ui-text-muted); font-size: 0.78rem; font-weight: 600; }
+.tool-folder-dialog-field input { min-height: 38px; }
+.tool-folder-heading {
+  width: 100%;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  border: 0;
+  border-radius: 0;
+  text-align: left;
+  cursor: pointer;
+}
+.tool-folder-heading:hover:not(:disabled) { background: var(--ui-surface-muted); }
+.tool-folder-caret { transition: transform 120ms ease; }
+.tool-folder-heading[aria-expanded="true"] .tool-folder-caret { transform: rotate(90deg); }
 .tool-folder-heading strong,
 .tool-unfiled-heading strong {
   overflow: hidden;
@@ -961,8 +982,9 @@ textarea::placeholder { color: var(--ui-text-subtle); opacity: 1; }
 .editor-primary-actions { gap: 10px; }
 .editor-collapse {
   display: grid;
-  width: 24px;
-  min-width: 24px;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
   min-height: 32px;
   padding: 0;
   place-items: center;
@@ -971,7 +993,8 @@ textarea::placeholder { color: var(--ui-text-subtle); opacity: 1; }
   border-radius: 0;
   background: transparent;
 }
-.editor-collapse > span { font-size: 0.84rem; line-height: 1; }
+.editor-collapse svg { width: 18px; height: 18px; transition: transform 120ms ease; }
+.editor-collapse[aria-expanded="true"] svg { transform: rotate(90deg); }
 .editor-collapse:hover:not(:disabled) { color: var(--ui-accent); background: transparent; }
 .editor-actions { gap: 6px; }
 .editor-actions button,
@@ -1036,6 +1059,10 @@ textarea::placeholder { color: var(--ui-text-subtle); opacity: 1; }
 .schema-field textarea {
   width: min(100%, 48rem);
 }
+.schema-field--json > p,
+.schema-field--whole > p { max-width: none; }
+.schema-field--json textarea,
+.schema-field--whole textarea { width: 100%; max-width: none; }
 .parameter-editor input:not([type="checkbox"]):focus-visible,
 .parameter-editor select:focus-visible,
 .parameter-editor textarea:focus-visible {
@@ -1174,6 +1201,47 @@ textarea::placeholder { color: var(--ui-text-subtle); opacity: 1; }
 .tool-definition .definition-raw pre { color: var(--ui-text); background: var(--ui-surface-muted); }
 .definition-history li { border-color: var(--ui-border); border-radius: var(--ui-control-radius); background: var(--ui-surface); }
 .definition-history code { color: var(--ui-text-muted); }
+.definition-history-heading-actions {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ui-text-muted);
+  font-size: 0.78rem;
+}
+.definition-history-help {
+  display: grid;
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  min-height: 22px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  color: var(--ui-text-muted);
+  background: transparent;
+}
+.definition-history-help:hover:not(:disabled),
+.definition-history-help:focus-visible,
+.definition-history-help[aria-expanded="true"] { color: var(--ui-accent); background: var(--ui-accent-muted); outline: none; }
+.definition-history-help-popover {
+  position: absolute;
+  z-index: 8;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(320px, 70vw);
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-control-radius);
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow-overlay);
+  font-size: 0.76rem;
+  font-weight: 400;
+  line-height: 1.55;
+}
 
 [data-color-mode="dark"] .dialog-backdrop { background: rgb(1 4 9 / 68%); }
 

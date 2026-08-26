@@ -86,6 +86,8 @@ describe("ToolService", () => {
       list(projectId: string, connectionId: string): Array<{ name: string; folderId: string | null }>;
       listFolders(projectId: string, connectionId: string): Array<{ id: string; name: string; connectionId: string }>;
       createFolder(projectId: string, connectionId: string, name: string): { id: string; name: string; connectionId: string };
+      renameFolder(projectId: string, connectionId: string, folderId: string, name: string): { id: string; name: string; connectionId: string };
+      deleteFolder(projectId: string, connectionId: string, folderId: string): void;
       moveToFolder(projectId: string, connectionId: string, toolName: string, folderId: string | null): { name: string; folderId: string | null };
     };
 
@@ -96,9 +98,17 @@ describe("ToolService", () => {
     expect(tools.moveToFolder(projectId, connectionId, "sum", folder.id))
       .toEqual(expect.objectContaining({ name: "sum", folderId: folder.id }));
 
+    expect(tools.renameFolder(projectId, connectionId, folder.id, "  Products  ").name).toBe("Products");
+    tools.deleteFolder(projectId, connectionId, folder.id);
+    expect(tools.listFolders(projectId, connectionId)).toEqual([]);
+    expect(tools.list(projectId, connectionId).find(({ name }) => name === "sum")?.folderId).toBeNull();
+
+    const replacement = tools.createFolder(projectId, connectionId, "Commerce");
+    tools.moveToFolder(projectId, connectionId, "sum", replacement.id);
+
     pages = [{ tools: [tool("sum"), tool("echo"), tool("new_tool")] }];
     await tools.refresh(projectId, connectionId);
-    expect(tools.list(projectId, connectionId).find(({ name }) => name === "sum")?.folderId).toBe(folder.id);
+    expect(tools.list(projectId, connectionId).find(({ name }) => name === "sum")?.folderId).toBe(replacement.id);
     expect(tools.moveToFolder(projectId, connectionId, "sum", null).folderId).toBeNull();
   });
 

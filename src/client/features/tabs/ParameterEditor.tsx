@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Play } from "@phosphor-icons/react";
+import { CaretRight, Play } from "@phosphor-icons/react";
 import type { DebugTabSummary } from "../../api/api-client.js";
 import { formatRawArguments, parseRawArguments } from "../../../shared/json.js";
 import { validateJsonSchema, type SchemaIssue } from "../../../shared/json-schema.js";
@@ -10,6 +10,8 @@ interface Props {
   onChange: (patch: Partial<DebugTabSummary>) => void; onExecute?: () => void;
   onSaveRequest?: (argumentsValue: Record<string, unknown>) => void;
   executing?: boolean;
+  expanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
   subtreeDrafts?: Readonly<Record<string, { text: string; base: string }>>;
   onSubtreeDraftChange?: (path: string, text: string, base: string) => void;
 }
@@ -51,10 +53,12 @@ function JsonSubtreeEditor({ id, value, describedBy, draft, objectOnly = false, 
     {invalid && <p role="alert">{objectOnly ? "必须是 JSON 对象" : "请输入有效 JSON"}</p>}</>;
 }
 
-export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveRequest, executing = false, subtreeDrafts = {}, onSubtreeDraftChange }: Props) {
+export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveRequest, executing = false,
+  expanded: controlledExpanded, onExpandedChange, subtreeDrafts = {}, onSubtreeDraftChange }: Props) {
   const [rawTouched, setRawTouched] = useState(false);
-  const [expanded, setExpanded] = useState(true);
-  useEffect(() => { setExpanded(true); }, [tab.id]);
+  const [localExpanded, setLocalExpanded] = useState(true);
+  const expanded = controlledExpanded ?? localExpanded;
+  useEffect(() => { if (controlledExpanded === undefined) setLocalExpanded(true); }, [controlledExpanded, tab.id]);
   const parsed = parseRawArguments(tab.rawText);
   const fields = useMemo(() => fieldsFromSchema(schema, tab.arguments), [schema, tab.arguments]);
   const wholeFallback = requiresWholeArgumentsFallback(schema);
@@ -99,8 +103,12 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveReques
       <div className="editor-primary-actions">
         <button type="button" className="editor-collapse" aria-expanded={expanded}
           aria-controls={`parameter-content-${tab.id}`} aria-label={expanded ? "收起参数" : "展开参数"}
-          title={expanded ? "收起参数" : "展开参数"} onClick={() => setExpanded((value) => !value)}>
-          <span aria-hidden="true">{expanded ? "▾" : "▸"}</span>
+          title={expanded ? "收起参数" : "展开参数"} onClick={() => {
+            const next = !expanded;
+            if (controlledExpanded === undefined) setLocalExpanded(next);
+            onExpandedChange?.(next);
+          }}>
+          <CaretRight size={18} weight="bold" aria-hidden="true" />
         </button>
         <div className="editor-mode-group">
           <div role="tablist" aria-label="参数输入模式" onKeyDown={(event) => {
