@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ToolDetailSummary } from "../../../api/api-client.js";
 import { ToolDefinitionView } from "../ToolDefinitionView.js";
 
@@ -42,7 +42,7 @@ const detail: ToolDetailSummary = {
   snapshots: [],
 };
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 describe("ToolDefinitionView", () => {
   it("turns structured description markers into readable sections without exposing Markdown syntax", () => {
@@ -64,5 +64,24 @@ describe("ToolDefinitionView", () => {
     expect(input).toHaveTextContent("必填");
     expect(input).toHaveTextContent("Exact DSers product ID.");
     expect(screen.getByRole("table", { name: "Output Schema 字段" })).toHaveTextContent("message");
+  });
+
+  it("shows copy success in a temporary toast instead of beside the copy button", async () => {
+    vi.useFakeTimers();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    render(<ToolDefinitionView detail={detail} />);
+
+    const button = screen.getByRole("button", { name: "复制完整定义" });
+    fireEvent.click(button);
+    await act(async () => Promise.resolve());
+    const toast = screen.getByRole("status");
+    expect(toast).toHaveClass("copy-toast");
+    expect(toast).toHaveTextContent("已复制");
+    expect(button.parentElement).not.toContainElement(toast);
+    act(() => vi.advanceTimersByTime(1_999));
+    expect(toast).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 });

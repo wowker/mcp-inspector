@@ -683,7 +683,6 @@ summary:focus-visible {
 .definition-kicker { margin: 0; color: #667085; font-size: 0.7rem; font-weight: 750; letter-spacing: 0.1em; }
 .definition-copy { display: flex; align-items: center; gap: 10px; }
 .definition-copy button { flex: none; min-height: 40px; color: #fff; background: #172033; }
-.definition-copy [role="status"] { color: #475467; font-size: 0.78rem; }
 
 .tool-description { display: grid; gap: 12px; }
 .tool-description > section { padding: 16px 18px; border-left: 3px solid #98a2b3; background: #f8f9fa; }

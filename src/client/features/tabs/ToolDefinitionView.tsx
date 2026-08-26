@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ToolDetailSummary } from "../../api/api-client.js";
 import { descriptionSections } from "../tools/tool-description.js";
 
@@ -60,7 +60,8 @@ const annotationLabels = {
 } as const;
 
 export function ToolDefinitionView({ detail }: { detail: ToolDetailSummary }) {
-  const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const [copyNotice, setCopyNotice] = useState<{ message: string; kind: "success" | "error" } | null>(null);
+  const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const snapshot = detail.tool.currentSnapshot;
   const definition = snapshot.definition;
   const annotations = definition.annotations ?? {};
@@ -69,12 +70,25 @@ export function ToolDefinitionView({ detail }: { detail: ToolDetailSummary }) {
     return typeof value === "boolean" ? [{ key, label: labels[value ? 0 : 1], warning: key === "destructiveHint" && value }] : [];
   });
 
+  useEffect(() => () => {
+    if (dismissTimer.current !== null) clearTimeout(dismissTimer.current);
+  }, []);
+
+  function showCopyNotice(message: string, kind: "success" | "error"): void {
+    if (dismissTimer.current !== null) clearTimeout(dismissTimer.current);
+    setCopyNotice({ message, kind });
+    dismissTimer.current = setTimeout(() => {
+      dismissTimer.current = null;
+      setCopyNotice(null);
+    }, 2_000);
+  }
+
   async function copyDefinition(): Promise<void> {
     try {
       await navigator.clipboard.writeText(JSON.stringify(definition, null, 2));
-      setCopyStatus("已复制完整定义");
+      showCopyNotice("已复制", "success");
     } catch {
-      setCopyStatus("复制失败，请手动复制 Raw JSON");
+      showCopyNotice("复制失败，请手动复制 Raw JSON", "error");
     }
   }
 
@@ -82,9 +96,11 @@ export function ToolDefinitionView({ detail }: { detail: ToolDetailSummary }) {
     <header className="tool-definition__header">
       <div><p className="definition-kicker">CURRENT TOOL DEFINITION</p><h2>{detail.tool.name}</h2>
         {definition.title !== undefined && <p className="tool-definition__title">{definition.title}</p>}</div>
-      <div className="definition-copy"><button type="button" onClick={() => void copyDefinition()}>复制完整定义</button>
-        {copyStatus !== null && <span role="status">{copyStatus}</span>}</div>
+      <div className="definition-copy"><button type="button" onClick={() => void copyDefinition()}>复制完整定义</button></div>
     </header>
+
+    {copyNotice !== null && <div className={`copy-toast copy-toast--${copyNotice.kind}`}
+      role={copyNotice.kind === "error" ? "alert" : "status"} aria-live="polite">{copyNotice.message}</div>}
 
     <section className="tool-description" aria-label="Tool 说明">
       {descriptionSections(definition.description).map((section, index) => <section key={`${section.title}:${index}`}>

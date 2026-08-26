@@ -844,9 +844,28 @@ textarea::placeholder { color: var(--ui-text-subtle); opacity: 1; }
 .tool-definition__header { padding-bottom: 18px; border-bottom-color: var(--ui-border); }
 .tool-definition__header h2 { color: var(--ui-text); font-size: 1.55rem; }
 .tool-definition__title,
-.definition-kicker,
-.definition-copy [role="status"] { color: var(--ui-text-muted); }
+.definition-kicker { color: var(--ui-text-muted); }
 .definition-copy button { color: #fff; background: var(--ui-accent); }
+
+.copy-toast {
+  position: fixed;
+  z-index: 80;
+  bottom: 24px;
+  left: 50%;
+  min-width: 120px;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 10px 16px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-control-radius);
+  color: var(--ui-surface);
+  background: var(--ui-text);
+  box-shadow: var(--ui-shadow-overlay);
+  font-size: 0.82rem;
+  font-weight: 650;
+  text-align: center;
+  transform: translateX(-50%);
+}
+.copy-toast--error { border-color: var(--ui-danger); color: var(--ui-danger); background: var(--ui-surface); }
 
 .tool-description { gap: 8px; }
 .tool-description > section {
