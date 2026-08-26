@@ -62,6 +62,24 @@ function isToolsCallRequest(observation: WireObservation): observation is Extrac
   return (observation.body as Record<string, unknown>).method === "tools/call";
 }
 
+function redactObservationPayload(value: unknown): unknown {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
+  const observation = value as Record<string, unknown>;
+  if ((observation.kind !== "http-request" && observation.kind !== "http-response") ||
+      typeof observation.headers !== "object" || observation.headers === null || Array.isArray(observation.headers)) return value;
+  return redactWireObservation(value as WireObservation);
+}
+
+function visibleRun(run: RunDetail, redactSensitiveInfo: boolean): RunDetail {
+  if (!redactSensitiveInfo) return { ...run, redactSensitiveInfo: false };
+  return {
+    ...run,
+    redactSensitiveInfo: true,
+    request: { ...run.request, http: redactObservationPayload(run.request.http) },
+    events: run.events.map((event) => ({ ...event, payload: redactObservationPayload(event.payload) })),
+  };
+}
+
 export interface RunServiceWithEvents extends RunService {
   readonly eventBus: RunEventBus;
   assertExists(projectId: string, runId: string): RunSummary;
@@ -112,27 +130,28 @@ export function createRunService(projects: ProjectService, connections: Connecti
     let fallbackExchangeId: string | null = null;
     let networkDurationMs: number | null = null;
     let fallbackNetworkDurationMs: number | null = null;
+    let redactSensitiveInfo = true;
     const observe = (observation: WireObservation) => {
       if (activeRun.observationsClosed || traceFailure) return;
       try {
-        const safeObservation = redactWireObservation(observation);
-        repo.append(runId, safeObservation.kind, safeObservation.at, safeObservation);
-        if (safeObservation.kind === "http-request" && fallbackRequestAt === null) {
-          fallbackRequestAt = safeObservation.at;
-          fallbackExchangeId = safeObservation.exchangeId ?? null;
-          repo.recordHttpRequest(runId, safeObservation);
+        const recordedObservation = redactSensitiveInfo ? redactWireObservation(observation) : observation;
+        repo.append(runId, recordedObservation.kind, recordedObservation.at, recordedObservation);
+        if (recordedObservation.kind === "http-request" && fallbackRequestAt === null) {
+          fallbackRequestAt = recordedObservation.at;
+          fallbackExchangeId = recordedObservation.exchangeId ?? null;
+          repo.recordHttpRequest(runId, recordedObservation);
         }
-        if (isToolsCallRequest(safeObservation) && requestAt === null) {
-          requestAt = safeObservation.at;
-          requestExchangeId = safeObservation.exchangeId ?? null;
-          repo.recordHttpRequest(runId, safeObservation, true);
+        if (isToolsCallRequest(recordedObservation) && requestAt === null) {
+          requestAt = recordedObservation.at;
+          requestExchangeId = recordedObservation.exchangeId ?? null;
+          repo.recordHttpRequest(runId, recordedObservation, true);
         }
-        if (safeObservation.kind === "http-response") {
-          const matchesCall = requestExchangeId === null || safeObservation.exchangeId === requestExchangeId;
-          const matchesFallback = fallbackExchangeId === null || safeObservation.exchangeId === fallbackExchangeId;
-          if (requestAt !== null && matchesCall && networkDurationMs === null) networkDurationMs = elapsed(requestAt, safeObservation.at);
+        if (recordedObservation.kind === "http-response") {
+          const matchesCall = requestExchangeId === null || recordedObservation.exchangeId === requestExchangeId;
+          const matchesFallback = fallbackExchangeId === null || recordedObservation.exchangeId === fallbackExchangeId;
+          if (requestAt !== null && matchesCall && networkDurationMs === null) networkDurationMs = elapsed(requestAt, recordedObservation.at);
           else if (requestAt === null && fallbackRequestAt !== null && matchesFallback && fallbackNetworkDurationMs === null) {
-            fallbackNetworkDurationMs = elapsed(fallbackRequestAt, safeObservation.at);
+            fallbackNetworkDurationMs = elapsed(fallbackRequestAt, recordedObservation.at);
           }
         }
       } catch { traceFailure = true; }
@@ -140,6 +159,7 @@ export function createRunService(projects: ProjectService, connections: Connecti
     try {
       let run = repo.get(projectId, runId);
       if (run === null || terminal.has(run.status)) return;
+      redactSensitiveInfo = connections.get(projectId, run.connectionId).redactSensitiveInfo;
       const runtime = connections.runtime(projectId);
       if (runtime.get(run.connectionId) === undefined) {
         const at = timestamp();
@@ -192,7 +212,7 @@ export function createRunService(projects: ProjectService, connections: Connecti
     if (!uuid.safeParse(runId).success) throw new RunNotFoundError();
     const run = repository(projectId).get(projectId, runId);
     if (run === null) throw new RunNotFoundError();
-    return run;
+    return visibleRun(run, connections.get(projectId, run.connectionId).redactSensitiveInfo);
   }
 
   function requireSummary(projectId: string, runId: string): RunSummary {
@@ -262,9 +282,13 @@ export function createRunService(projects: ProjectService, connections: Connecti
     getSummary: requireSummary,
     get: requireRun,
     events(projectId, runId, after = 0, limit): RunEvent[] {
-      requireSummary(projectId, runId);
+      const run = requireSummary(projectId, runId);
       if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1 || limit > 1_000)) throw new InvalidRunError();
-      return repository(projectId).events(runId, after, limit);
+      const redactSensitiveInfo = connections.get(projectId, run.connectionId).redactSensitiveInfo;
+      return repository(projectId).events(runId, after, limit).map((event) => ({
+        ...event,
+        payload: redactSensitiveInfo ? redactObservationPayload(event.payload) : event.payload,
+      }));
     },
     async close() {
       for (const activeRun of activeRuns.values()) {

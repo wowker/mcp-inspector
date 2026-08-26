@@ -7,6 +7,7 @@ import type {
   StoredOAuthTokens,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
+import { OAuthAuthorizationCompletedError } from "./connection-runtime.js";
 
 interface PendingAuthorization {
   connectionId: string;
@@ -34,12 +35,18 @@ export class OAuthCallbackError extends Error {
 export class OAuthFlowCoordinator {
   private readonly credentials = new Map<string, CredentialState>();
   private readonly pending = new Map<string, PendingAuthorization>();
+  private readonly authorized = new Set<string>();
 
   constructor(private readonly options: {
     redirectUrl: () => string;
     openAuthorizationUrl: (url: string) => void | Promise<void>;
     now?: () => number;
   }) {}
+
+  authorizationStatus(connectionId: string): "required" | "authorizing" | "authorized" {
+    if ([...this.pending.values()].some((pending) => pending.connectionId === connectionId)) return "authorizing";
+    return this.authorized.has(connectionId) ? "authorized" : "required";
+  }
 
   provider(connectionId: string, attachTransport: (provider: OAuthClientProvider) => StreamableHTTPClientTransport): OAuthClientProvider {
     const state: CredentialState = this.credentials.get(connectionId) ?? { clients: new Map(), tokens: new Map() };
@@ -68,6 +75,7 @@ export class OAuthFlowCoordinator {
       saveTokens(value, context) {
         state.latestTokens = value;
         if (context !== undefined) state.tokens.set(context.issuer, value);
+        thisCoordinator.authorized.add(connectionId);
       },
       async redirectToAuthorization(url) {
         if (authorizationState.length === 0) throw new OAuthCallbackError();
@@ -81,6 +89,7 @@ export class OAuthFlowCoordinator {
         try {
           await thisCoordinator.options.openAuthorizationUrl(url.toString());
           await completion;
+          throw new OAuthAuthorizationCompletedError();
         } catch (error) {
           thisCoordinator.pending.delete(authorizationState);
           throw error;
@@ -92,7 +101,10 @@ export class OAuthFlowCoordinator {
         return state.verifier;
       },
       invalidateCredentials(scope) {
-        if (scope === "all" || scope === "tokens") { state.tokens.clear(); state.latestTokens = undefined; }
+        if (scope === "all" || scope === "tokens") {
+          state.tokens.clear(); state.latestTokens = undefined;
+          thisCoordinator.authorized.delete(connectionId);
+        }
         if (scope === "all" || scope === "client") state.clients.clear();
         if (scope === "all" || scope === "verifier") state.verifier = undefined;
         if (scope === "all" || scope === "discovery") state.discovery = undefined;
@@ -119,6 +131,7 @@ export class OAuthFlowCoordinator {
     }
     try {
       await pending.transport.finishAuth(params);
+      this.authorized.add(pending.connectionId);
       pending.resolve();
       return pending.connectionId;
     } catch (error) {
@@ -129,6 +142,7 @@ export class OAuthFlowCoordinator {
 
   clear(connectionId: string): void {
     this.credentials.delete(connectionId);
+    this.authorized.delete(connectionId);
     for (const [state, pending] of this.pending) {
       if (pending.connectionId === connectionId) {
         this.pending.delete(state);

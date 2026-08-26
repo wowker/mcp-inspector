@@ -65,3 +65,27 @@ npm run verify
 ```
 
 端到端测试使用本机安装的 Google Chrome，并只访问临时的回环 Inspector 与 MCP fixture。
+
+## npm 发布
+
+发布只使用 npm 官方仓库 `https://registry.npmjs.org/`。版本遵循 SemVer：不兼容变更使用 `major`，向后兼容的新功能使用 `minor`，向后兼容的问题修复使用 `patch`。
+
+后续版本发布前，先提交完所有改动并确保 Git 工作区干净，然后执行：
+
+```bash
+make release-version BUMP=minor  # 可替换为 major 或 patch；会创建版本提交和 vX.Y.Z tag
+make release-check               # 身份、tag、测试、E2E、安全审计和打包预检
+git push --follow-tags           # 保存发布提交和 tag
+make publish CONFIRM=publish     # 再次完成全部门禁后正式发布
+```
+
+首次发布当前 `0.1.0` 时无需再次修改版本号。在提交完所有改动后创建现有版本的 tag，再执行相同的检查和发布步骤：
+
+```bash
+git tag -a v0.1.0 -m "Release 0.1.0"
+make release-check
+git push origin main v0.1.0
+make publish CONFIRM=publish
+```
+
+`make publish` 默认拒绝执行，只有显式提供 `CONFIRM=publish` 才会调用 `npm publish`。npm 已发布的版本不可覆盖；发布失败或需要修复时应生成新的 `patch` 版本，不要移动已经推送的 release tag。

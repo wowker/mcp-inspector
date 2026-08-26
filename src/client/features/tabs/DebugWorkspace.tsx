@@ -12,7 +12,12 @@ import { SavedItemDialog } from "../saved-items/SavedItemDialog.js";
 import { SavedItemsView } from "../saved-items/SavedItemsView.js";
 import { schemaHasEditableArguments } from "./schema-form.js";
 
-export interface ToolOpenIntent { sequence: number; tool: CatalogToolSummary; newTab: boolean }
+export interface ToolOpenIntent {
+  sequence: number;
+  tool: CatalogToolSummary;
+  newTab: boolean;
+  restoreRun?: RunDetail;
+}
 interface Props {
   api: InspectorApiClient; projectId: string; toolIntent?: ToolOpenIntent | null;
   onExecute?: (tab: DebugTabSummary) => void;
@@ -227,16 +232,31 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActi
     intentQueue.current = intentQueue.current.catch(() => undefined).then(async () => {
       if (workspaceGeneration.current !== scope || !(await flush()) || workspaceGeneration.current !== scope) return;
       if (handledIntent.current > intent.sequence) return;
+      const restoreRun = intent.restoreRun;
+      if (restoreRun !== undefined && (restoreRun.projectId !== projectId ||
+        restoreRun.connectionId !== intent.tool.connectionId || restoreRun.toolName !== intent.tool.name)) {
+        throw new Error("历史记录与目标 Tool 不匹配");
+      }
       const current = tabsRef.current.find(({ id }) => id === activeRef.current);
-      const opened = intent.newTab || current === undefined || current.pinned
+      let opened = intent.newTab || current === undefined || current.pinned
         ? await api.openTab(projectId, intent.tool.connectionId, intent.tool.name)
         : await api.replaceTabTool(projectId, current.id, intent.tool.connectionId, intent.tool.name);
+      if (restoreRun !== undefined) {
+        opened = await api.updateTab(projectId, opened.id, {
+          arguments: restoreRun.request.arguments,
+          rawText: formatRawArguments(restoreRun.request.arguments),
+        });
+      }
       if (workspaceGeneration.current !== scope) return;
       const next = current !== undefined && !intent.newTab && !current.pinned
         ? tabsRef.current.map((item) => item.id === current.id ? opened : item)
         : [...tabsRef.current, opened];
       setSubtreeDrafts((drafts) => { const updated = { ...drafts }; if (current !== undefined) delete updated[current.id]; return updated; });
-      assign(next.sort((left, right) => left.position - right.position)); activate(opened.id); setView("debug");
+      assign(next.sort((left, right) => left.position - right.position));
+      if (restoreRun !== undefined) {
+        setSelectedRuns((selected) => ({ ...selected, [opened.id]: restoreRun.id }));
+      }
+      activate(opened.id); setView("debug");
     }).catch((error: unknown) => { if (workspaceGeneration.current === scope) setMessage(error instanceof Error ? error.message : "无法打开 Tool Tab"); });
   }, [api, flush, projectId, tabs, toolIntent]);
 

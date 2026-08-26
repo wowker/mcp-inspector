@@ -148,6 +148,16 @@ describe("RunResultPanel", () => {
     expect(screen.queryByRole("button", { name: "复制" })).not.toBeInTheDocument();
   });
 
+  it("shows original HTTP authorization when this Run explicitly disables redaction", () => {
+    render(<RunResultPanel run={{ ...run, redactSensitiveInfo: false }} />);
+
+    fireEvent.click(screen.getByRole("tab", { name: "HTTP" }));
+    screen.getAllByRole("button", { name: "展开 JSON" }).forEach((button) => fireEvent.click(button));
+    expect(screen.getByText(/Bearer secret/)).toBeVisible();
+    expect(screen.getByText(/set-cookie/)).toBeVisible();
+    expect(screen.queryByText(/\[REDACTED\]/)).not.toBeInTheDocument();
+  });
+
   it("links every result tabpanel back to its selected tab", () => {
     render(<RunResultPanel run={run} />); const tab = screen.getByRole("tab", { name: "请求与结果" });
     expect(screen.getByRole("tabpanel")).toHaveAttribute("aria-labelledby", tab.id);
@@ -167,6 +177,18 @@ describe("RunResultPanel", () => {
     const onSaveResponse = vi.fn(); render(<RunResultPanel run={run} onSaveResponse={onSaveResponse} />);
     fireEvent.click(screen.getByRole("button", { name: "保存响应" }));
     expect(onSaveResponse).toHaveBeenCalledWith(run.response);
+  });
+
+  it("places an Open Debug action immediately before Copy All Results", () => {
+    const onOpenDebug = vi.fn();
+    render(<RunResultPanel run={run} onOpenDebug={onOpenDebug} />);
+
+    const openDebug = screen.getByRole("button", { name: "打开调试" });
+    const copy = screen.getByRole("button", { name: "复制全部结果" });
+    expect(openDebug.compareDocumentPosition(copy) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(openDebug);
+
+    expect(onOpenDebug).toHaveBeenCalledWith(run);
   });
 
   it("uses the same compact secondary-action treatment for every copy and save command", () => {
@@ -191,6 +213,26 @@ describe("RunResultPanel", () => {
     expect(within(dialog).getByLabelText("结构化响应 JSON")).toBeVisible();
     expect(within(dialog).getAllByRole("treeitem", { name: /answer:5/ }).at(-1)).toBeVisible();
     expect(within(dialog).getByRole("button", { name: "关闭 JSON 查看器" })).toHaveFocus();
+  });
+
+  it("copies formatted JSON from the modal action immediately before Close", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    render(<RunResultPanel run={run} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "放大查看" }));
+    const dialog = screen.getByRole("dialog", { name: "结构化响应" });
+    const copy = within(dialog).getByRole("button", { name: "复制" });
+    const close = within(dialog).getByRole("button", { name: "关闭 JSON 查看器" });
+    expect(copy.compareDocumentPosition(close) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.click(copy);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('{\n  "answer": 5\n}'));
+    expect(await screen.findByRole("status")).toHaveTextContent("JSON 已复制");
+
+    fireEvent.click(close);
+    fireEvent.click(screen.getByRole("button", { name: "放大查看" }));
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
   it("closes the formatted JSON modal with Escape", () => {

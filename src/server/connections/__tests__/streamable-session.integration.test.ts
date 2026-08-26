@@ -19,6 +19,7 @@ describe("Streamable HTTP MCP session", () => {
       transport: "streamable-http",
       authMode: "none",
       headers: { "X-API-Key": "local-secret", "X-Tenant": "supplier-eu" },
+      redactSensitiveInfo: true,
       timeoutMs: 2_000,
       status: "disconnected",
       lastProtocolVersion: null,

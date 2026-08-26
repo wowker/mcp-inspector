@@ -19,6 +19,7 @@ interface ConnectionPanelProps {
   onConnectionConnected?: (connection: ConnectionSummary) => void;
   onConnectionDisconnected?: (connectionId: string) => void;
   onConnectionsLoaded?: (connections: ConnectionSummary[]) => void;
+  connectionUpdate?: ConnectionSummary | null;
   selectedTool?: { connectionId: string; name: string } | null;
 }
 
@@ -55,6 +56,7 @@ function ProjectScopedConnectionPanel({
   onConnectionConnected = () => undefined,
   onConnectionDisconnected = () => undefined,
   onConnectionsLoaded = () => undefined,
+  connectionUpdate = null,
   selectedTool = null,
 }: ConnectionPanelProps) {
   const mounted = useRef(false);
@@ -62,7 +64,7 @@ function ProjectScopedConnectionPanel({
   const dialogTrigger = useRef<HTMLButtonElement | null>(null);
   const addButton = useRef<HTMLButtonElement>(null);
   const catalogGenerations = useRef(new Map<string, number>());
-  const automaticallyRefreshed = useRef(new Set<string>());
+  const catalogSnapshotsRequested = useRef(new Set<string>());
   const catalogToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const catalogToastConnectionId = useRef<string | null>(null);
   const nextHeaderId = useRef(1);
@@ -72,11 +74,13 @@ function ProjectScopedConnectionPanel({
   const [catalogToast, setCatalogToast] = useState<CatalogToast | null>(null);
   const [refreshingConnectionIds, setRefreshingConnectionIds] = useState<ReadonlySet<string>>(new Set());
   const [pendingConnectionIds, setPendingConnectionIds] = useState<ReadonlySet<string>>(new Set());
+  const [exportingConnectionIds, setExportingConnectionIds] = useState<ReadonlySet<string>>(new Set());
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [timeoutMs, setTimeoutMs] = useState("10000");
   const [authMode, setAuthMode] = useState<"none" | "oauth">("none");
   const [headers, setHeaders] = useState<ConnectionHeaderDraft[]>([]);
+  const [redactSensitiveInfo, setRedactSensitiveInfo] = useState(true);
   const [formMode, setFormMode] = useState<"create" | "edit" | null>(null);
   const [editingConnectionId, setEditingConnectionId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -84,6 +88,11 @@ function ProjectScopedConnectionPanel({
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
+
+  useEffect(() => {
+    if (connectionUpdate === null || connectionUpdate.projectId !== projectId) return;
+    updateConnection(connectionUpdate);
+  }, [connectionUpdate, projectId]);
 
   useEffect(() => {
     mounted.current = true;
@@ -100,8 +109,9 @@ function ProjectScopedConnectionPanel({
     setFolders({});
     setRefreshingConnectionIds(new Set());
     setPendingConnectionIds(new Set());
+    setExportingConnectionIds(new Set());
     catalogGenerations.current.clear();
-    automaticallyRefreshed.current.clear();
+    catalogSnapshotsRequested.current.clear();
     clearCatalogToast();
     setError(null);
     void api.listConnections(projectId)
@@ -113,7 +123,9 @@ function ProjectScopedConnectionPanel({
           if (mode === "servers" || (
             connectionFilterId !== null && connection.id !== connectionFilterId
           )) continue;
-          const generation = 1;
+          if (catalogSnapshotsRequested.current.has(connection.id)) continue;
+          catalogSnapshotsRequested.current.add(connection.id);
+          const generation = (catalogGenerations.current.get(connection.id) ?? 0) + 1;
           catalogGenerations.current.set(connection.id, generation);
           void Promise.all([
             api.listTools(projectId, connection.id),
@@ -137,6 +149,26 @@ function ProjectScopedConnectionPanel({
       active = false;
     };
   }, [api, projectId, loadAttempt]);
+
+  useEffect(() => {
+    if (mode !== "tools" || connections === null || connectionFilterId === null ||
+      catalogSnapshotsRequested.current.has(connectionFilterId)) return;
+    if (!connections.some(({ id }) => id === connectionFilterId)) return;
+    catalogSnapshotsRequested.current.add(connectionFilterId);
+    const generation = (catalogGenerations.current.get(connectionFilterId) ?? 0) + 1;
+    catalogGenerations.current.set(connectionFilterId, generation);
+    void Promise.all([
+      api.listTools(projectId, connectionFilterId),
+      api.listToolFolders(projectId, connectionFilterId),
+    ]).then(([tools, toolFolders]) => {
+      if (!mounted.current || catalogGenerations.current.get(connectionFilterId) !== generation) return;
+      setCatalogs((current) => ({ ...current, [connectionFilterId]: tools }));
+      setFolders((current) => ({ ...current, [connectionFilterId]: toolFolders }));
+    }).catch(() => {
+      // The remote catalog is refreshed only after connection or by the manual
+      // refresh action. A missing local snapshot leaves the catalog empty.
+    });
+  }, [api, connectionFilterId, connections, mode, projectId]);
 
   function setPending(connectionId: string, pending: boolean): void {
     setPendingConnectionIds((current) => {
@@ -191,6 +223,7 @@ function ProjectScopedConnectionPanel({
     setTimeoutMs("10000");
     setAuthMode("none");
     setHeaders([]);
+    setRedactSensitiveInfo(true);
     setError(null);
     if (restoreFocus) queueMicrotask(() => dialogTrigger.current?.focus());
   }
@@ -204,6 +237,7 @@ function ProjectScopedConnectionPanel({
     setTimeoutMs("10000");
     setAuthMode("none");
     setHeaders([]);
+    setRedactSensitiveInfo(true);
     setFormMode("create");
   }
 
@@ -216,6 +250,7 @@ function ProjectScopedConnectionPanel({
     setUrl(connection.url);
     setTimeoutMs(String(connection.timeoutMs));
     setAuthMode(connection.authMode);
+    setRedactSensitiveInfo(connection.redactSensitiveInfo);
     setHeaders(Object.entries(connection.headers).map(([headerName, value]) => ({
       id: nextHeaderId.current++,
       name: headerName,
@@ -278,16 +313,6 @@ function ProjectScopedConnectionPanel({
       }
     }
   }
-
-  useEffect(() => {
-    if (mode !== "tools" || connections === null || connectionFilterId === null) return;
-    const connection = connections.find(({ id }) => id === connectionFilterId);
-    if (connection?.status !== "connected") return;
-    const refreshKey = `${projectId}:${connection.id}`;
-    if (automaticallyRefreshed.current.has(refreshKey)) return;
-    automaticallyRefreshed.current.add(refreshKey);
-    void refresh(connection.id);
-  }, [connectionFilterId, connections, mode, projectId]);
 
   async function deleteTool(tool: CatalogToolSummary): Promise<void> {
     const generation = (catalogGenerations.current.get(tool.connectionId) ?? 0) + 1;
@@ -352,10 +377,12 @@ function ProjectScopedConnectionPanel({
       const connected = await api.connectConnection(projectId, connection.id);
       if (!mounted.current || catalogGenerations.current.get(connection.id) !== generation) return;
       updateConnection(connected);
-      // The Servers page hands control to the Tools workspace, whose mount performs
-      // the authoritative catalog refresh. Combined embeds still refresh in place.
-      if (mode !== "servers") await refresh(connection.id);
-      if (mounted.current) onConnectionConnected(connected);
+      if (connected.status === "connected") {
+        // Catalog discovery belongs to the successful connection transition. The
+        // Tools page only reads the persisted snapshot and never refreshes on mount.
+        await refresh(connection.id);
+        if (mounted.current) onConnectionConnected(connected);
+      }
     } catch (cause) {
       if (mounted.current && catalogGenerations.current.get(connection.id) === generation) {
         const message = errorMessage(cause);
@@ -407,6 +434,7 @@ function ProjectScopedConnectionPanel({
           url: url.trim(),
           transport: "streamable-http",
           authMode,
+          redactSensitiveInfo,
           timeoutMs: Number(timeoutMs),
           ...(Object.keys(customHeaders).length === 0 ? {} : { headers: customHeaders }),
         });
@@ -421,6 +449,7 @@ function ProjectScopedConnectionPanel({
           name: name.trim(),
           url: url.trim(),
           authMode,
+          redactSensitiveInfo,
           timeoutMs: Number(timeoutMs),
           headers: customHeaders,
         });
@@ -459,6 +488,37 @@ function ProjectScopedConnectionPanel({
       if (mounted.current) setError(errorMessage(cause));
     } finally {
       if (mounted.current) setDeleting(false);
+    }
+  }
+
+  function exportFilename(connection: ConnectionSummary): string {
+    const name = connection.name.normalize("NFKC")
+      .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "-")
+      .replace(/\s+/g, " ").trim().slice(0, 80);
+    return `${name || "server"}-mcp-inspector.json`;
+  }
+
+  async function exportConnection(connection: ConnectionSummary): Promise<void> {
+    setError(null);
+    setExportingConnectionIds((current) => new Set(current).add(connection.id));
+    try {
+      const blob = await api.exportConnection(projectId, connection.id);
+      if (!mounted.current) return;
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = exportFilename(connection);
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+      showCatalogToast({ connectionId: connection.id, kind: "success", message: `${connection.name} 已导出` }, 2_000);
+    } catch (cause) {
+      if (mounted.current) setError(errorMessage(cause));
+    } finally {
+      if (mounted.current) setExportingConnectionIds((current) => {
+        const next = new Set(current); next.delete(connection.id); return next;
+      });
     }
   }
 
@@ -535,9 +595,19 @@ function ProjectScopedConnectionPanel({
                   </td>
                   <td data-label="MCP URL"><span className="connection-url" title={connection.url}>{connection.url}</span></td>
                   <td data-label="状态">
-                    <span className={`connection-status connection-status--${connection.status}`}>
-                      {connectionStatusLabels[connection.status]}
-                    </span>
+                    {connection.authMode === "oauth" && connection.status === "disconnected" ? (
+                      <span className="connection-authorization-state">
+                        <span className={`connection-status connection-status--${connection.authorizationStatus}`}>
+                          {connection.authorizationStatus === "authorized" ? "已授权" :
+                            connection.authorizationStatus === "authorizing" ? "授权中" : "未授权"}
+                        </span>
+                        {connection.authorizationStatus === "authorized" && <span>待连接</span>}
+                      </span>
+                    ) : (
+                      <span className={`connection-status connection-status--${connection.status}`}>
+                        {connectionStatusLabels[connection.status]}
+                      </span>
+                    )}
                     {connection.lastError !== null && (
                       <span className="connection-last-error">{connection.lastError.message}</span>
                     )}
@@ -559,7 +629,9 @@ function ProjectScopedConnectionPanel({
                           disabled={pendingConnectionIds.has(connection.id)}
                           aria-label={`连接 ${connection.name}`}
                           onClick={() => void connect(connection)}
-                        >{pendingConnectionIds.has(connection.id) ? "连接中…" : "连接"}</button>
+                        >{pendingConnectionIds.has(connection.id)
+                          ? connection.authMode === "oauth" && connection.authorizationStatus !== "authorized" ? "授权中…" : "连接中…"
+                          : "连接"}</button>
                       )}
                       <button
                         type="button"
@@ -568,6 +640,13 @@ function ProjectScopedConnectionPanel({
                         aria-label={`编辑 ${connection.name}`}
                         onClick={(event) => beginEdit(connection, event.currentTarget)}
                       >编辑</button>
+                      <button
+                        type="button"
+                        className="button-secondary"
+                        disabled={pendingConnectionIds.has(connection.id) || exportingConnectionIds.has(connection.id) || deleting}
+                        aria-label={`导出 ${connection.name}`}
+                        onClick={() => void exportConnection(connection)}
+                      >{exportingConnectionIds.has(connection.id) ? "导出中…" : "导出"}</button>
                       <button
                         type="button"
                         className="button-quiet-danger"
@@ -623,12 +702,14 @@ function ProjectScopedConnectionPanel({
           timeoutMs={timeoutMs}
           authMode={authMode}
           headers={headers}
+          redactSensitiveInfo={redactSensitiveInfo}
           submitting={submitting}
           error={error}
           onNameChange={setName}
           onUrlChange={setUrl}
           onTimeoutChange={setTimeoutMs}
           onAuthModeChange={setAuthMode}
+          onRedactSensitiveInfoChange={setRedactSensitiveInfo}
           onAddHeader={() => setHeaders((current) => [...current, {
             id: nextHeaderId.current++, name: "", value: "",
           }])}

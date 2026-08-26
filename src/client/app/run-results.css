@@ -60,8 +60,9 @@
   border-bottom: 1px solid var(--ui-border);
   background: var(--ui-surface);
 }
-.json-inspector-dialog__header span { color: var(--ui-text-muted); font: 700 0.64rem/1 var(--ui-mono); letter-spacing: 0.08em; }
+.json-inspector-dialog__eyebrow { color: var(--ui-text-muted); font: 700 0.64rem/1 var(--ui-mono); letter-spacing: 0.08em; }
 .json-inspector-dialog__header h2 { margin: 4px 0 0; color: var(--ui-text); font-size: 1rem; line-height: 1.2; }
+.json-inspector-dialog__actions { display: flex; align-items: center; gap: 8px; }
 .json-inspector-dialog__close {
   display: grid;
   width: 36px;

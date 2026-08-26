@@ -4,7 +4,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { InspectorApiClient, ProjectSummary } from "../api/api-client.js";
+import type { DebugTabSummary, InspectorApiClient, ProjectSummary, RunDetail, ToolDetailSummary } from "../api/api-client.js";
 import { InspectorWorkbench } from "./InspectorWorkbench.js";
 
 const project: ProjectSummary = {
@@ -22,6 +22,8 @@ const connection = {
   transport: "streamable-http" as const,
   authMode: "oauth" as const,
   headers: {},
+  redactSensitiveInfo: true,
+  authorizationStatus: "required" as const,
   timeoutMs: 20_000,
   status: "disconnected" as const,
   lastProtocolVersion: null,
@@ -29,11 +31,40 @@ const connection = {
   lastError: null,
 };
 
+const historyTool: ToolDetailSummary = {
+  tool: { projectId: project.id, connectionId: connection.id, name: "sum", status: "current", folderId: null,
+    updatedAt: "2026-08-26T00:00:00.000Z", currentSnapshot: {
+      id: "00000000-0000-4000-8000-000000000704", projectId: project.id, connectionId: connection.id,
+      toolName: "sum", contentHash: "a".repeat(64), createdAt: "2026-08-26T00:00:00.000Z",
+      definition: { name: "sum", inputSchema: { type: "object", properties: {
+        a: { type: "number" }, b: { type: "number" },
+      } } },
+    } }, snapshots: [],
+};
+const historyRun: RunDetail = {
+  id: "00000000-0000-4000-8000-000000000705", projectId: project.id, connectionId: connection.id,
+  tabId: "00000000-0000-4000-8000-000000000706", toolName: "sum",
+  toolSnapshotId: historyTool.tool.currentSnapshot.id, toolSnapshotHash: "a".repeat(64),
+  idempotencyKey: "history-open", status: "succeeded", createdAt: "2026-08-26T00:00:00.000Z",
+  startedAt: "2026-08-26T00:00:00.010Z", completedAt: "2026-08-26T00:00:00.020Z",
+  durationMs: 10, networkDurationMs: 8, protocolVersion: "2025-06-18", serverInfo: null,
+  clientInfo: { name: "mcp-inspector", version: "0.1.0" },
+  request: { arguments: { a: 40, b: 2 }, jsonrpc: {}, http: null },
+  response: { result: { structuredContent: { answer: 42 } }, error: null, truncated: false, originalBytes: 32 },
+  events: [],
+};
+
+function restoredTab(patch: Partial<DebugTabSummary> = {}): DebugTabSummary {
+  return { id: "00000000-0000-4000-8000-000000000707", projectId: project.id, connectionId: connection.id,
+    toolName: "sum", title: "sum", position: 0, pinned: false, inputMode: "form", arguments: {}, rawText: "",
+    viewState: { editorScrollTop: 0, resultScrollTop: 0, splitRatio: 0.5 }, lastRunId: null, ...patch };
+}
+
 function api(): InspectorApiClient {
   return {
     listProjects: vi.fn(), createProject: vi.fn(), openProject: vi.fn(),
     listConnections: vi.fn().mockResolvedValue([connection]),
-    createConnection: vi.fn(), updateConnection: vi.fn(), deleteConnection: vi.fn(),
+    createConnection: vi.fn(), updateConnection: vi.fn(), exportConnection: vi.fn(), deleteConnection: vi.fn(),
     connectConnection: vi.fn().mockResolvedValue({ ...connection, status: "connected" }),
     disconnectConnection: vi.fn().mockResolvedValue(connection),
     listTools: vi.fn().mockResolvedValue([]), refreshTools: vi.fn().mockResolvedValue([]), getTool: vi.fn(), deleteTool: vi.fn(),
@@ -99,9 +130,17 @@ describe("InspectorWorkbench", () => {
     expect(screen.getByRole("button", { name: "Tools" })).toHaveAttribute("aria-current", "page");
     expect(await screen.findByRole("tabpanel", { name: "Supplier MCP" })).toBeVisible();
     expect(client.listTools).toHaveBeenCalledWith(project.id, connection.id);
+    expect(client.refreshTools).toHaveBeenCalledTimes(1);
+
+    vi.mocked(client.listConnections).mockResolvedValue([{ ...connection, status: "connected" }]);
+    await user.click(screen.getByRole("button", { name: "Servers" }));
+    await screen.findByRole("heading", { name: "Servers", level: 1 });
+    await user.click(screen.getByRole("button", { name: "Tools" }));
+    expect(await screen.findByRole("tabpanel", { name: "Supplier MCP" })).toBeVisible();
+    expect(client.refreshTools).toHaveBeenCalledTimes(1);
   });
 
-  it("refreshes the active Server catalog when entering Tools from the sidebar", async () => {
+  it("loads the saved catalog without refreshing when entering Tools from the sidebar", async () => {
     const user = userEvent.setup();
     const client = api();
     vi.mocked(client.listConnections).mockResolvedValue([{ ...connection, status: "connected" }]);
@@ -112,13 +151,11 @@ describe("InspectorWorkbench", () => {
     await user.click(screen.getByRole("button", { name: "Tools" }));
 
     expect(await screen.findByRole("tabpanel", { name: "Supplier MCP" })).toBeVisible();
-    expect(client.refreshTools).toHaveBeenCalledTimes(1);
-    expect(client.refreshTools).toHaveBeenCalledWith(project.id, connection.id);
-    expect(await screen.findByText("Supplier MCP 的 Tool 目录已就绪")).toHaveClass("catalog-toast");
+    expect(client.refreshTools).not.toHaveBeenCalled();
     expect(screen.queryByText("已连接，目录未就绪")).not.toBeInTheDocument();
   });
 
-  it("moves to Tools and acknowledges an OAuth callback from the authorization tab", async () => {
+  it("returns to Servers after OAuth authorization and waits for a later connection before opening Tools", async () => {
     class FakeBroadcastChannel {
       static instance: FakeBroadcastChannel | null = null;
       onmessage: ((event: MessageEvent) => void) | null = null;
@@ -128,17 +165,20 @@ describe("InspectorWorkbench", () => {
     }
     vi.stubGlobal("BroadcastChannel", FakeBroadcastChannel);
     vi.spyOn(window, "focus").mockImplementation(() => undefined);
-    const client = api(); vi.mocked(client.listConnections).mockResolvedValue([{ ...connection, status: "connected" }]);
+    const authorized = { ...connection, authorizationStatus: "authorized" as const };
+    const client = api(); vi.mocked(client.listConnections).mockResolvedValue([authorized]);
     render(<InspectorWorkbench api={client} project={project} version="0.1.0" />);
     await screen.findByRole("heading", { name: "Servers", level: 1 });
-    await screen.findByRole("tab", { name: "Supplier MCP" });
 
     FakeBroadcastChannel.instance?.emit({ type: "oauth-complete", connectionId: "00000000-0000-4000-8000-000000000799" });
     expect(screen.getByRole("heading", { name: "Servers", level: 1 })).toBeVisible();
     expect(FakeBroadcastChannel.instance?.postMessage).not.toHaveBeenCalled();
     FakeBroadcastChannel.instance?.emit({ type: "oauth-complete", connectionId: connection.id });
 
-    expect(await screen.findByRole("tabpanel", { name: "Supplier MCP" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Servers", level: 1 })).toBeVisible();
+    expect(await screen.findByText("已授权")).toBeVisible();
+    expect(screen.getByText("待连接")).toBeVisible();
+    expect(screen.queryByRole("tabpanel", { name: "Supplier MCP" })).not.toBeInTheDocument();
     expect(FakeBroadcastChannel.instance?.postMessage).toHaveBeenCalledWith({
       type: "oauth-ready", connectionId: connection.id,
     });
@@ -160,10 +200,13 @@ describe("InspectorWorkbench", () => {
     expect(screen.getByRole("tabpanel", { name: "Warehouse MCP" })).toBeVisible();
     expect(client.listTools).toHaveBeenCalledWith(project.id, second.id);
     expect(client.listTools).not.toHaveBeenCalledWith(project.id, connection.id);
-    expect(client.refreshTools).toHaveBeenCalledWith(project.id, second.id);
-    expect(client.refreshTools).not.toHaveBeenCalledWith(project.id, connection.id);
-    expect(await screen.findByText("Warehouse MCP 的 Tool 目录已就绪")).toHaveAttribute("role", "status");
+    expect(client.refreshTools).not.toHaveBeenCalled();
     expect(screen.queryByText("目录已就绪", { exact: true })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Supplier MCP" }));
+    expect(await screen.findByRole("tabpanel", { name: "Supplier MCP" })).toBeVisible();
+    expect(client.listTools).toHaveBeenCalledWith(project.id, connection.id);
+    expect(client.refreshTools).not.toHaveBeenCalled();
   });
 
   it("keeps the active Server Tool catalog permanently visible and full-height", async () => {
@@ -192,5 +235,34 @@ describe("InspectorWorkbench", () => {
     fireEvent.keyDown(separator, { key: "ArrowRight" });
     expect(separator).toHaveAttribute("aria-valuenow", "312");
     expect(container.querySelector(".tools-layout")).toHaveStyle("--tool-catalog-width: 312px");
+  });
+
+  it.each([
+    ["尚未打开", "disconnected"],
+    ["已经打开", "connected"],
+  ] as const)("opens history for a Server that is %s and restores it into one new debug Tab", async (_label, status) => {
+    const user = userEvent.setup();
+    const client = api();
+    vi.mocked(client.listConnections).mockResolvedValue([{ ...connection, status }]);
+    vi.mocked(client.listTools).mockResolvedValue([historyTool.tool]);
+    vi.mocked(client.listRuns).mockResolvedValue({ runs: [historyRun], nextCursor: null });
+    vi.mocked(client.getRun).mockResolvedValue(historyRun);
+    vi.mocked(client.getTool).mockResolvedValue(historyTool);
+    vi.mocked(client.openTab).mockResolvedValue(restoredTab());
+    vi.mocked(client.updateTab).mockImplementation(async (_project, _tab, patch) => restoredTab(patch));
+    render(<InspectorWorkbench api={client} project={project} version="0.1.0" />);
+
+    await screen.findByRole("heading", { name: "Servers", level: 1 });
+    await user.click(screen.getByRole("button", { name: "运行历史" }));
+    await user.click(await screen.findByRole("button", { name: `打开运行 ${historyRun.id}` }));
+    await user.click(await screen.findByRole("button", { name: "打开调试" }));
+
+    const serverTabs = await screen.findAllByRole("tab", { name: "Supplier MCP" });
+    expect(serverTabs).toHaveLength(1);
+    expect(serverTabs[0]).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByRole("tab", { name: "sum" })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByLabelText("a")).toHaveValue(40);
+    expect(screen.getByLabelText("b")).toHaveValue(2);
+    expect(await screen.findByLabelText(`运行 ${historyRun.id} 详情`)).toBeVisible();
   });
 });

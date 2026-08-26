@@ -8,12 +8,14 @@ import { ConnectionRepository } from "./connection-repository.js";
 import type { ConnectionRecord, CreateConnectionInput, UpdateConnectionInput } from "./connection-types.js";
 import {
   createConnectionRuntime,
+  OAuthAuthorizationCompletedError,
   type ConnectionRuntime,
   type McpSessionFactory,
 } from "./connection-runtime.js";
 import { createStreamableMcpSessionFactory } from "./streamable-session.js";
 import { OAuthFlowCoordinator } from "./oauth-flow.js";
 import { normalizeCustomHeaders } from "../../shared/custom-headers.js";
+import { createServerExport, type ServerExportBundle } from "./connection-export.js";
 
 const connectionIdSchema = z.string().uuid();
 const createConnectionSchema = z.object({
@@ -22,10 +24,11 @@ const createConnectionSchema = z.object({
   transport: z.literal("streamable-http"),
   authMode: z.enum(["none", "oauth"]),
   headers: z.record(z.string(), z.string()).optional().default({}),
+  redactSensitiveInfo: z.boolean().optional().default(true),
   timeoutMs: z.number().int().min(100).max(600_000),
 }).strict();
 const updateConnectionSchema = createConnectionSchema
-  .pick({ name: true, url: true, authMode: true, headers: true, timeoutMs: true })
+  .pick({ name: true, url: true, authMode: true, headers: true, redactSensitiveInfo: true, timeoutMs: true })
   .partial()
   .strict()
   .refine((value) => Object.keys(value).length > 0);
@@ -63,10 +66,12 @@ function normalizeUrl(raw: string): string {
 export interface ConnectionService {
   create(projectId: string, input: CreateConnectionInput): ConnectionRecord;
   update(projectId: string, connectionId: string, input: UpdateConnectionInput): Promise<ConnectionRecord>;
+  get(projectId: string, connectionId: string): ConnectionRecord;
   list(projectId: string): ConnectionRecord[];
   delete(projectId: string, connectionId: string): Promise<void>;
   connect(projectId: string, connectionId: string): Promise<ConnectionRecord>;
   disconnect(projectId: string, connectionId: string): Promise<ConnectionRecord>;
+  exportData(projectId: string, connectionId: string): ServerExportBundle;
   runtime(projectId: string): ConnectionRuntime;
   close(): Promise<void>;
   completeOAuth?(params: URLSearchParams): Promise<string>;
@@ -88,12 +93,16 @@ export function createConnectionService(projects: ProjectService, options: {
   const sessionFactory = options.sessionFactory ?? createStreamableMcpSessionFactory({ oauth });
   const runtimes = new Map<string, ConnectionRuntime>();
 
-  function repository(projectId: string): ConnectionRepository {
+  function projectStore(projectId: string) {
     const store = projects.open(projectId);
     if (store.getProject().id !== projectId) {
       throw new InvalidProjectStorageError();
     }
-    return new ConnectionRepository(store);
+    return store;
+  }
+
+  function repository(projectId: string): ConnectionRepository {
+    return new ConnectionRepository(projectStore(projectId));
   }
 
   function find(projectId: string, connectionId: string): ConnectionRecord {
@@ -101,6 +110,16 @@ export function createConnectionService(projects: ProjectService, options: {
     const connection = repository(projectId).get(projectId, connectionId);
     if (connection === null) throw new ConnectionNotFoundError();
     return connection;
+  }
+
+  function present(connection: ConnectionRecord, status: ConnectionRecord["status"]): ConnectionRecord {
+    return {
+      ...connection,
+      status,
+      authorizationStatus: connection.authMode === "oauth"
+        ? oauth.authorizationStatus(connection.id)
+        : "not-required",
+    };
   }
 
   function runtime(projectId: string): ConnectionRuntime {
@@ -137,7 +156,7 @@ export function createConnectionService(projects: ProjectService, options: {
       const timestamp = now().toISOString();
       const headers = normalizeCustomHeaders(parsed.data.headers, parsed.data.authMode);
       if (headers === null) throw new InvalidConnectionError();
-      return repository(projectId).create({
+      return present(repository(projectId).create({
         ...parsed.data,
         headers,
         url: normalizeUrl(parsed.data.url),
@@ -145,15 +164,19 @@ export function createConnectionService(projects: ProjectService, options: {
         projectId,
         createdAt: timestamp,
         updatedAt: timestamp,
-      });
+      }), "disconnected");
     },
 
     list(projectId) {
       const projectRuntime = runtimes.get(projectId);
-      return repository(projectId).list(projectId).map((connection) => ({
-        ...connection,
-        status: projectRuntime?.status(connection.id) ?? "disconnected",
-      }));
+      return repository(projectId).list(projectId).map((connection) =>
+        present(connection, projectRuntime?.status(connection.id) ?? "disconnected"));
+    },
+
+    get(projectId, connectionId) {
+      const connection = find(projectId, connectionId);
+      const projectRuntime = runtimes.get(projectId);
+      return present(connection, projectRuntime?.status(connectionId) ?? "disconnected");
     },
 
     async update(projectId, connectionId, input) {
@@ -167,6 +190,7 @@ export function createConnectionService(projects: ProjectService, options: {
         transport: existing.transport,
         authMode: parsed.data.authMode ?? existing.authMode,
         headers: parsed.data.headers ?? existing.headers,
+        redactSensitiveInfo: parsed.data.redactSensitiveInfo ?? existing.redactSensitiveInfo,
       });
       if (!next.success) throw new InvalidConnectionError();
       const headers = normalizeCustomHeaders(next.data.headers, next.data.authMode);
@@ -184,12 +208,13 @@ export function createConnectionService(projects: ProjectService, options: {
         timeoutMs: next.data.timeoutMs,
         authMode: next.data.authMode,
         headers,
+        redactSensitiveInfo: next.data.redactSensitiveInfo,
         updatedAt: now().toISOString(),
         resetDiagnostics: normalizedUrl !== existing.url || next.data.timeoutMs !== existing.timeoutMs ||
           next.data.authMode !== existing.authMode || JSON.stringify(headers) !== JSON.stringify(existing.headers),
       });
       if (updated === null) throw new ConnectionNotFoundError();
-      return { ...updated, status: "disconnected" };
+      return present(updated, "disconnected");
     },
 
     async delete(projectId, connectionId) {
@@ -202,14 +227,26 @@ export function createConnectionService(projects: ProjectService, options: {
     },
 
     async connect(projectId, connectionId) {
-      await runtime(projectId).connect(connectionId);
-      return { ...find(projectId, connectionId), status: "connected" };
+      try {
+        await runtime(projectId).connect(connectionId);
+        return present(find(projectId, connectionId), "connected");
+      } catch (error) {
+        if (error instanceof OAuthAuthorizationCompletedError) {
+          return present(find(projectId, connectionId), "disconnected");
+        }
+        throw error;
+      }
     },
 
     async disconnect(projectId, connectionId) {
       find(projectId, connectionId);
       await runtime(projectId).disconnect(connectionId);
-      return { ...find(projectId, connectionId), status: "disconnected" };
+      return present(find(projectId, connectionId), "disconnected");
+    },
+
+    exportData(projectId, connectionId) {
+      const connection = find(projectId, connectionId);
+      return createServerExport(projectStore(projectId), connection, now().toISOString());
     },
 
     runtime,

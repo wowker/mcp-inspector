@@ -443,6 +443,9 @@ textarea::placeholder { color: var(--ui-text-subtle); opacity: 1; }
 .connection-status--connected { color: var(--ui-success); background: var(--ui-success-muted); }
 .connection-status--connecting { color: var(--ui-accent); background: var(--ui-accent-muted); }
 .connection-status--failed { color: var(--ui-danger); background: var(--ui-danger-muted); }
+.connection-authorization-state { color: var(--ui-text-muted); }
+.connection-status--authorized { color: var(--ui-success); background: var(--ui-success-muted); }
+.connection-status--authorizing { color: var(--ui-accent); background: var(--ui-accent-muted); }
 .connection-last-error,
 .connection-error { color: var(--ui-danger); }
 
@@ -504,6 +507,10 @@ textarea::placeholder { color: var(--ui-text-subtle); opacity: 1; }
 .connection-header-row__remove { border-color: var(--ui-border); color: var(--ui-danger); background: var(--ui-surface); }
 .connection-header-row__remove:hover:not(:disabled) { background: var(--ui-danger-muted); }
 .connection-headers__notice { color: var(--ui-warning); }
+.connection-redaction-option { border-color: var(--ui-border); background: var(--ui-surface-muted); }
+.connection-redaction-option strong { color: var(--ui-text); }
+.connection-redaction-option small { color: var(--ui-text-muted); }
+.connection-redaction-warning { color: var(--ui-danger); }
 .connection-fixed-options { border-color: var(--ui-border); background: var(--ui-surface-muted); }
 .connection-fixed-options dt { color: var(--ui-text-muted); }
 .connection-fixed-options dd { color: var(--ui-text); }

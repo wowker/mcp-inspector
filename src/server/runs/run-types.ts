@@ -18,6 +18,7 @@ export interface RunSummary {
   durationMs: number | null; networkDurationMs: number | null;
 }
 export interface RunDetail extends RunSummary {
+  redactSensitiveInfo?: boolean;
   toolSnapshotHash: string;
   protocolVersion: string | null;
   serverInfo: Record<string, unknown> | null;

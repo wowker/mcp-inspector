@@ -43,6 +43,13 @@ export class McpConnectError extends Error {
   }
 }
 
+export class OAuthAuthorizationCompletedError extends Error {
+  constructor() {
+    super("OAuth authorization completed");
+    this.name = "OAuthAuthorizationCompletedError";
+  }
+}
+
 export class McpNotConnectedError extends Error {
   constructor() {
     super("MCP connection is not active");
@@ -154,6 +161,10 @@ export function createConnectionRuntime(options: {
           return session;
         })
         .catch((error: unknown) => {
+          if (error instanceof OAuthAuthorizationCompletedError) {
+            entry.status = "disconnected";
+            throw error;
+          }
           if (error instanceof ConnectInvalidatedError) {
             entry.status = "disconnected";
             throw new McpConnectError();

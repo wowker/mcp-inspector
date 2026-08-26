@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import { createApp } from "../app.js";
 import { createRuntimeConfig } from "../config/runtime-config.js";
+import { APP_VERSION } from "../config/app-version.js";
 
 describe("createApp", () => {
   const app = createApp({
@@ -99,16 +100,38 @@ describe("OAuth callback", () => {
     expect(csp).toContain("script-src 'nonce-");
     expect(csp).not.toContain("'unsafe-inline'");
     const html = await response.text();
-    expect(html).toContain("正在返回 Tool 列表");
+    expect(html).toContain("正在返回 Server 管理");
+    expect(html).toContain("history.replaceState");
+    expect(html).toContain("MCP Inspector");
+    expect(html).toContain("oauth-status--success");
+    expect(html).toContain('aria-live="polite"');
+    expect(html).toContain("返回 MCP Inspector");
     expect(html).toContain("BroadcastChannel");
     expect(html).toContain("oauth-complete");
     expect(html).toContain("connection-1");
     expect(html).toContain("window.close()");
+    expect(html).toContain("location.assign(returnUrl)");
+    expect(html).toContain("location.replace(returnUrl)");
+    const returnPath = html.match(/\/oauth\/return\?ticket=[A-Za-z0-9_-]+/)?.[0];
+    expect(returnPath).toBeTruthy();
     const nonce = /script-src 'nonce-([^']+)'/.exec(csp)?.[1];
     expect(nonce).toBeTruthy();
     expect(html).toContain(`<script nonce="${nonce}">`);
     expect(html).not.toContain("test-session");
     expect(completeOAuth).toHaveBeenCalledOnce();
+
+    const returnResponse = await app.request(returnPath!);
+    expect(returnResponse.status).toBe(302);
+    expect(returnResponse.headers.get("Cache-Control")).toBe("no-store");
+    expect(returnResponse.headers.get("Referrer-Policy")).toBe("no-referrer");
+    expect(returnResponse.headers.get("Location")).toBe(
+      "http://127.0.0.1:5173/?session=test-session#servers",
+    );
+
+    const replayResponse = await app.request(returnPath!);
+    expect(replayResponse.status).toBe(400);
+    expect(replayResponse.headers.get("Location")).toBeNull();
+    expect(await replayResponse.text()).not.toContain("test-session");
   });
 
   test("returns a generic failure page for invalid or replayed state", async () => {
@@ -118,11 +141,22 @@ describe("OAuth callback", () => {
     });
     const response = await app.request("/oauth/callback?state=bad&error=access_denied");
     expect(response.status).toBe(400);
-    expect(await response.text()).not.toContain("secret upstream details");
+    const html = await response.text();
+    expect(html).not.toContain("secret upstream details");
+    expect(html).toContain("MCP Inspector");
+    expect(html).toContain("oauth-status--error");
+    expect(html).toContain("返回 Inspector 后重新连接");
+    expect(response.headers.get("Content-Security-Policy")).toContain("style-src 'nonce-");
   });
 });
 
 describe("createRuntimeConfig", () => {
+  test("uses the application version from package.json", () => {
+    const config = createRuntimeConfig({ sessionToken: "fixed" });
+
+    expect(config.version).toBe(APP_VERSION);
+  });
+
   test("uses separate loopback origins for the API and Vite client", () => {
     const config = createRuntimeConfig({ sessionToken: "fixed" });
 

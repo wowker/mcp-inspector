@@ -54,6 +54,28 @@ describe("createObservedFetch", () => {
     ]);
   });
 
+  it("captures original sensitive headers only when redaction is explicitly disabled", async () => {
+    const events: WireObservation[] = [];
+    const observed = createObservedFetch(
+      async () => new Response("ok", { headers: { "set-cookie": "session=response-secret" } }),
+      (event) => events.push(event),
+      { redactSensitiveInfo: false },
+    );
+
+    await observed("http://127.0.0.1/mcp", {
+      headers: { Authorization: "Bearer request-secret", Cookie: "session=request-secret" },
+    });
+
+    expect(events).toEqual([
+      expect.objectContaining({ kind: "http-request", headers: expect.objectContaining({
+        authorization: "Bearer request-secret", cookie: "session=request-secret",
+      }) }),
+      expect.objectContaining({ kind: "http-response", headers: expect.objectContaining({
+        "set-cookie": "session=response-secret",
+      }) }),
+    ]);
+  });
+
   it("parses CRLF and multiline SSE frames while ignoring invalid JSON", async () => {
     const events: WireObservation[] = [];
     const stream = "event: message\r\ndata: {\"jsonrpc\":\"2.0\",\r\ndata: \"method\":\"notice\"}\r\n\r\ndata: not-json\r\n\r\ndata: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{}}\r\n\r\n";

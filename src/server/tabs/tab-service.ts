@@ -72,7 +72,7 @@ export function createTabService(projects: ProjectService, connections: Connecti
   function fresh(projectId: string, connectionId: string, toolName: string): DebugTab {
     const id = createId(); if (!uuid.safeParse(id).success) throw new Error("Tab ID generator returned an invalid UUID");
     return { id, projectId, connectionId, toolName, title: titleFor(projectId, toolName),
-      position: repo(projectId).list(projectId).length, pinned: false, inputMode: "form", arguments: {}, rawText: "{}",
+      position: repo(projectId).list(projectId).length, pinned: false, inputMode: "form", arguments: {}, rawText: "",
       viewState: { editorScrollTop: 0, resultScrollTop: 0, splitRatio: 0.5 }, lastRunId: null };
   }
   return {
@@ -83,7 +83,7 @@ export function createTabService(projects: ProjectService, connections: Connecti
     replaceTool(projectId, id, connectionId, toolName) {
       validateTool(projectId, connectionId, toolName); const tab = existing(projectId, id);
       return repo(projectId).replace({ ...tab, connectionId, toolName, title: titleFor(projectId, toolName, id),
-        inputMode: "form", arguments: {}, rawText: "{}", lastRunId: null }, timestamp());
+        inputMode: "form", arguments: {}, rawText: "", lastRunId: null }, timestamp());
     },
     update(id, projectId, patch) {
       const tab = existing(projectId, id);

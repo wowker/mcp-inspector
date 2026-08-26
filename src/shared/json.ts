@@ -5,6 +5,7 @@ export type RawArgumentsResult =
   | { ok: false; message: string; offset: number | null };
 
 export function parseRawArguments(text: string): RawArgumentsResult {
+  if (text.trim() === "") return { ok: true, value: {} };
   try {
     const value: unknown = JSON.parse(text);
     if (typeof value !== "object" || value === null || Array.isArray(value)) {

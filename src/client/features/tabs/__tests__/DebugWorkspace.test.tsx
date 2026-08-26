@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { DebugTabSummary, InspectorApiClient, RunDetail, ToolDetailSummary } from "../../../api/api-client.js";
@@ -98,6 +99,21 @@ describe("DebugWorkspace", () => {
       onChange={onChange} onExecute={onExecute} />);
     expect(screen.getByLabelText("完整 arguments JSON")).toHaveValue('{"a":');
     expect(onExecute).not.toHaveBeenCalled();
+  });
+
+  it("shows blank Raw JSON initially and executes it as empty arguments", () => {
+    const onChange = vi.fn(); const onExecute = vi.fn();
+    const rawTab = { ...tab("00000000-0000-4000-8000-000000000621", "sum", {}),
+      inputMode: "raw" as const, rawText: "" };
+    render(<ParameterEditor tab={rawTab} schema={tool.tool.currentSnapshot.definition.inputSchema}
+      onChange={onChange} onExecute={onExecute} />);
+
+    expect(screen.getByLabelText("完整 arguments JSON")).toHaveValue("");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "执行" }));
+
+    expect(onChange).toHaveBeenCalledWith({ arguments: {}, rawText: "" });
+    expect(onExecute).toHaveBeenCalledTimes(1);
   });
 
   it("places the primary Execute action beside the parameter mode controls", () => {
@@ -211,7 +227,7 @@ describe("DebugWorkspace", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "Form" }));
 
-    expect(onChange).toHaveBeenCalledWith({ arguments: {}, rawText: "{}" });
+    expect(onChange).toHaveBeenCalledWith({ arguments: {}, rawText: "" });
     expect(onChange).toHaveBeenCalledWith({ inputMode: "form" });
   });
 
@@ -430,6 +446,37 @@ describe("DebugWorkspace", () => {
     await waitFor(() => expect(openTab).toHaveBeenCalledTimes(1));
   });
 
+  it("opens history in a new editable Tab with its request and response restored", async () => {
+    const opened = tab("00000000-0000-4000-8000-000000000633", "sum", {});
+    const run: RunDetail = {
+      id: "00000000-0000-4000-8000-000000000634", projectId, connectionId,
+      tabId: "00000000-0000-4000-8000-000000000635", toolName: "sum",
+      toolSnapshotId: tool.tool.currentSnapshot.id, toolSnapshotHash: "a".repeat(64),
+      idempotencyKey: "restore-history", status: "succeeded", createdAt: "2026-08-25T01:00:00.000Z",
+      startedAt: "2026-08-25T01:00:00.010Z", completedAt: "2026-08-25T01:00:00.020Z",
+      durationMs: 10, networkDurationMs: 8, protocolVersion: "2025-06-18", serverInfo: null,
+      clientInfo: { name: "mcp-inspector", version: "0.1.0" },
+      request: { arguments: { a: 40, b: 2 }, jsonrpc: {}, http: null },
+      response: { result: { structuredContent: { answer: 42 } }, error: null, truncated: false, originalBytes: 32 },
+      events: [],
+    };
+    const updateTab = vi.fn(async (_project: string, _id: string, patch: Partial<DebugTabSummary>) => ({ ...opened, ...patch }));
+    const api = { listTabs: vi.fn(async () => []), getTool: vi.fn(async () => tool),
+      openTab: vi.fn(async () => opened), updateTab, getRun: vi.fn(async () => run) } as unknown as InspectorApiClient;
+
+    render(<DebugWorkspace api={api} projectId={projectId} toolIntent={{
+      sequence: 1, tool: tool.tool, newTab: true, restoreRun: run,
+    }} />);
+
+    expect(await screen.findByRole("tab", { name: "sum" })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByLabelText("a")).toHaveValue(40);
+    expect(screen.getByLabelText("b")).toHaveValue(2);
+    expect(await screen.findByLabelText(`运行 ${run.id} 详情`)).toBeVisible();
+    expect(updateTab).toHaveBeenCalledWith(projectId, opened.id, {
+      arguments: run.request.arguments, rawText: '{\n  "a": 40,\n  "b": 2\n}',
+    });
+  });
+
   it("opens a new Tab when the active Tab is pinned", async () => {
     const saved = { ...tab("00000000-0000-4000-8000-000000000631", "sum", {}), pinned: true };
     const openTab = vi.fn(async () => ({ ...saved, id: "00000000-0000-4000-8000-000000000632", pinned: false, position: 1 }));
@@ -607,6 +654,34 @@ describe("DebugWorkspace", () => {
     const editor = screen.getByLabelText("完整 arguments（复杂 Schema）");
     fireEvent.change(editor, { target: { value: '{"ok":true}' } }); fireEvent.blur(editor);
     expect(onChange).toHaveBeenCalledWith({ arguments: { ok: true }, rawText: '{\n  "ok": true\n}' });
+  });
+
+  it("keeps a complex Form array and Raw JSON synchronized while editing and deleting it", () => {
+    const schema = {
+      type: "object",
+      properties: { items: { type: "array", items: { type: "string" } } },
+    };
+    function LinkedEditor() {
+      const [current, setCurrent] = useState(tab(
+        "00000000-0000-4000-8000-000000000644", "sum", { items: ["one", "two"] },
+      ));
+      return <>
+        <ParameterEditor tab={current} schema={schema}
+          onChange={(patch) => setCurrent((value) => ({ ...value, ...patch }))} />
+        <output aria-label="当前 Raw JSON">{current.rawText}</output>
+      </>;
+    }
+    render(<LinkedEditor />);
+
+    const items = screen.getByLabelText("items");
+    fireEvent.change(items, { target: { value: '["one"]' } });
+    expect(screen.getByLabelText("当前 Raw JSON")).toHaveTextContent('"items": [');
+    expect(screen.getByLabelText("当前 Raw JSON")).not.toHaveTextContent('"two"');
+
+    fireEvent.change(items, { target: { value: "" } });
+    expect(screen.getByLabelText("当前 Raw JSON")).toHaveTextContent("{}");
+    fireEvent.click(screen.getByRole("tab", { name: "Raw JSON" }));
+    expect(screen.getByLabelText("完整 arguments JSON")).toHaveValue("");
   });
 
   it("saves named Tool request parameters without leaving Debug and confirms with a toast", async () => {

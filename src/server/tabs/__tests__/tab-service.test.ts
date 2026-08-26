@@ -42,6 +42,8 @@ describe("TabService", () => {
     try {
       const first = service.open({ projectId, connectionId, toolName: "sum" });
       const second = service.open({ projectId, connectionId, toolName: "sum" });
+      expect(first).toMatchObject({ arguments: {}, rawText: "" });
+      expect(second).toMatchObject({ arguments: {}, rawText: "" });
       expect(first.id).not.toBe(second.id);
       expect(first.title).toBe("sum");
       expect(second.title).toBe("sum (2)");
@@ -51,6 +53,16 @@ describe("TabService", () => {
       });
       expect(service.get(projectId, first.id).arguments).toEqual({ a: 1, b: 2 });
       expect(service.get(projectId, second.id).arguments).toEqual({ a: 10, b: 20 });
+    } finally { projects.close(); }
+  });
+
+  it("resets Raw JSON to blank when replacing the Tool", () => {
+    const { projects, service } = fixture();
+    try {
+      const opened = service.open({ projectId, connectionId, toolName: "sum" });
+      service.update(opened.id, projectId, { inputMode: "raw", arguments: { a: 1 }, rawText: '{"a":1}' });
+      expect(service.replaceTool(projectId, opened.id, connectionId, "sum"))
+        .toMatchObject({ inputMode: "form", arguments: {}, rawText: "" });
     } finally { projects.close(); }
   });
 
@@ -116,11 +128,11 @@ describe("TabService", () => {
     } finally { projects.close(); }
   });
 
-  it("applies migrations 1-8 once and enforces Tab foreign keys", () => {
+  it("applies migrations 1-9 once and enforces Tab foreign keys", () => {
     const { dataRoot, projects } = fixture();
     const store = projects.open(projectId);
     expect(store.database.prepare("SELECT version FROM schema_migrations ORDER BY version").all())
-      .toEqual([1, 2, 3, 4, 5, 6, 7, 8].map((version) => ({ version })));
+      .toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9].map((version) => ({ version })));
     expect(() => store.database.prepare(`INSERT INTO debug_tabs
       (id, project_id, connection_id, tool_name, title, position, pinned, input_mode,
        arguments_json, raw_text, view_state_json, created_at, updated_at)

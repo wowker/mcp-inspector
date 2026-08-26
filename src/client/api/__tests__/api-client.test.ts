@@ -12,6 +12,8 @@ function validConnection(overrides: Record<string, unknown> = {}) {
     transport: "streamable-http",
     authMode: "none",
     headers: {},
+    redactSensitiveInfo: true,
+    authorizationStatus: "not-required",
     timeoutMs: 10_000,
     status: "disconnected",
     lastProtocolVersion: null,
@@ -62,6 +64,8 @@ describe("connection API response decoding", () => {
     ["invalid timeout", { connections: [validConnection({ timeoutMs: 99 })] }],
     ["invalid headers", { connections: [validConnection({ headers: { "Bad Header": "value" } })] }],
     ["non-string header", { connections: [validConnection({ headers: { "X-API-Key": 42 } })] }],
+    ["invalid redaction setting", { connections: [validConnection({ redactSensitiveInfo: "yes" })] }],
+    ["invalid authorization state", { connections: [validConnection({ authorizationStatus: "secret" })] }],
     ["invalid protocol", { connections: [validConnection({ lastProtocolVersion: 42 })] }],
     ["invalid server info", { connections: [validConnection({ lastServerInfo: [] })] }],
     ["invalid error", { connections: [validConnection({ lastError: { code: 42, message: "bad" } })] }],
@@ -118,6 +122,36 @@ describe("connection API response decoding", () => {
         name: "Fixed MCP", url: "https://fixed.example.test/mcp", timeoutMs: 20_000,
       }) }),
     );
+  });
+
+  it("downloads only a valid project-owned Server export bundle", async () => {
+    const connectionId = "00000000-0000-4000-8000-000000000602";
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      format: "mcp-inspector-server-export",
+      version: 1,
+      exportedAt: "2026-08-26T10:00:00.000Z",
+      project: { id: projectId, name: "Supplier Tools" },
+      server: { id: connectionId, name: "Catalog MCP" },
+      security: {},
+      data: {},
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    const blob = await createApiClient("session").exportConnection(projectId, connectionId);
+    expect(JSON.parse(await blob.text())).toMatchObject({
+      format: "mcp-inspector-server-export", version: 1,
+      project: { id: projectId }, server: { id: connectionId },
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/projects/${projectId}/connections/${connectionId}/export`,
+      expect.objectContaining({ headers: expect.objectContaining({ "X-MCP-Inspector-Session": "session" }) }),
+    );
+
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      format: "mcp-inspector-server-export", version: 1,
+      project: { id: "00000000-0000-4000-8000-000000000699" }, server: { id: connectionId }, data: {},
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    await expect(createApiClient("session").exportConnection(projectId, connectionId))
+      .rejects.toThrow("Invalid Server export response");
   });
 
   it("rejects a record whose equally requested project ID is not a UUID", async () => {

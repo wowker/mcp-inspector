@@ -60,35 +60,86 @@ function scriptJson(value: string): string {
     `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`);
 }
 
-function oauthSuccessPage(connectionId: string, nonce: string): string {
+const oauthPageStyles = `:root{color-scheme:light;--canvas:#fbfbfa;--surface:#fff;--border:#e7e6e2;--text:#2f3437;--muted:#787774;--action:#222423;--action-hover:#3a3d3b;--action-text:#fff;--success:#346538;--success-bg:#edf3ec;--danger:#9f2f2d;--danger-bg:#fdebec;font-family:"SF Pro Display",-apple-system,BlinkMacSystemFont,"Helvetica Neue","Noto Sans SC",sans-serif}[data-color-mode="dark"]{color-scheme:dark;--canvas:#191918;--surface:#20201f;--border:#363633;--text:#f2f1ed;--muted:#aaa8a1;--action:#f0efeb;--action-hover:#fff;--action-text:#222423;--success:#91bc93;--success-bg:#263529;--danger:#e99a98;--danger-bg:#422827}*{box-sizing:border-box}body{min-width:320px;min-height:100dvh;margin:0;display:grid;place-items:center;padding:24px;background:var(--canvas);color:var(--text)}.oauth-status{width:min(420px,100%);padding:28px;border:1px solid var(--border);border-radius:8px;background:var(--surface)}.oauth-brand{display:flex;align-items:center;gap:10px;margin-bottom:28px}.oauth-brand__mark{display:grid;width:32px;height:32px;place-items:center;border-radius:6px;background:var(--text);color:var(--surface);font-weight:750}.oauth-brand strong{display:block;font-size:14px}.oauth-brand small{display:block;color:var(--muted);font-size:11px}.oauth-icon{display:grid;width:38px;height:38px;place-items:center;margin-bottom:16px;border-radius:50%;font-size:20px;font-weight:750}.oauth-status--success .oauth-icon{color:var(--success);background:var(--success-bg)}.oauth-status--error .oauth-icon{color:var(--danger);background:var(--danger-bg)}h1{margin:0 0 8px;font-size:21px;line-height:1.3;letter-spacing:-.02em}p{margin:0;color:var(--muted);font-size:14px;line-height:1.65}.oauth-actions{display:flex;align-items:center;gap:14px;margin-top:22px}button{min-height:34px;padding:6px 12px;border:0;border-radius:6px;background:var(--action);color:var(--action-text);font:inherit;font-weight:650;cursor:pointer}button:hover{background:var(--action-hover)}button:focus-visible{outline:2px solid var(--text);outline-offset:2px}.oauth-hint{font-size:12px}@media(max-width:480px){body{padding:16px}.oauth-status{padding:22px}.oauth-actions{align-items:stretch;flex-direction:column}.oauth-actions button{width:100%}}`;
+
+const OAUTH_RETURN_TICKET_TTL_MS = 60_000;
+
+function oauthSuccessPage(connectionId: string, returnUrl: string, nonce: string): string {
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OAuth 授权成功</title>
-<style nonce="${nonce}">:root{color-scheme:light dark;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}body{min-height:100vh;margin:0;display:grid;place-items:center;background:#f6f8fa;color:#1f2328}main{width:min(440px,calc(100% - 40px));padding:32px;border:1px solid #d1d9e0;border-radius:12px;background:#fff;box-shadow:0 16px 40px rgb(31 35 40 / 12%)}i{display:grid;width:40px;height:40px;place-items:center;border-radius:50%;background:#dafbe1;color:#1a7f37;font-style:normal;font-weight:800}h1{margin:18px 0 8px;font-size:22px}p{margin:0 0 22px;color:#59636e;line-height:1.6}button{min-height:38px;padding:7px 14px;border:0;border-radius:6px;background:#6842d9;color:#fff;font:inherit;font-weight:650;cursor:pointer}@media(prefers-color-scheme:dark){body{background:#0d1117;color:#f0f6fc}main{border-color:#30363d;background:#161b22}p{color:#8b949e}}</style></head>
-<body><main><i aria-hidden="true">✓</i><h1>授权成功</h1><p id="status">正在返回 Tool 列表…</p><button id="return" type="button">返回 Tool 列表</button></main>
-<script nonce="${nonce}">(()=>{const connectionId=${scriptJson(connectionId)};const channelName=${scriptJson(OAUTH_CHANNEL)};const status=document.getElementById("status");let channel=null;let closed=false;
-const finish=()=>{if(closed)return;closed=true;if(status)status.textContent="Tool 列表已在 Inspector 中打开。";try{window.close()}catch{}setTimeout(()=>{if(status)status.textContent="授权已完成，请返回 MCP Inspector 的 Tool 列表。"},400)};
-try{if(typeof BroadcastChannel==="function"){channel=new BroadcastChannel(channelName);channel.onmessage=(event)=>{if(event.data?.type==="oauth-ready"&&event.data.connectionId===connectionId)finish()};channel.postMessage({type:"oauth-complete",connectionId})}}catch{}
-try{window.opener?.postMessage({type:"oauth-complete",connectionId},location.origin)}catch{}
-document.getElementById("return")?.addEventListener("click",finish);setTimeout(finish,1500)})();</script></body></html>`;
+<style nonce="${nonce}">${oauthPageStyles}</style></head>
+<body><main class="oauth-status oauth-status--success"><div class="oauth-brand"><span class="oauth-brand__mark" aria-hidden="true">M</span><span><strong>MCP Inspector</strong><small>OAuth callback</small></span></div><span class="oauth-icon" aria-hidden="true">✓</span><h1>OAuth 授权完成</h1><p id="status" aria-live="polite">正在返回 Server 管理…</p><div class="oauth-actions"><button id="return" type="button">返回 MCP Inspector</button><span class="oauth-hint">此页面稍后会自动关闭</span></div></main>
+<script nonce="${nonce}">(()=>{try{const saved=localStorage.getItem("mcp-inspector-theme");document.documentElement.dataset.colorMode=saved==="dark"?"dark":"light"}catch{}try{history.replaceState(null,"","/oauth/callback")}catch{}const connectionId=${scriptJson(connectionId)};const returnUrl=${scriptJson(returnUrl)};const channelName=${scriptJson(OAUTH_CHANNEL)};const status=document.getElementById("status");let channel=null;let notified=false;
+const notify=()=>{if(notified)return;notified=true;try{channel?.postMessage({type:"oauth-complete",connectionId})}catch{}try{window.opener?.postMessage({type:"oauth-complete",connectionId},location.origin)}catch{}};
+const navigate=()=>{location.assign(returnUrl)};
+const finish=()=>{notify();if(status)status.textContent="授权完成，正在返回 Server 管理…";try{window.opener?.focus()}catch{}try{window.close()}catch{}setTimeout(()=>{location.replace(returnUrl)},300)};
+try{if(typeof BroadcastChannel==="function"){channel=new BroadcastChannel(channelName);channel.onmessage=(event)=>{if(event.data?.type==="oauth-ready"&&event.data.connectionId===connectionId)finish()}}}catch{}notify();document.getElementById("return")?.addEventListener("click",()=>{notify();navigate()});setTimeout(finish,1500)})();</script></body></html>`;
+}
+
+function oauthFailurePage(nonce: string): string {
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OAuth 授权失败</title><style nonce="${nonce}">${oauthPageStyles}</style></head><body><main class="oauth-status oauth-status--error"><div class="oauth-brand"><span class="oauth-brand__mark" aria-hidden="true">M</span><span><strong>MCP Inspector</strong><small>OAuth callback</small></span></div><span class="oauth-icon" aria-hidden="true">!</span><h1>OAuth 授权失败</h1><p>授权请求已失效或被取消，请返回 Inspector 后重新连接。</p></main><script nonce="${nonce}">try{const saved=localStorage.getItem("mcp-inspector-theme");document.documentElement.dataset.colorMode=saved==="dark"?"dark":"light"}catch{}try{history.replaceState(null,"","/oauth/callback")}catch{}</script></body></html>`;
 }
 
 export function createApp(deps: AppDependencies): Hono {
   const app = new Hono();
+  const oauthReturnTickets = new Map<string, number>();
+
+  const issueOAuthReturnTicket = (): string => {
+    const now = Date.now();
+    for (const [ticket, expiresAt] of oauthReturnTickets) {
+      if (expiresAt <= now) oauthReturnTickets.delete(ticket);
+    }
+    const ticket = randomBytes(32).toString("base64url");
+    oauthReturnTickets.set(ticket, now + OAUTH_RETURN_TICKET_TTL_MS);
+    return ticket;
+  };
+
+  const consumeOAuthReturnTicket = (ticket: string): boolean => {
+    const expiresAt = oauthReturnTickets.get(ticket);
+    oauthReturnTickets.delete(ticket);
+    return expiresAt !== undefined && expiresAt > Date.now();
+  };
 
   app.get("/oauth/callback", async (context) => {
     if (deps.connections?.completeOAuth === undefined) return context.text("OAuth callback is unavailable", 404);
     try {
       const connectionId = await deps.connections.completeOAuth(new URL(context.req.url).searchParams);
       const nonce = randomBytes(18).toString("base64");
-      return context.html(oauthSuccessPage(connectionId, nonce), 200, {
+      const returnTicket = issueOAuthReturnTicket();
+      const returnUrl = `/oauth/return?ticket=${encodeURIComponent(returnTicket)}`;
+      return context.html(oauthSuccessPage(connectionId, returnUrl, nonce), 200, {
         "Cache-Control": "no-store", "Content-Security-Policy": `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; base-uri 'none'; frame-ancestors 'none'`,
         "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff",
       });
     } catch {
-      return context.html("<!doctype html><meta charset=utf-8><title>授权失败</title><main><h1>授权失败</h1><p>授权请求已失效，请返回 Inspector 后重新连接。</p></main>", 400, {
-        "Cache-Control": "no-store", "Content-Security-Policy": "default-src 'none'",
+      const nonce = randomBytes(18).toString("base64");
+      return context.html(oauthFailurePage(nonce), 400, {
+        "Cache-Control": "no-store", "Content-Security-Policy": `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; base-uri 'none'; frame-ancestors 'none'`,
         "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff",
       });
     }
+  });
+
+  app.get("/oauth/return", (context) => {
+    const ticket = context.req.query("ticket") ?? "";
+    const responseHeaders = {
+      "Cache-Control": "no-store",
+      "Referrer-Policy": "no-referrer",
+      "X-Content-Type-Options": "nosniff",
+    };
+    if (!consumeOAuthReturnTicket(ticket)) {
+      return context.text("OAuth return link is invalid or expired", 400, responseHeaders);
+    }
+
+    const allowedOrigin = typeof deps.allowedOrigin === "function"
+      ? deps.allowedOrigin()
+      : deps.allowedOrigin;
+    const destination = new URL("/", allowedOrigin);
+    destination.searchParams.set("session", deps.sessionToken);
+    destination.hash = "servers";
+    return context.body(null, 302, {
+      ...responseHeaders,
+      Location: destination.toString(),
+    });
   });
 
   app.use(

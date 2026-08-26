@@ -72,12 +72,14 @@ interface ConnectionFormDialogProps {
   timeoutMs: string;
   authMode: "none" | "oauth";
   headers: ConnectionHeaderDraft[];
+  redactSensitiveInfo: boolean;
   submitting: boolean;
   error: string | null;
   onNameChange: (value: string) => void;
   onUrlChange: (value: string) => void;
   onTimeoutChange: (value: string) => void;
   onAuthModeChange: (value: "none" | "oauth") => void;
+  onRedactSensitiveInfoChange: (value: boolean) => void;
   onAddHeader: () => void;
   onHeaderChange: (id: number, field: "name" | "value", value: string) => void;
   onRemoveHeader: (id: number) => void;
@@ -86,9 +88,9 @@ interface ConnectionFormDialogProps {
 }
 
 export function ConnectionFormDialog({
-  mode, name, url, timeoutMs, authMode, headers, submitting, error,
+  mode, name, url, timeoutMs, authMode, headers, redactSensitiveInfo, submitting, error,
   onNameChange, onUrlChange, onTimeoutChange, onAuthModeChange,
-  onAddHeader, onHeaderChange, onRemoveHeader, onSubmit, onClose,
+  onRedactSensitiveInfoChange, onAddHeader, onHeaderChange, onRemoveHeader, onSubmit, onClose,
 }: ConnectionFormDialogProps) {
   const nameInput = useRef<HTMLInputElement>(null);
   const title = mode === "create" ? "添加连接" : "编辑连接";
@@ -219,6 +221,14 @@ export function ConnectionFormDialog({
             <p className="connection-headers__notice">OAuth 模式下 Authorization 由授权流程自动管理。</p>
           )}
         </section>
+        <label className="connection-redaction-option">
+          <input type="checkbox" aria-label="信息脱敏" checked={redactSensitiveInfo} disabled={submitting}
+            onChange={(event) => onRedactSensitiveInfoChange(event.target.checked)} />
+          <span><strong>信息脱敏</strong><small>隐藏 Authorization、Cookie、API Key 等敏感 HTTP Header。</small></span>
+        </label>
+        {!redactSensitiveInfo && <p role="alert" className="connection-redaction-warning">
+          关闭后，敏感 Header 将以原文写入本地 SQLite 运行记录，并显示在调用详情中。
+        </p>}
         <dl className="connection-fixed-options">
           <div><dt>传输方式</dt><dd>Streamable HTTP</dd></div>
         </dl>

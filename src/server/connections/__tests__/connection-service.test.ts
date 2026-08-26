@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createProjectService, type ProjectService } from "../../projects/project-service.js";
 import { createConnectionService } from "../connection-service.js";
 import { FakeMcpSession } from "../../../../test-support/fake-mcp-session.js";
+import { OAuthAuthorizationCompletedError } from "../connection-runtime.js";
 
 describe("ConnectionService", () => {
   const dataRoots: string[] = [];
@@ -16,6 +17,27 @@ describe("ConnectionService", () => {
     for (const dataRoot of dataRoots.splice(0)) {
       rmSync(dataRoot, { recursive: true, force: true });
     }
+  });
+
+  it("returns an OAuth authorization-only attempt as disconnected instead of failed", async () => {
+    const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-connections-"));
+    dataRoots.push(dataRoot);
+    projects = createProjectService({ dataRoot });
+    const project = projects.create("OAuth authorization only");
+    const service = createConnectionService(projects, {
+      createId: () => "00000000-0000-4000-8000-000000000222",
+      sessionFactory: async () => { throw new OAuthAuthorizationCompletedError(); },
+    });
+    const connection = service.create(project.id, {
+      name: "OAuth MCP", url: "https://mcp.example.test/mcp", transport: "streamable-http",
+      authMode: "oauth", timeoutMs: 10_000,
+    });
+
+    await expect(service.connect(project.id, connection.id)).resolves.toEqual(expect.objectContaining({
+      status: "disconnected",
+      lastError: null,
+    }));
+    expect(service.get(project.id, connection.id).status).toBe("disconnected");
   });
 
   it("persists a disconnected Streamable HTTP connection and rejects non-HTTP URLs", () => {
@@ -41,6 +63,7 @@ describe("ConnectionService", () => {
       projectId: project.id,
       name: "Catalog MCP",
       status: "disconnected",
+      redactSensitiveInfo: true,
     }));
     expect(() => service.create(project.id, {
       name: "Local process",
@@ -49,6 +72,28 @@ describe("ConnectionService", () => {
       authMode: "none",
       timeoutMs: 10_000,
     })).toThrow(/http or https/i);
+  });
+
+  it("defaults sensitive information redaction on and persists an explicit opt-out", async () => {
+    const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-connections-"));
+    dataRoots.push(dataRoot);
+    projects = createProjectService({ dataRoot });
+    const project = projects.create("Sensitive trace settings");
+    const service = createConnectionService(projects, {
+      createId: () => "00000000-0000-4000-8000-000000000221",
+    });
+    const created = service.create(project.id, {
+      name: "Private MCP", url: "https://mcp.example.test/mcp", transport: "streamable-http",
+      authMode: "none", timeoutMs: 10_000,
+    });
+
+    expect(created.redactSensitiveInfo).toBe(true);
+    await expect(service.update(project.id, created.id, { redactSensitiveInfo: false }))
+      .resolves.toEqual(expect.objectContaining({ redactSensitiveInfo: false }));
+
+    projects.close();
+    projects = createProjectService({ dataRoot });
+    expect(createConnectionService(projects).list(project.id)[0]?.redactSensitiveInfo).toBe(false);
   });
 
   it("persists validated custom headers, supplies them to the runtime, and replaces them on edit", async () => {

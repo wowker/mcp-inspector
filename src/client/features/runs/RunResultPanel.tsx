@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import { ArrowsOutSimple, Question, X } from "@phosphor-icons/react";
+import { ArrowsOutSimple, Question, Wrench, X } from "@phosphor-icons/react";
 import type { RunDetail, RunEvent } from "../../api/api-client.js";
 import { JsonViewer, parseJsonDocument } from "./JsonViewer.js";
 
@@ -28,12 +28,17 @@ function canonicalJsonText(value: unknown): string | null {
   catch { return null; }
 }
 
-function CopyButton({ value, label = "复制", className }: { value: unknown; label?: string; className?: string }) {
+function CopyButton({ value, label = "复制", className, onCopied }: {
+  value: unknown;
+  label?: string;
+  className?: string;
+  onCopied?: () => void;
+}) {
   const [error, setError] = useState(false);
   async function copy(): Promise<void> {
     try {
       if (navigator.clipboard?.writeText === undefined) throw new Error("Clipboard unavailable");
-      await navigator.clipboard.writeText(typeof value === "string" ? value : json(value)); setError(false);
+      await navigator.clipboard.writeText(typeof value === "string" ? value : json(value)); setError(false); onCopied?.();
     } catch { setError(true); }
   }
   return <span className="copy-control"><button type="button" className={className ?? "run-result-action"} onClick={() => void copy()}>{label}</button>
@@ -42,8 +47,10 @@ function CopyButton({ value, label = "复制", className }: { value: unknown; la
 
 function JsonDialogButton({ value, label }: { value: unknown; label: string }) {
   const [open, setOpen] = useState(false);
+  const [copyNotice, setCopyNotice] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -53,7 +60,25 @@ function JsonDialogButton({ value, label }: { value: unknown; label: string }) {
     return () => { document.body.style.overflow = previousOverflow; };
   }, [open]);
 
+  useEffect(() => () => {
+    if (noticeTimerRef.current !== null) clearTimeout(noticeTimerRef.current);
+  }, []);
+
+  function showCopyNotice(): void {
+    if (noticeTimerRef.current !== null) clearTimeout(noticeTimerRef.current);
+    setCopyNotice(true);
+    noticeTimerRef.current = setTimeout(() => {
+      setCopyNotice(false);
+      noticeTimerRef.current = null;
+    }, 2_000);
+  }
+
   function close(): void {
+    if (noticeTimerRef.current !== null) {
+      clearTimeout(noticeTimerRef.current);
+      noticeTimerRef.current = null;
+    }
+    setCopyNotice(false);
     setOpen(false);
     triggerRef.current?.focus();
   }
@@ -79,13 +104,17 @@ function JsonDialogButton({ value, label }: { value: unknown; label: string }) {
       <section className="json-inspector-dialog" role="dialog" aria-modal="true" aria-labelledby="json-inspector-title"
         onKeyDown={handleDialogKeyDown}>
         <header className="json-inspector-dialog__header">
-          <div><span>JSON VIEWER</span><h2 id="json-inspector-title">{label}</h2></div>
-          <button ref={closeRef} type="button" className="json-inspector-dialog__close"
-            aria-label="关闭 JSON 查看器" onClick={close}><X size={20} weight="bold" aria-hidden="true" /></button>
+          <div><span className="json-inspector-dialog__eyebrow">JSON VIEWER</span><h2 id="json-inspector-title">{label}</h2></div>
+          <div className="json-inspector-dialog__actions">
+            <CopyButton value={value} onCopied={showCopyNotice} />
+            <button ref={closeRef} type="button" className="json-inspector-dialog__close"
+              aria-label="关闭 JSON 查看器" onClick={close}><X size={20} weight="bold" aria-hidden="true" /></button>
+          </div>
         </header>
         <div className="json-inspector-dialog__content">
           <JsonViewer value={value} label={`${label} JSON`} defaultExpanded="all" />
         </div>
+        {copyNotice && <div className="copy-toast" role="status" aria-live="polite">JSON 已复制</div>}
       </section>
     </div>, document.body)}
   </span>;
@@ -231,7 +260,12 @@ function formatDuration(durationMs: number): string {
   return durationMs < 1_000 ? `${durationMs} ms` : `${(durationMs / 1_000).toFixed(2)} s`;
 }
 
-export function RunResultPanel({ run, onSaveResponse }: { run: RunDetail; onSaveResponse?: (response: NonNullable<RunDetail["response"]>) => void }) {
+export function RunResultPanel({ run, onSaveResponse, onOpenDebug, openingDebug = false }: {
+  run: RunDetail;
+  onSaveResponse?: (response: NonNullable<RunDetail["response"]>) => void;
+  onOpenDebug?: (run: RunDetail) => void;
+  openingDebug?: boolean;
+}) {
   const [view, setView] = useState<View>("overview");
   const [requestOpen, setRequestOpen] = useState(true);
   const [responseOpen, setResponseOpen] = useState(true);
@@ -258,7 +292,9 @@ export function RunResultPanel({ run, onSaveResponse }: { run: RunDetail; onSave
   });
   const requestHttp = typeof run.request.http === "object" && run.request.http !== null && !Array.isArray(run.request.http)
     ? run.request.http as Record<string, unknown> : null;
-  const safeRequestHttp = requestHttp === null ? null : { ...requestHttp, headers: redactHeaders(requestHttp.headers) };
+  const shouldRedact = run.redactSensitiveInfo !== false;
+  const visibleHeaders = (headers: unknown) => shouldRedact ? redactHeaders(headers) : headers;
+  const safeRequestHttp = requestHttp === null ? null : { ...requestHttp, headers: visibleHeaders(requestHttp.headers) };
   const origin = Date.parse(run.createdAt);
   return <article className="run-result" aria-label={`运行 ${run.id} 详情`}>
     <div className="run-result__sticky-header">
@@ -266,6 +302,9 @@ export function RunResultPanel({ run, onSaveResponse }: { run: RunDetail; onSave
         <span>{run.durationMs === null ? "总耗时未记录" : `总耗时 ${formatDuration(run.durationMs)}`}</span>
         {run.networkDurationMs !== null && <span>网络耗时 {formatDuration(run.networkDurationMs)}</span>}</div>
         <div className="run-result-actions">{run.response !== null && onSaveResponse !== undefined && <button type="button" className="run-result-action" onClick={() => onSaveResponse(run.response!)}>保存响应</button>}
+          {onOpenDebug !== undefined && <button type="button" className="run-result-action" disabled={openingDebug} onClick={() => onOpenDebug(run)}>
+            <Wrench size={15} weight="bold" aria-hidden="true" />{openingDebug ? "打开中…" : "打开调试"}
+          </button>}
           <CopyButton value={run.response} label="复制全部结果" className="run-result-action" /></div></header>
       {run.response?.truncated && <p role="status" className="truncated-warning">结果已截断（原始大小 {run.response.originalBytes ?? "未知"} bytes），以下仅为安全预览。</p>}
       <div role="tablist" aria-label="运行结果视图" className="result-tabs" onKeyDown={(event) => {
@@ -309,8 +348,8 @@ export function RunResultPanel({ run, onSaveResponse }: { run: RunDetail; onSave
         <JsonValue key={event.sequence} value={payloadRecord(event)?.message ?? event.payload} label={`#${event.sequence} ${event.kind}`} />)}</div>}
       {view === "http" && <div className="trace-list">{httpExchanges(ordered).map((exchange) => {
         const request = exchange.request === undefined ? null : payloadRecord(exchange.request); const response = exchange.response === undefined ? null : payloadRecord(exchange.response);
-        const safe = { request: request === null ? null : { ...request, headers: redactHeaders(request.headers) },
-          response: response === null ? null : { ...response, headers: redactHeaders(response.headers) } };
+        const safe = { request: request === null ? null : { ...request, headers: visibleHeaders(request.headers) },
+          response: response === null ? null : { ...response, headers: visibleHeaders(response.headers) } };
         return <section className="http-exchange" key={exchange.key}><div className="block-toolbar"><strong>{request === null ? "未知请求" : `${String(request.method)} ${String(request.url)}`}
           {response === null ? "" : ` → ${String(response.status)}`}</strong><CopyButton value={safe} /></div><JsonViewer value={safe} label="HTTP 交换 JSON" /></section>;
       })}</div>}

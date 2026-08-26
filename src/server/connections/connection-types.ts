@@ -1,4 +1,5 @@
 export type ConnectionStatus = "disconnected" | "connecting" | "connected" | "failed";
+export type AuthorizationStatus = "not-required" | "required" | "authorizing" | "authorized";
 
 export interface ConnectionError {
   code: string;
@@ -13,6 +14,8 @@ export interface ConnectionRecord {
   transport: "streamable-http";
   authMode: "none" | "oauth";
   headers: Record<string, string>;
+  redactSensitiveInfo: boolean;
+  authorizationStatus?: AuthorizationStatus;
   timeoutMs: number;
   status: ConnectionStatus;
   lastProtocolVersion: string | null;
@@ -26,8 +29,9 @@ export interface CreateConnectionInput {
   transport: "streamable-http";
   authMode: "none" | "oauth";
   headers?: Record<string, string>;
+  redactSensitiveInfo?: boolean;
   timeoutMs: number;
 }
 
 export type UpdateConnectionInput = Partial<Pick<CreateConnectionInput,
-  "name" | "url" | "authMode" | "headers" | "timeoutMs">>;
+  "name" | "url" | "authMode" | "headers" | "redactSensitiveInfo" | "timeoutMs">>;

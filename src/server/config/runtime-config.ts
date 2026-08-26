@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { APP_VERSION } from "./app-version.js";
 
 export interface RuntimeConfig {
   host: "127.0.0.1";
@@ -31,6 +32,6 @@ export function createRuntimeConfig(
     port,
     allowedOrigin: overrides.allowedOrigin ?? "http://127.0.0.1:5173",
     sessionToken: overrides.sessionToken ?? randomBytes(32).toString("base64url"),
-    version: overrides.version ?? "0.1.0",
+    version: overrides.version ?? APP_VERSION,
   };
 }

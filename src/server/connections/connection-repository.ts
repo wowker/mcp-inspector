@@ -10,6 +10,7 @@ interface ConnectionRow {
   transport: string;
   auth_mode: string;
   headers_json: string;
+  redact_sensitive_info: number;
   timeout_ms: number;
   last_protocol_version: string | null;
   last_server_info_json: string | null;
@@ -52,6 +53,7 @@ function toRecord(row: ConnectionRow): ConnectionRecord {
     transport: row.transport,
     authMode: row.auth_mode,
     headers: normalizedHeaders,
+    redactSensitiveInfo: row.redact_sensitive_info === 1,
     timeoutMs: row.timeout_ms,
     status: "disconnected",
     lastProtocolVersion: row.last_protocol_version,
@@ -61,7 +63,7 @@ function toRecord(row: ConnectionRow): ConnectionRecord {
 }
 
 const columns = `
-  id, project_id, name, url, transport, auth_mode, headers_json, timeout_ms,
+  id, project_id, name, url, transport, auth_mode, headers_json, redact_sensitive_info, timeout_ms,
   last_protocol_version, last_server_info_json, last_error_json
 `;
 
@@ -76,8 +78,8 @@ export class ConnectionRepository {
   }): ConnectionRecord {
     this.store.database.prepare(`
       INSERT INTO connections (
-        id, project_id, name, url, transport, auth_mode, headers_json, timeout_ms, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, project_id, name, url, transport, auth_mode, headers_json, redact_sensitive_info, timeout_ms, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       connection.id,
       connection.projectId,
@@ -86,6 +88,7 @@ export class ConnectionRepository {
       connection.transport,
       connection.authMode,
       JSON.stringify(connection.headers ?? {}),
+      Number(connection.redactSensitiveInfo ?? true),
       connection.timeoutMs,
       connection.createdAt,
       connection.updatedAt,
@@ -113,13 +116,13 @@ export class ConnectionRepository {
     return row === undefined ? null : toRecord(row);
   }
 
-  update(connection: Pick<ConnectionRecord, "id" | "projectId" | "name" | "url" | "authMode" | "headers" | "timeoutMs"> & {
+  update(connection: Pick<ConnectionRecord, "id" | "projectId" | "name" | "url" | "authMode" | "headers" | "redactSensitiveInfo" | "timeoutMs"> & {
     updatedAt: string;
     resetDiagnostics: boolean;
   }): ConnectionRecord | null {
     const result = this.store.database.prepare(`
       UPDATE connections
-      SET name = ?, url = ?, auth_mode = ?, headers_json = ?, timeout_ms = ?, updated_at = ?,
+      SET name = ?, url = ?, auth_mode = ?, headers_json = ?, redact_sensitive_info = ?, timeout_ms = ?, updated_at = ?,
           last_protocol_version = CASE WHEN ? THEN NULL ELSE last_protocol_version END,
           last_server_info_json = CASE WHEN ? THEN NULL ELSE last_server_info_json END,
           last_error_json = CASE WHEN ? THEN NULL ELSE last_error_json END
@@ -129,6 +132,7 @@ export class ConnectionRepository {
       connection.url,
       connection.authMode,
       JSON.stringify(connection.headers),
+      Number(connection.redactSensitiveInfo),
       connection.timeoutMs,
       connection.updatedAt,
       Number(connection.resetDiagnostics),

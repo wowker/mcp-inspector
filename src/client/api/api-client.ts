@@ -17,6 +17,8 @@ export interface ConnectionSummary {
   transport: "streamable-http";
   authMode: "none" | "oauth";
   headers: Record<string, string>;
+  redactSensitiveInfo: boolean;
+  authorizationStatus: "not-required" | "required" | "authorizing" | "authorized";
   timeoutMs: number;
   status: "disconnected" | "connecting" | "connected" | "failed";
   lastProtocolVersion: string | null;
@@ -30,11 +32,12 @@ export interface CreateConnectionRequest {
   transport: "streamable-http";
   authMode: "none" | "oauth";
   headers?: Record<string, string>;
+  redactSensitiveInfo?: boolean;
   timeoutMs: number;
 }
 
 export type UpdateConnectionRequest = Partial<Pick<CreateConnectionRequest,
-  "name" | "url" | "authMode" | "headers" | "timeoutMs">>;
+  "name" | "url" | "authMode" | "headers" | "redactSensitiveInfo" | "timeoutMs">>;
 
 export interface ToolSnapshotSummary {
   id: string;
@@ -97,6 +100,7 @@ export interface RunSummary {
   durationMs: number | null; networkDurationMs: number | null;
 }
 export interface RunDetail extends RunSummary {
+  redactSensitiveInfo?: boolean;
   toolSnapshotHash: string;
   protocolVersion: string | null;
   serverInfo: Record<string, unknown> | null;
@@ -130,6 +134,7 @@ export interface InspectorApiClient {
   listConnections(projectId: string): Promise<ConnectionSummary[]>;
   createConnection(projectId: string, input: CreateConnectionRequest): Promise<ConnectionSummary>;
   updateConnection(projectId: string, connectionId: string, input: UpdateConnectionRequest): Promise<ConnectionSummary>;
+  exportConnection(projectId: string, connectionId: string): Promise<Blob>;
   deleteConnection(projectId: string, connectionId: string): Promise<void>;
   connectConnection(projectId: string, connectionId: string): Promise<ConnectionSummary>;
   disconnectConnection(projectId: string, connectionId: string): Promise<ConnectionSummary>;
@@ -191,6 +196,15 @@ function isNullableObject(value: unknown): value is Record<string, unknown> | nu
   return value === null || isObject(value);
 }
 
+function decodeServerExport(value: unknown, projectId: string, connectionId: string): Record<string, unknown> {
+  if (!isObject(value) || value.format !== "mcp-inspector-server-export" || value.version !== 1 ||
+      !isCanonicalUtcTimestamp(value.exportedAt) || !isObject(value.project) || value.project.id !== projectId ||
+      !isObject(value.server) || value.server.id !== connectionId || !isObject(value.security) || !isObject(value.data)) {
+    throw new Error("Invalid Server export response");
+  }
+  return value;
+}
+
 function isConnectionStatus(value: unknown): value is ConnectionSummary["status"] {
   return value === "disconnected" || value === "connecting" ||
     value === "connected" || value === "failed";
@@ -206,6 +220,8 @@ function decodeConnection(value: unknown, projectId: string): ConnectionSummary 
     transport,
     authMode,
     headers,
+    redactSensitiveInfo,
+    authorizationStatus,
     timeoutMs,
     status,
     lastProtocolVersion,
@@ -235,7 +251,9 @@ function decodeConnection(value: unknown, projectId: string): ConnectionSummary 
     transport !== "streamable-http" || (authMode !== "none" && authMode !== "oauth") || !isConnectionStatus(status) ||
     typeof timeoutMs !== "number" || !Number.isInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 600_000 ||
     !(lastProtocolVersion === null || typeof lastProtocolVersion === "string") ||
-    !isNullableObject(lastServerInfo) || !validError || normalizedHeaders === null
+    !isNullableObject(lastServerInfo) || !validError || normalizedHeaders === null || typeof redactSensitiveInfo !== "boolean" ||
+    !((authMode === "none" && authorizationStatus === "not-required") ||
+      (authMode === "oauth" && (authorizationStatus === "required" || authorizationStatus === "authorizing" || authorizationStatus === "authorized")))
   ) {
     throw new Error("Invalid connection response");
   }
@@ -247,6 +265,8 @@ function decodeConnection(value: unknown, projectId: string): ConnectionSummary 
     transport,
     authMode,
     headers: normalizedHeaders,
+    redactSensitiveInfo,
+    authorizationStatus,
     timeoutMs,
     status,
     lastProtocolVersion,
@@ -470,6 +490,7 @@ function decodeRunDetail(value: unknown, projectId: string): RunDetail {
   if (!isObject(value) || !isObject(value.run)) throw new Error("Invalid Run response");
   const raw = value.run; const base = decodeRunSummary(raw, projectId);
   if (typeof raw.toolSnapshotHash !== "string" || !/^[a-f0-9]{64}$/.test(raw.toolSnapshotHash) ||
+      !(raw.redactSensitiveInfo === undefined || typeof raw.redactSensitiveInfo === "boolean") ||
       !(raw.protocolVersion === null || typeof raw.protocolVersion === "string") || !isNullableObject(raw.serverInfo) ||
       !isObject(raw.clientInfo) || !isObject(raw.request) || !isObject(raw.request.arguments) ||
       !("jsonrpc" in raw.request) || !("http" in raw.request) || !Array.isArray(raw.events)) throw new Error("Invalid Run response");
@@ -486,7 +507,8 @@ function decodeRunDetail(value: unknown, projectId: string): RunDetail {
       error: raw.response.error === null ? null : { code: raw.response.error.code as string, message: raw.response.error.message as string },
       truncated: raw.response.truncated, originalBytes: raw.response.originalBytes as number | null };
   }
-  return { ...base, toolSnapshotHash: raw.toolSnapshotHash, protocolVersion: raw.protocolVersion as string | null,
+  return { ...base, redactSensitiveInfo: raw.redactSensitiveInfo !== false,
+    toolSnapshotHash: raw.toolSnapshotHash, protocolVersion: raw.protocolVersion as string | null,
     serverInfo: raw.serverInfo as Record<string, unknown> | null, clientInfo: raw.clientInfo,
     request: { arguments: raw.request.arguments, jsonrpc: raw.request.jsonrpc, http: raw.request.http ?? null }, response, events };
 }
@@ -575,6 +597,14 @@ export function createApiClient(sessionToken: string): InspectorApiClient {
       const updated = decodeCreatedConnection(await decodeConnectionResponse(response), projectId);
       if (updated.id !== connectionId) throw new Error("Invalid connection response");
       return updated;
+    },
+    async exportConnection(projectId, connectionId) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/connections/${encodeURIComponent(connectionId)}/export`,
+        { headers },
+      );
+      const value = decodeServerExport(await decodeResponse<unknown>(response), projectId, connectionId);
+      return new Blob([`${JSON.stringify(value, null, 2)}\n`], { type: "application/json" });
     },
     async deleteConnection(projectId, connectionId) {
       const response = await fetch(

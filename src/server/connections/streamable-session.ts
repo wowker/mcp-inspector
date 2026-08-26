@@ -63,7 +63,9 @@ export function createStreamableMcpSessionFactory(options: {
     const dispatch: Observer = (event) => {
       (observerContext.getStore() ?? connectionObserver)(event);
     };
-    const observedFetch = createObservedFetch(baseFetch, dispatch);
+    const observedFetch = createObservedFetch(baseFetch, dispatch, {
+      redactSensitiveInfo: connection.redactSensitiveInfo,
+    });
     let oauthTransport: StreamableHTTPClientTransport | undefined;
     const authProvider = connection.authMode === "oauth" && options.oauth !== undefined
       ? options.oauth.provider(connection.id, () => {

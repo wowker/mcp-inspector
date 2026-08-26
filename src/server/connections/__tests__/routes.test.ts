@@ -74,6 +74,81 @@ describe("connection routes", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("exports one Server with all connection-scoped datasets and redacts credentials", async () => {
+    const project = projects.create("Supplier Tools");
+    const inspector = app();
+    const connectionId = "00000000-0000-4000-8000-000000000301";
+    await inspector.request(`/api/projects/${project.id}/connections`, {
+      method: "POST", headers,
+      body: JSON.stringify({ name: "Catalog MCP", url: "https://mcp.example.test/mcp",
+        transport: "streamable-http", authMode: "none", timeoutMs: 10_000,
+        headers: { "X-API-Key": "local-secret" } }),
+    });
+    const store = projects.open(project.id);
+    const snapshotId = "00000000-0000-4000-8000-000000000302";
+    const tabId = "00000000-0000-4000-8000-000000000303";
+    const runId = "00000000-0000-4000-8000-000000000304";
+    const savedId = "00000000-0000-4000-8000-000000000305";
+    const folderId = "00000000-0000-4000-8000-000000000306";
+    const timestamp = "2026-08-26T10:00:00.000Z";
+    store.database.prepare(`INSERT INTO tool_snapshots
+      (id, project_id, connection_id, tool_name, content_hash, definition_json, created_at)
+      VALUES (?, ?, ?, 'sum', ?, ?, ?)`).run(snapshotId, project.id, connectionId, "a".repeat(64),
+        JSON.stringify({ name: "sum", inputSchema: { type: "object" } }), timestamp);
+    store.database.prepare(`INSERT INTO tools
+      (project_id, connection_id, name, current_snapshot_id, status, updated_at)
+      VALUES (?, ?, 'sum', ?, 'current', ?)`).run(project.id, connectionId, snapshotId, timestamp);
+    store.database.prepare(`INSERT INTO tool_folders
+      (id, project_id, connection_id, name, created_at, updated_at)
+      VALUES (?, ?, ?, 'Smoke tests', ?, ?)`).run(folderId, project.id, connectionId, timestamp, timestamp);
+    store.database.prepare(`INSERT INTO tool_folder_assignments
+      (project_id, connection_id, tool_name, folder_id)
+      VALUES (?, ?, 'sum', ?)`).run(project.id, connectionId, folderId);
+    store.database.prepare(`INSERT INTO debug_tabs
+      (id, project_id, connection_id, tool_name, title, position, input_mode, arguments_json, raw_text,
+       view_state_json, created_at, updated_at)
+      VALUES (?, ?, ?, 'sum', 'sum', 0, 'form', '{}', '{}', '{}', ?, ?)`)
+      .run(tabId, project.id, connectionId, timestamp, timestamp);
+    store.database.prepare(`INSERT INTO runs
+      (id, project_id, connection_id, tab_id, tool_name, tool_snapshot_id, idempotency_key, status,
+       created_at, completed_at, duration_ms, client_info_json)
+      VALUES (?, ?, ?, ?, 'sum', ?, 'export-run', 'succeeded', ?, ?, 12, '{}')`)
+      .run(runId, project.id, connectionId, tabId, snapshotId, timestamp, timestamp);
+    store.database.prepare(`INSERT INTO run_requests (run_id, arguments_json, jsonrpc_json)
+      VALUES (?, '{"a":1}', '{"jsonrpc":"2.0"}')`).run(runId);
+    store.database.prepare(`INSERT INTO run_responses (run_id, result_json)
+      VALUES (?, '{"content":[{"type":"text","text":"3"}]}')`).run(runId);
+    store.database.prepare(`INSERT INTO run_events (run_id, sequence, kind, occurred_at, payload_json)
+      VALUES (?, 1, 'run-status', ?, '{"status":"succeeded"}')`).run(runId, timestamp);
+    store.database.prepare(`INSERT INTO saved_tool_items
+      (id, project_id, connection_id, tool_name, kind, name, payload_json, created_at, updated_at)
+      VALUES (?, ?, ?, 'sum', 'request', 'Smoke request', '{"a":1}', ?, ?)`)
+      .run(savedId, project.id, connectionId, timestamp, timestamp);
+
+    const response = await inspector.request(
+      `/api/projects/${project.id}/connections/${connectionId}/export`, { headers });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-disposition")).toContain("attachment");
+    const bundle: unknown = await response.json();
+    expect(bundle).toMatchObject({
+      format: "mcp-inspector-server-export", version: 1,
+      project: { id: project.id, name: "Supplier Tools" },
+      server: { id: connectionId, name: "Catalog MCP",
+        headers: [{ name: "X-API-Key", value: null, redacted: true }] },
+      data: {
+        toolSnapshots: [{ id: snapshotId, toolName: "sum" }], tools: [{ name: "sum" }],
+        folders: [{ id: folderId, name: "Smoke tests" }],
+        folderAssignments: [{ folderId, toolName: "sum" }],
+        tabs: [{ id: tabId }], runs: [{ id: runId }],
+        runRequests: [{ runId, arguments: { a: 1 } }],
+        runResponses: [{ runId, result: { content: [{ type: "text", text: "3" }] } }],
+        runEvents: [{ runId, sequence: 1 }],
+        savedItems: [{ id: savedId, name: "Smoke request", payload: { a: 1 } }],
+      },
+    });
+    expect(JSON.stringify(bundle)).not.toContain("local-secret");
+  });
+
   it("inherits API authentication and returns stable validation errors", async () => {
     const project = projects.create("Supplier Tools");
     expect((await app().request(`/api/projects/${project.id}/connections`)).status).toBe(401);

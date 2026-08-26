@@ -9,10 +9,10 @@ function emit(observer: Observer, event: WireObservation): void {
   try { observer(event); } catch { /* Observability must not alter transport behavior. */ }
 }
 
-function headersObject(headers: Headers): Record<string, string> {
+function headersObject(headers: Headers, redactSensitiveInfo: boolean): Record<string, string> {
   return Object.fromEntries(Array.from(headers.entries(), ([name, value]) => [
     name,
-    isSensitiveHeaderName(name) ? "[REDACTED]" : value,
+    redactSensitiveInfo && isSensitiveHeaderName(name) ? "[REDACTED]" : value,
   ]));
 }
 
@@ -126,6 +126,7 @@ async function observeRequest(
   observer: Observer,
   at: string,
   exchangeId: string,
+  redactSensitiveInfo: boolean,
 ): Promise<void> {
   let body: unknown = null;
   if (request.body !== null) {
@@ -143,7 +144,7 @@ async function observeRequest(
     exchangeId,
     method: request.method,
     url: request.url,
-    headers: headersObject(request.headers),
+    headers: headersObject(request.headers, redactSensitiveInfo),
     body,
   });
   if (request.headers.get("content-type")?.toLowerCase().includes("application/json") === true) {
@@ -227,14 +228,15 @@ async function observeResponseBody(
 export function createObservedFetch(
   baseFetch: FetchLike,
   observer: Observer,
-  options: { now?: () => Date } = {},
+  options: { now?: () => Date; redactSensitiveInfo?: boolean } = {},
 ): FetchLike {
   const now = options.now ?? (() => new Date());
+  const redactSensitiveInfo = options.redactSensitiveInfo ?? true;
   let nextExchangeId = 0;
   return async (input, init) => {
     const exchangeId = String(++nextExchangeId);
     const request = new Request(input, init);
-    await observeRequest(request, observer, now().toISOString(), exchangeId);
+    await observeRequest(request, observer, now().toISOString(), exchangeId, redactSensitiveInfo);
     const response = await baseFetch(request.url, forwardingInit(request));
     const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
     const responseEvent = {
@@ -242,7 +244,7 @@ export function createObservedFetch(
       at: now().toISOString(),
       exchangeId,
       status: response.status,
-      headers: headersObject(response.headers),
+      headers: headersObject(response.headers, redactSensitiveInfo),
       body: null as unknown,
     };
     if (contentType.includes("text/event-stream")) {

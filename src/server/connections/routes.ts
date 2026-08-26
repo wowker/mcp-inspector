@@ -17,6 +17,7 @@ const createConnectionBodySchema = z.object({
   transport: z.literal("streamable-http"),
   authMode: z.enum(["none", "oauth"]),
   headers: z.record(z.string(), z.string()).optional(),
+  redactSensitiveInfo: z.boolean().optional(),
   timeoutMs: z.number(),
 }).strict();
 const updateConnectionBodySchema = z.object({
@@ -24,6 +25,7 @@ const updateConnectionBodySchema = z.object({
   url: z.string().optional(),
   authMode: z.enum(["none", "oauth"]).optional(),
   headers: z.record(z.string(), z.string()).optional(),
+  redactSensitiveInfo: z.boolean().optional(),
   timeoutMs: z.number().optional(),
 }).strict().refine((value) => Object.keys(value).length > 0);
 
@@ -117,6 +119,24 @@ export function createConnectionRoutes(connections: ConnectionService): Hono {
       }
       if (error instanceof McpDisconnectError) {
         return context.json(errors.disconnectFailed, 502);
+      }
+      return projectError(context, error);
+    }
+  });
+
+  routes.get("/:projectId/connections/:connectionId/export", (context) => {
+    try {
+      const bundle = connections.exportData(
+        context.req.param("projectId"), context.req.param("connectionId"));
+      const filename = `mcp-inspector-server-${bundle.server.id}.json`;
+      return context.json(bundle, 200, {
+        "Cache-Control": "no-store",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+        "X-Content-Type-Options": "nosniff",
+      });
+    } catch (error) {
+      if (error instanceof ConnectionNotFoundError) {
+        return context.json(errors.connectionNotFound, 404);
       }
       return projectError(context, error);
     }

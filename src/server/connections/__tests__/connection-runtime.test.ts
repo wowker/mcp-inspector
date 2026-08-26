@@ -5,6 +5,7 @@ import {
   CallCancelledError,
   CallTimeoutError,
   createConnectionRuntime,
+  OAuthAuthorizationCompletedError,
   type WireObservation,
 } from "../connection-runtime.js";
 import type { ConnectionRecord } from "../connection-types.js";
@@ -18,6 +19,7 @@ const connection: ConnectionRecord = {
   transport: "streamable-http",
   authMode: "none",
   headers: {},
+  redactSensitiveInfo: true,
   timeoutMs: 20,
   status: "disconnected",
   lastProtocolVersion: null,
@@ -26,6 +28,19 @@ const connection: ConnectionRecord = {
 };
 
 describe("ConnectionRuntime", () => {
+  it("returns to disconnected without recording failure when OAuth authorization completes", async () => {
+    const persistFailure = vi.fn();
+    const runtime = createConnectionRuntime({
+      resolveConnection: () => connection,
+      persistFailure,
+      factory: async () => { throw new OAuthAuthorizationCompletedError(); },
+    });
+
+    await expect(runtime.connect(connection.id)).rejects.toBeInstanceOf(OAuthAuthorizationCompletedError);
+    expect(runtime.status(connection.id)).toBe("disconnected");
+    expect(persistFailure).not.toHaveBeenCalled();
+  });
+
   it("coalesces concurrent connects and shares the resolved session", async () => {
     const session = new FakeMcpSession();
     let release!: () => void;

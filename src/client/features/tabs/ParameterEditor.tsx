@@ -44,12 +44,36 @@ function JsonSubtreeEditor({ id, value, describedBy, draft, objectOnly = false, 
   const [invalid, setInvalid] = useState(false);
   const text = draft?.base === formatted ? draft.text : draft === undefined ? localText : formatted;
   useEffect(() => { if (draft === undefined) setLocalText(formatted); }, [draft, formatted]);
+  function parse(textValue: string): { ok: true; value: unknown } | { ok: false } {
+    if (textValue.trim() === "") {
+      return !required && !objectOnly ? { ok: true, value: undefined } : { ok: false };
+    }
+    try {
+      const parsed: unknown = JSON.parse(textValue);
+      if (objectOnly && (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))) return { ok: false };
+      return { ok: true, value: parsed };
+    } catch { return { ok: false }; }
+  }
+  function commitIfChanged(next: unknown): void {
+    const currentCanonical = value === undefined ? "" : JSON.stringify(value);
+    const nextCanonical = next === undefined ? "" : JSON.stringify(next);
+    if (currentCanonical !== nextCanonical) onCommit(next);
+  }
   return <><textarea id={id} value={text} required={required} placeholder={required ? "请输入必填参数" : undefined}
     aria-describedby={describedBy} aria-invalid={invalid}
-    onChange={(event) => { onDraftChange?.(event.target.value, formatted); if (draft === undefined) setLocalText(event.target.value); setInvalid(false); }}
-    onBlur={() => { try { const parsed: unknown = JSON.parse(text);
-      if (objectOnly && (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))) throw new Error("object required");
-      onCommit(parsed); setInvalid(false); } catch { setInvalid(true); } }} />
+    onChange={(event) => {
+      const nextText = event.target.value;
+      onDraftChange?.(nextText, formatted);
+      if (draft === undefined) setLocalText(nextText);
+      const parsed = parse(nextText);
+      if (parsed.ok) commitIfChanged(parsed.value);
+      setInvalid(false);
+    }}
+    onBlur={() => {
+      const parsed = parse(text);
+      if (parsed.ok) { commitIfChanged(parsed.value); setInvalid(false); }
+      else setInvalid(true);
+    }} />
     {invalid && <p role="alert">{objectOnly ? "必须是 JSON 对象" : "请输入有效 JSON"}</p>}</>;
 }
 
@@ -59,7 +83,8 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveReques
   const [localExpanded, setLocalExpanded] = useState(true);
   const expanded = controlledExpanded ?? localExpanded;
   useEffect(() => { if (controlledExpanded === undefined) setLocalExpanded(true); }, [controlledExpanded, tab.id]);
-  const parsed = parseRawArguments(tab.rawText);
+  const rawText = tab.rawText.trim() === "{}" && Object.keys(tab.arguments).length === 0 ? "" : tab.rawText;
+  const parsed = parseRawArguments(rawText);
   const fields = useMemo(() => fieldsFromSchema(schema, tab.arguments), [schema, tab.arguments]);
   const wholeFallback = requiresWholeArgumentsFallback(schema);
   const hasEditableArguments = wholeFallback || fields.length > 0;
@@ -72,9 +97,9 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveReques
   }, [hasEditableArguments, onChange, tab.inputMode]);
 
   function commitRaw(): boolean {
-    const current = parseRawArguments(tab.rawText);
+    const current = parseRawArguments(rawText);
     if (!current.ok) { setRawTouched(true); return false; }
-    onChange({ arguments: current.value, rawText: tab.rawText });
+    onChange({ arguments: current.value, rawText });
     return true;
   }
   function mode(mode: "form" | "raw"): boolean {
@@ -85,7 +110,9 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveReques
     return true;
   }
   function edit(name: string, value: unknown): void {
-    const args = { ...tab.arguments, [name]: value };
+    const args = { ...tab.arguments };
+    if (value === undefined) delete args[name];
+    else args[name] = value;
     onChange({ arguments: args, rawText: formatRawArguments(args) });
   }
   function issuesAt(path: string): SchemaIssue[] { return validation.issues.filter((item) => item.path === path); }
@@ -137,7 +164,7 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveReques
     </p>}
     {inputMode === "raw" ? <div id={`panel-raw-${tab.id}`} role="tabpanel" aria-labelledby={`mode-raw-${tab.id}`} className="raw-arguments-panel">
       <div className="raw-arguments-heading"><label htmlFor={`raw-${tab.id}`}>完整 arguments JSON</label><span>JSON Object</span></div>
-      <textarea id={`raw-${tab.id}`} value={tab.rawText} onChange={(event) => rawChanged(event.target.value)}
+      <textarea id={`raw-${tab.id}`} value={rawText} onChange={(event) => rawChanged(event.target.value)}
         onBlur={() => commitRaw()} aria-invalid={!parsed.ok || validation.issues.length > 0}
         aria-describedby={!parsed.ok || validation.issues.length > 0 ? rawErrorId : undefined} />
       {!parsed.ok && (rawTouched || inputMode === "raw") && <p id={rawErrorId} role="alert">

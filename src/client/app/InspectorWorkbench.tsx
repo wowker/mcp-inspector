@@ -7,7 +7,7 @@ import {
   Sun,
   Wrench,
 } from "@phosphor-icons/react";
-import type { ConnectionSummary, InspectorApiClient, ProjectSummary } from "../api/api-client.js";
+import type { ConnectionSummary, InspectorApiClient, ProjectSummary, RunDetail } from "../api/api-client.js";
 import { ConnectionPanel } from "../features/connections/ConnectionPanel.js";
 import { DebugWorkspace, type ToolOpenIntent } from "../features/tabs/DebugWorkspace.js";
 import { applyInitialTheme, toggleTheme, type ThemeMode } from "./theme.js";
@@ -47,28 +47,34 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
   const [servers, setServers] = useState<ServerWorkspaceState>({ tabs: [], activeId: null });
   const [toolIntent, setToolIntent] = useState<ToolOpenIntent | null>(null);
   const [activeTool, setActiveTool] = useState<{ connectionId: string; name: string } | null>(null);
+  const [oauthConnectionUpdate, setOauthConnectionUpdate] = useState<ConnectionSummary | null>(null);
   const serversRef = useRef(servers); serversRef.current = servers;
 
   useEffect(() => {
     let channel: BroadcastChannel | null = null;
-    const complete = (value: unknown) => {
+    let active = true;
+    const complete = async (value: unknown) => {
       if (!isOAuthCompleteEvent(value)) return;
-      if (!serversRef.current.tabs.some(({ id }) => id === value.connectionId)) return;
-      setServers((current) => ({ ...current, activeId: value.connectionId }));
-      setPage("tools");
+      let connection: ConnectionSummary | undefined;
+      try {
+        connection = (await api.listConnections(project.id)).find(({ id }) => id === value.connectionId);
+      } catch { return; }
+      if (!active || connection === undefined || connection.authMode !== "oauth" || connection.authorizationStatus !== "authorized") return;
+      setOauthConnectionUpdate(connection);
+      setPage("servers");
       try { window.focus(); } catch { /* Focus is best-effort when the browser blocks background tabs. */ }
       channel?.postMessage({ type: "oauth-ready", connectionId: value.connectionId });
     };
-    const message = (event: MessageEvent) => { if (event.origin === window.location.origin) complete(event.data); };
+    const message = (event: MessageEvent) => { if (event.origin === window.location.origin) void complete(event.data); };
     try {
       if (typeof BroadcastChannel === "function") {
         channel = new BroadcastChannel(OAUTH_CHANNEL);
-        channel.onmessage = (event) => complete(event.data);
+        channel.onmessage = (event) => { void complete(event.data); };
       }
     } catch { /* The pending connection still completes when BroadcastChannel is unavailable. */ }
     window.addEventListener("message", message);
-    return () => { window.removeEventListener("message", message); channel?.close(); };
-  }, []);
+    return () => { active = false; window.removeEventListener("message", message); channel?.close(); };
+  }, [api, project.id]);
 
   function activateServer(connection: ConnectionSummary): void {
     setServers((current) => ({
@@ -95,6 +101,34 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
 
   function selectServer(connectionId: string): void {
     setServers((current) => ({ ...current, activeId: connectionId }));
+    setPage("tools");
+  }
+
+  async function openRunInDebug(run: RunDetail): Promise<void> {
+    if (run.projectId !== project.id) throw new Error("运行记录不属于当前项目");
+    let connection = serversRef.current.tabs.find(({ id }) => id === run.connectionId);
+    if (connection === undefined) {
+      const connections = await api.listConnections(project.id);
+      connection = connections.find(({ id }) => id === run.connectionId);
+    }
+    if (connection === undefined) throw new Error("运行记录所属 Server 已不存在");
+
+    const detail = await api.getTool(project.id, run.connectionId, run.toolName);
+    if (detail.tool.projectId !== project.id || detail.tool.connectionId !== run.connectionId || detail.tool.name !== run.toolName) {
+      throw new Error("Tool 数据与运行记录不匹配");
+    }
+    if (detail.tool.status === "removed") throw new Error("该运行记录的 Tool 已移除，无法打开调试");
+
+    setServers((current) => ({
+      tabs: current.tabs.some(({ id }) => id === connection.id) ? current.tabs : [...current.tabs, connection],
+      activeId: connection.id,
+    }));
+    setToolIntent((current) => ({
+      sequence: (current?.sequence ?? 0) + 1,
+      tool: detail.tool,
+      newTab: true,
+      restoreRun: run,
+    }));
     setPage("tools");
   }
 
@@ -207,9 +241,10 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
                 onConnectionConnected={activateServer}
                 onConnectionDisconnected={removeServer}
                 onConnectionsLoaded={restoreConnectedServers}
+                connectionUpdate={oauthConnectionUpdate}
               />
             </section>
-          ) : page === "history" ? <RunHistoryPage api={api} projectId={project.id} /> : (
+          ) : page === "history" ? <RunHistoryPage api={api} projectId={project.id} onOpenDebug={openRunInDebug} /> : (
             <section
               id="server-tool-panel"
               className="tools-page"

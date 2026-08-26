@@ -176,6 +176,35 @@ describe("RunService", () => {
     } finally { projects.close(); }
   });
 
+  it("records and returns original HTTP authorization when Server redaction is disabled", async () => {
+    const { projects, connections, service, tabA } = fixture(async ({ observe }) => {
+      observe?.({ kind: "http-request", at: "2026-08-17T00:00:00.000Z", method: "POST", url: "https://example.test/mcp",
+        headers: { authorization: "Bearer visible-secret", cookie: "session=visible" }, body: {} });
+      observe?.({ kind: "http-response", at: "2026-08-17T00:00:00.010Z", status: 200,
+        headers: { "set-cookie": "session=returned" }, body: {} });
+      return { content: [{ type: "text", text: "ok" }] };
+    });
+    try {
+      await connections.update(projectId, connectionId, { redactSensitiveInfo: false });
+      await connections.connect(projectId, connectionId);
+      const started = service.start({ projectId, tabId: tabA.id, idempotencyKey: "visible-headers", arguments: { a: 1 } });
+      const detail = await terminal(service, started.id);
+
+      expect(detail.redactSensitiveInfo).toBe(false);
+      expect(JSON.stringify(detail.request.http)).toContain("Bearer visible-secret");
+      expect(JSON.stringify(detail.events)).toContain("session=returned");
+      expect(JSON.stringify(detail.events)).not.toContain("[REDACTED]");
+
+      await connections.update(projectId, connectionId, { redactSensitiveInfo: true });
+      const hiddenAgain = service.get(projectId, started.id);
+      expect(hiddenAgain.redactSensitiveInfo).toBe(true);
+      expect(JSON.stringify(hiddenAgain.request.http)).not.toContain("visible-secret");
+      expect(JSON.stringify(hiddenAgain.events)).not.toContain("session=returned");
+      expect(JSON.stringify(hiddenAgain.events)).toContain("[REDACTED]");
+      expect(JSON.stringify(service.events(projectId, started.id))).not.toContain("visible-secret");
+    } finally { projects.close(); }
+  });
+
   it("lets cancellation win a late result and preserves isError Tool results", async () => {
     const late = deferred<CallToolResult>();
     let call = 0;
@@ -461,7 +490,7 @@ describe("RunService", () => {
       projects.open(projectId).database.prepare("UPDATE run_requests SET arguments_json = 'not-json' WHERE run_id = ?").run(runs[0].id);
       expect(() => service.get(projectId, runs[0].id)).toThrow(/corrupt/i);
       expect(projects.open(projectId).database.prepare("SELECT version FROM schema_migrations ORDER BY version").all())
-        .toEqual([1, 2, 3, 4, 5, 6, 7, 8].map((version) => ({ version })));
+        .toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9].map((version) => ({ version })));
       const store = projects.open(projectId); const snapshotId = store.database.prepare("SELECT id FROM tool_snapshots LIMIT 1").get() as { id: string };
       const insert = store.database.prepare(`INSERT INTO runs
         (id, project_id, connection_id, tab_id, tool_name, tool_snapshot_id, idempotency_key, status, created_at, client_info_json)
