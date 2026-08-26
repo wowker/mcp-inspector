@@ -13,6 +13,7 @@ import {
 } from "./connection-runtime.js";
 import { createStreamableMcpSessionFactory } from "./streamable-session.js";
 import { OAuthFlowCoordinator } from "./oauth-flow.js";
+import { normalizeCustomHeaders } from "../../shared/custom-headers.js";
 
 const connectionIdSchema = z.string().uuid();
 const createConnectionSchema = z.object({
@@ -20,10 +21,11 @@ const createConnectionSchema = z.object({
   url: z.string().trim().min(1).max(8192),
   transport: z.literal("streamable-http"),
   authMode: z.enum(["none", "oauth"]),
+  headers: z.record(z.string(), z.string()).optional().default({}),
   timeoutMs: z.number().int().min(100).max(600_000),
 }).strict();
 const updateConnectionSchema = createConnectionSchema
-  .pick({ name: true, url: true, authMode: true, timeoutMs: true })
+  .pick({ name: true, url: true, authMode: true, headers: true, timeoutMs: true })
   .partial()
   .strict()
   .refine((value) => Object.keys(value).length > 0);
@@ -133,8 +135,11 @@ export function createConnectionService(projects: ProjectService, options: {
         throw new Error("Connection ID generator returned an invalid UUID");
       }
       const timestamp = now().toISOString();
+      const headers = normalizeCustomHeaders(parsed.data.headers, parsed.data.authMode);
+      if (headers === null) throw new InvalidConnectionError();
       return repository(projectId).create({
         ...parsed.data,
+        headers,
         url: normalizeUrl(parsed.data.url),
         id,
         projectId,
@@ -161,8 +166,11 @@ export function createConnectionService(projects: ProjectService, options: {
         timeoutMs: parsed.data.timeoutMs ?? existing.timeoutMs,
         transport: existing.transport,
         authMode: parsed.data.authMode ?? existing.authMode,
+        headers: parsed.data.headers ?? existing.headers,
       });
       if (!next.success) throw new InvalidConnectionError();
+      const headers = normalizeCustomHeaders(next.data.headers, next.data.authMode);
+      if (headers === null) throw new InvalidConnectionError();
       const normalizedUrl = normalizeUrl(next.data.url);
       await runtime(projectId).disconnect(connectionId);
       if (normalizedUrl !== existing.url || next.data.authMode !== existing.authMode) {
@@ -175,8 +183,10 @@ export function createConnectionService(projects: ProjectService, options: {
         url: normalizedUrl,
         timeoutMs: next.data.timeoutMs,
         authMode: next.data.authMode,
+        headers,
         updatedAt: now().toISOString(),
-        resetDiagnostics: normalizedUrl !== existing.url || next.data.timeoutMs !== existing.timeoutMs || next.data.authMode !== existing.authMode,
+        resetDiagnostics: normalizedUrl !== existing.url || next.data.timeoutMs !== existing.timeoutMs ||
+          next.data.authMode !== existing.authMode || JSON.stringify(headers) !== JSON.stringify(existing.headers),
       });
       if (updated === null) throw new ConnectionNotFoundError();
       return { ...updated, status: "disconnected" };

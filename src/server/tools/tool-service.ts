@@ -11,6 +11,10 @@ export class ToolNotFoundError extends Error {
   constructor() { super("Tool not found"); this.name = "ToolNotFoundError"; }
 }
 
+export class ToolNotRemovedError extends Error {
+  constructor() { super("Only removed Tools can be deleted"); this.name = "ToolNotRemovedError"; }
+}
+
 export class InvalidToolCatalogError extends Error {
   constructor(message = "MCP Tool catalog is invalid") {
     super(message); this.name = "InvalidToolCatalogError";
@@ -70,6 +74,7 @@ export interface ToolService {
   refresh(projectId: string, connectionId: string): Promise<CatalogTool[]>;
   list(projectId: string, connectionId: string): CatalogTool[];
   get(projectId: string, connectionId: string, toolName: string): ToolDetail;
+  deleteRemoved(projectId: string, connectionId: string, toolName: string): void;
 }
 
 export function createToolService(
@@ -149,6 +154,13 @@ export function createToolService(
       const detail = repository(projectId, connectionId).get(projectId, connectionId, toolName);
       if (detail === null) throw new ToolNotFoundError();
       return detail;
+    },
+
+    deleteRemoved(projectId, connectionId, toolName) {
+      if (toolName.length === 0) throw new ToolNotFoundError();
+      const result = repository(projectId, connectionId).deleteRemoved(projectId, connectionId, toolName);
+      if (result === "missing") throw new ToolNotFoundError();
+      if (result === "active") throw new ToolNotRemovedError();
     },
   };
 }

@@ -33,7 +33,7 @@ function CopyButton({ value, label = "复制", className }: { value: unknown; la
       await navigator.clipboard.writeText(typeof value === "string" ? value : json(value)); setError(false);
     } catch { setError(true); }
   }
-  return <span className="copy-control"><button type="button" className={className} onClick={() => void copy()}>{label}</button>
+  return <span className="copy-control"><button type="button" className={className ?? "run-result-action"} onClick={() => void copy()}>{label}</button>
     {error && <span role="alert">复制失败，请手动选择内容</span>}</span>;
 }
 
@@ -132,8 +132,15 @@ function metadata(run: RunDetail) {
 
 export function RunResultPanel({ run, onSaveResponse }: { run: RunDetail; onSaveResponse?: (response: NonNullable<RunDetail["response"]>) => void }) {
   const [view, setView] = useState<View>("overview");
+  const [requestOpen, setRequestOpen] = useState(true);
+  const [responseOpen, setResponseOpen] = useState(true);
   const [rawOpen, setRawOpen] = useState(false);
-  useEffect(() => { setView("overview"); setRawOpen(false); }, [run.id]);
+  useEffect(() => {
+    setView("overview");
+    setRequestOpen(true);
+    setResponseOpen(true);
+    setRawOpen(false);
+  }, [run.id]);
   const ordered = useMemo(() => [...run.events].sort((left, right) => left.sequence - right.sequence), [run.events]);
   const result = run.response?.result;
   const resultRecord = typeof result === "object" && result !== null && !Array.isArray(result) ? result as Record<string, unknown> : null;
@@ -151,37 +158,44 @@ export function RunResultPanel({ run, onSaveResponse }: { run: RunDetail; onSave
   const requestHttp = typeof run.request.http === "object" && run.request.http !== null && !Array.isArray(run.request.http)
     ? run.request.http as Record<string, unknown> : null;
   const safeRequestHttp = requestHttp === null ? null : { ...requestHttp, headers: redactHeaders(requestHttp.headers) };
-  const labels: Array<[View, string]> = [["overview", "请求与结果"], ["details", "调用详情"], ["rpc", "RPC"], ["http", "HTTP"], ["timeline", "时间线"]];
+  const labels: Array<[View, string]> = [["overview", "请求与结果"], ["details", "调用详情"], ["http", "HTTP"], ["rpc", "RPC"], ["timeline", "时间线"]];
   const origin = Date.parse(run.createdAt);
   return <article className="run-result" aria-label={`运行 ${run.id} 详情`}>
-    <header><div className="run-summary"><div className={`run-status run-status--${run.status}`}>{terminalLabels[run.status] ?? run.status}</div>
-      <span>{run.durationMs === null ? "总耗时未记录" : `${run.durationMs} ms`}</span>
-      {run.networkDurationMs !== null && <span>网络 {run.networkDurationMs} ms</span>}</div>
-      <div className="run-result-actions">{run.response !== null && onSaveResponse !== undefined && <button type="button" className="run-result-action" onClick={() => onSaveResponse(run.response!)}>保存响应</button>}
-        <CopyButton value={run.response} label="复制全部结果" className="run-result-action" /></div></header>
-    {run.response?.truncated && <p role="status" className="truncated-warning">结果已截断（原始大小 {run.response.originalBytes ?? "未知"} bytes），以下仅为安全预览。</p>}
-    <div role="tablist" aria-label="运行结果视图" className="result-tabs" onKeyDown={(event) => {
-      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-      const index = labels.findIndex(([id]) => id === view); const next = event.key === "Home" ? 0 : event.key === "End" ? labels.length - 1
-        : event.key === "ArrowRight" ? (index + 1) % labels.length : (index - 1 + labels.length) % labels.length;
-      event.preventDefault(); const target = labels[next]?.[0]; if (target !== undefined) { setView(target); queueMicrotask(() => document.getElementById(`result-tab-${target}-${run.id}`)?.focus()); }
-    }}>{labels.map(([id, label]) => <button id={`result-tab-${id}-${run.id}`} key={id} type="button" role="tab" tabIndex={view === id ? 0 : -1}
-      aria-selected={view === id} aria-controls={`result-${id}-${run.id}`} onClick={() => setView(id)}>{label}</button>)}</div>
+    <div className="run-result__sticky-header">
+      <header><div className="run-summary"><div className={`run-status run-status--${run.status}`}>{terminalLabels[run.status] ?? run.status}</div>
+        <span>{run.durationMs === null ? "总耗时未记录" : `${run.durationMs} ms`}</span>
+        {run.networkDurationMs !== null && <span>网络 {run.networkDurationMs} ms</span>}</div>
+        <div className="run-result-actions">{run.response !== null && onSaveResponse !== undefined && <button type="button" className="run-result-action" onClick={() => onSaveResponse(run.response!)}>保存响应</button>}
+          <CopyButton value={run.response} label="复制全部结果" className="run-result-action" /></div></header>
+      {run.response?.truncated && <p role="status" className="truncated-warning">结果已截断（原始大小 {run.response.originalBytes ?? "未知"} bytes），以下仅为安全预览。</p>}
+      <div role="tablist" aria-label="运行结果视图" className="result-tabs" onKeyDown={(event) => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        const index = labels.findIndex(([id]) => id === view); const next = event.key === "Home" ? 0 : event.key === "End" ? labels.length - 1
+          : event.key === "ArrowRight" ? (index + 1) % labels.length : (index - 1 + labels.length) % labels.length;
+        event.preventDefault(); const target = labels[next]?.[0]; if (target !== undefined) { setView(target); queueMicrotask(() => document.getElementById(`result-tab-${target}-${run.id}`)?.focus()); }
+      }}>{labels.map(([id, label]) => <button id={`result-tab-${id}-${run.id}`} key={id} type="button" role="tab" tabIndex={view === id ? 0 : -1}
+        aria-selected={view === id} aria-controls={`result-${id}-${run.id}`} onClick={() => setView(id)}>{label}</button>)}</div>
+    </div>
     <section id={`result-${view}-${run.id}`} role="tabpanel" aria-labelledby={`result-tab-${view}-${run.id}`} className="result-view">
       {view === "overview" && <div className="run-overview">
-        <section className="result-section" aria-labelledby={`request-title-${run.id}`}>
-          <div className="section-toolbar"><h2 id={`request-title-${run.id}`}>请求参数</h2><CopyButton value={run.request.arguments} label="复制参数" /></div>
-          <JsonViewer value={run.request.arguments} label="请求参数 JSON" />
-        </section>
-        <section className="result-section" aria-labelledby={`response-title-${run.id}`}>
-          <div className="section-toolbar"><h2 id={`response-title-${run.id}`}>请求结果</h2></div>
-          {run.response === null ? <p role="status">等待运行结果…</p> : <div className="result-content-flow">
-            {run.response.error !== null && <JsonValue value={run.response.error} label="错误" defaultExpanded="all" />}
-            {structuredContent !== undefined && <JsonValue value={structuredContent} label="结构化响应" hideLabel defaultExpanded="all" />}
-            {visibleContent.map(({ block, index }) => <ContentBlock key={index} value={block} index={index} />)}
-            {result !== null && resultRecord === null && <JsonValue value={result} label="结果" defaultExpanded="all" />}
+        <details className="result-disclosure" open={requestOpen} onToggle={(event) => setRequestOpen(event.currentTarget.open)}>
+          <summary>请求参数</summary>
+          {requestOpen && <div className="result-disclosure__content">
+            <div className="section-toolbar section-toolbar--actions-only"><CopyButton value={run.request.arguments} label="复制参数" /></div>
+            <JsonViewer value={run.request.arguments} label="请求参数 JSON" />
           </div>}
-        </section>
+        </details>
+        <details className="result-disclosure" open={responseOpen} onToggle={(event) => setResponseOpen(event.currentTarget.open)}>
+          <summary>请求结果</summary>
+          {responseOpen && <div className="result-disclosure__content">
+            {run.response === null ? <p role="status">等待运行结果…</p> : <div className="result-content-flow">
+              {run.response.error !== null && <JsonValue value={run.response.error} label="错误" defaultExpanded="all" />}
+              {structuredContent !== undefined && <JsonValue value={structuredContent} label="结构化响应" hideLabel defaultExpanded="all" />}
+              {visibleContent.map(({ block, index }) => <ContentBlock key={index} value={block} index={index} />)}
+              {result !== null && resultRecord === null && <JsonValue value={result} label="结果" defaultExpanded="all" />}
+            </div>}
+          </div>}
+        </details>
         <details className="raw-disclosure" open={rawOpen} onToggle={(event) => setRawOpen(event.currentTarget.open)}><summary>原始请求与响应</summary>
           {rawOpen && <div className="raw-disclosure__content">
             <JsonValue value={run.request.jsonrpc} label="完整 JSON-RPC" copyLabel="复制 JSON-RPC" />

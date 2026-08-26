@@ -14,6 +14,7 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
 
 export async function startStreamableMcpServer(options: { controlCalls?: boolean } = {}): Promise<{
   url: string;
+  receivedRequestHeaders: Array<Record<string, string | string[] | undefined>>;
   enteredTotals: number[];
   completedTotals: number[];
   readonly maxConcurrentCalls: number;
@@ -22,6 +23,7 @@ export async function startStreamableMcpServer(options: { controlCalls?: boolean
   stop(): Promise<void>;
 }> {
   const enteredTotals: number[] = [];
+  const receivedRequestHeaders: Array<Record<string, string | string[] | undefined>> = [];
   const completedTotals: number[] = [];
   const pendingCalls = new Map<number, () => void>();
   let concurrentCalls = 0;
@@ -64,6 +66,7 @@ export async function startStreamableMcpServer(options: { controlCalls?: boolean
         response.writeHead(404).end();
         return;
       }
+      receivedRequestHeaders.push({ ...request.headers });
       const body = request.method === "POST" ? await readJson(request) : undefined;
       await transport.handleRequest(request, response, body);
     } catch (error) {
@@ -91,6 +94,7 @@ export async function startStreamableMcpServer(options: { controlCalls?: boolean
   return {
     url: `http://127.0.0.1:${address.port}/mcp`,
     enteredTotals,
+    receivedRequestHeaders,
     completedTotals,
     get maxConcurrentCalls() { return maxConcurrentCalls; },
     release,

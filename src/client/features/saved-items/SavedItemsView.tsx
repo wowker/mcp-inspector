@@ -50,8 +50,7 @@ export function SavedItemsView({ api, projectId, connectionId, toolName, refresh
     catch { setError("复制失败，请手动选择内容"); }
   }
   return <section className="saved-items-view" aria-label={`${toolName} 已保存的请求与响应`}>
-    <header className="saved-items-header"><div><h2>已保存</h2><p>当前 Tool 的请求样例与响应基线。</p></div>
-      <div role="tablist" aria-label="保存内容类型" onKeyDown={(event) => {
+    <header className="saved-items-header"><div role="tablist" aria-label="保存内容类型" onKeyDown={(event) => {
         if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
         event.preventDefault(); const next = kind === "request" ? "response" : "request"; detailRequest.current += 1;
         setKind(next); setSelected(null); setLoadingId(null); setConfirmId(null);
@@ -59,8 +58,7 @@ export function SavedItemsView({ api, projectId, connectionId, toolName, refresh
       }}>
         {(["request", "response"] as const).map((value) => <button key={value} id={`${tabsId}-${value}`}
           aria-controls={`${tabsId}-panel`} type="button" role="tab" tabIndex={kind === value ? 0 : -1} aria-selected={kind === value}
-          onClick={() => { detailRequest.current += 1; setKind(value); setSelected(null); setLoadingId(null); setConfirmId(null); }}>{value === "request" ? "请求" : "响应"} {items?.filter((item) => item.kind === value).length ?? 0}</button>)}
-      </div></header>
+          onClick={() => { detailRequest.current += 1; setKind(value); setSelected(null); setLoadingId(null); setConfirmId(null); }}>{value === "request" ? "请求" : "响应"} {items?.filter((item) => item.kind === value).length ?? 0}</button>)}</div></header>
     {error !== null && <p role="alert" className="saved-items-error">{error}</p>}
     {items === null && error === null ? <p role="status" className="saved-items-status">正在加载已保存内容…</p>
       : <div id={`${tabsId}-panel`} role="tabpanel" aria-labelledby={`${tabsId}-${kind}`} className="saved-items-layout"><div className="saved-items-list" aria-label={kind === "request" ? "保存的请求" : "保存的响应"}>

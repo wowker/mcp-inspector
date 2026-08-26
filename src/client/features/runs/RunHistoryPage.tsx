@@ -15,7 +15,7 @@ export function RunHistoryPage({ api, projectId }: { api: InspectorApiClient; pr
     </header>
     <div className="history-page__layout">
       <aside className="history-page__list" aria-label="运行记录列表">
-        <RunHistory api={api} projectId={projectId} onOpen={setSelected} hideHeading compactId />
+        <RunHistory api={api} projectId={projectId} onOpen={setSelected} hideHeading compactId selectedId={selected?.id} />
       </aside>
       <div className="history-page__detail">
         {selected === null ? <div className="history-page__empty" role="status">

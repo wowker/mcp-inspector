@@ -5,6 +5,7 @@ import { InvalidProjectStorageError, ProjectNotFoundError } from "../projects/pr
 import {
   InvalidToolCatalogError,
   ToolNotFoundError,
+  ToolNotRemovedError,
   ToolRefreshError,
   type ToolService,
 } from "./tool-service.js";
@@ -16,6 +17,7 @@ const errors = {
   },
   connectionNotFound: { error: { code: "CONNECTION_NOT_FOUND", message: "Connection not found" } },
   toolNotFound: { error: { code: "TOOL_NOT_FOUND", message: "Tool not found" } },
+  toolNotRemoved: { error: { code: "TOOL_NOT_REMOVED", message: "Only removed Tools can be deleted" } },
   notConnected: { error: { code: "MCP_NOT_CONNECTED", message: "MCP connection is not active" } },
   invalidCatalog: { error: { code: "MCP_TOOL_CATALOG_INVALID", message: "MCP Tool catalog is invalid" } },
   refreshFailed: { error: { code: "MCP_TOOL_REFRESH_FAILED", message: "Unable to refresh MCP Tool catalog" } },
@@ -63,6 +65,20 @@ export function createToolRoutes(tools: ToolService): Hono {
         context.req.param("toolName"),
       ) });
     } catch (error) {
+      return resourceError(context, error);
+    }
+  });
+
+  routes.delete("/:projectId/connections/:connectionId/tools/:toolName", (context) => {
+    try {
+      tools.deleteRemoved(
+        context.req.param("projectId"),
+        context.req.param("connectionId"),
+        context.req.param("toolName"),
+      );
+      return context.body(null, 204);
+    } catch (error) {
+      if (error instanceof ToolNotRemovedError) return context.json(errors.toolNotRemoved, 409);
       return resourceError(context, error);
     }
   });

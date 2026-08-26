@@ -3,7 +3,6 @@ import {
   ClockCounterClockwise,
   HardDrives,
   Moon,
-  Plus,
   SidebarSimple,
   Sun,
   Wrench,
@@ -179,14 +178,6 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
             ))}
             {servers.tabs.length === 0 && <span className="server-tabs__empty">尚未连接 Server</span>}
           </div>
-          <div className="server-tabbar__actions">
-            {page === "tools" && servers.activeId !== null && <button type="button" className="topbar-action" aria-controls="tool-catalog"
-              aria-expanded={!catalogCollapsed} onClick={() => setCatalogCollapsed((value) => !value)}>
-              <SidebarSimple size={17} aria-hidden="true" />{catalogCollapsed ? "显示 Tool 目录" : "隐藏 Tool 目录"}
-            </button>}
-            <button type="button" className="topbar-action topbar-action--primary" onClick={() => setPage("servers")}><Plus size={17} aria-hidden="true" />添加 Server</button>
-          </div>
-          <div className="project-identity"><span>{project.name}</span><small>当前项目</small></div>
         </header>
 
         <main id="workbench-content" className="workbench-content" tabIndex={-1}>
@@ -209,11 +200,9 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
               id="server-tool-panel"
               className="tools-page"
               role="tabpanel"
-              aria-labelledby={servers.activeId === null ? "tools-page-title" : `server-tab-${servers.activeId}`}
+              aria-label={servers.activeId === null ? "Tools" : undefined}
+              aria-labelledby={servers.activeId === null ? undefined : `server-tab-${servers.activeId}`}
             >
-              <header className="page-heading page-heading--compact">
-                <div><h1 id="tools-page-title">Tools</h1><p>{servers.activeId === null ? "先连接 Server，再开始 Tool 调试。" : "选择 Tool，编辑参数并查看完整调用轨迹。"}</p></div>
-              </header>
               {servers.activeId === null ? (
                 <div className="workbench-empty" role="status">
                   <strong>选择一个已连接的 Server 开始调试</strong>
@@ -231,7 +220,15 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
                       onSelectTool={(tool) => setToolIntent((current) => ({ sequence: (current?.sequence ?? 0) + 1, tool, newTab: false }))}
                       onOpenTool={(tool) => setToolIntent((current) => ({ sequence: (current?.sequence ?? 0) + 1, tool, newTab: true }))}
                     />
+                    <button type="button" className="catalog-collapse" aria-controls="tool-catalog" aria-expanded="true" aria-label="隐藏 Tool 目录"
+                      onClick={() => setCatalogCollapsed(true)}>
+                      <SidebarSimple size={17} aria-hidden="true" />收起 Tool 目录
+                    </button>
                   </aside>
+                  {catalogCollapsed && <button type="button" className="catalog-restore" aria-controls="tool-catalog"
+                    aria-expanded="false" aria-label="显示 Tool 目录" title="显示 Tool 目录" onClick={() => setCatalogCollapsed(false)}>
+                    <SidebarSimple size={18} aria-hidden="true" />
+                  </button>}
                   <DebugWorkspace api={api} projectId={project.id} toolIntent={toolIntent} />
                 </div>
               )}

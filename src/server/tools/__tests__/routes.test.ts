@@ -103,6 +103,22 @@ describe("Tool routes", () => {
     });
   });
 
+  it("deletes only an entry already marked removed", async () => {
+    await connections.connect(projectId, connectionId);
+    const base = `/api/projects/${projectId}/connections/${connectionId}/tools`;
+    await app().request(`${base}/refresh`, { method: "POST", headers });
+    const active = await app().request(`${base}/${encodeURIComponent("catalog/read item")}`, { method: "DELETE", headers });
+    expect(active.status).toBe(409);
+    expect(await active.json()).toEqual({ error: {
+      code: "TOOL_NOT_REMOVED", message: "Only removed Tools can be deleted",
+    } });
+
+    listTools.mockResolvedValue({ tools: [] });
+    await app().request(`${base}/refresh`, { method: "POST", headers });
+    expect((await app().request(`${base}/${encodeURIComponent("catalog/read item")}`, { method: "DELETE", headers })).status).toBe(204);
+    expect(await (await app().request(base, { headers })).json()).toEqual({ tools: [] });
+  });
+
   it("returns a stable invalid-catalog error without leaking the definition", async () => {
     await connections.connect(projectId, connectionId);
     listTools.mockResolvedValueOnce({ tools: [

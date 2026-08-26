@@ -168,6 +168,17 @@ describe("Tool API response decoding", () => {
     );
   });
 
+  it("uses authenticated DELETE with a URL-encoded Tool name", async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+    await createApiClient("session").deleteTool(projectId, connectionId, definition.name);
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/projects/${projectId}/connections/${connectionId}/tools/catalog%2Fread%20item`,
+      expect.objectContaining({ method: "DELETE", headers: expect.objectContaining({
+        "X-DSers-Inspector-Session": "session",
+      }) }),
+    );
+  });
+
   it("rejects duplicate Tools and a detail that omits its current snapshot", async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ tools: [tool, tool] }), {
       status: 200, headers: { "Content-Type": "application/json" },

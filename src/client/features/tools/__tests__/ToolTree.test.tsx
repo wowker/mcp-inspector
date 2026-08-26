@@ -11,6 +11,7 @@ const projectId = "00000000-0000-4000-8000-000000000541";
 const first: ConnectionSummary = {
   id: "00000000-0000-4000-8000-000000000542", projectId, name: "Catalog MCP",
   url: "https://example.test/mcp", transport: "streamable-http", authMode: "none",
+  headers: {},
   timeoutMs: 1000, status: "connected", lastProtocolVersion: null,
   lastServerInfo: null, lastError: null,
 };
@@ -107,6 +108,24 @@ describe("ToolTree", () => {
     expect(screen.queryByText(/\*\*|\\\[/)).not.toBeInTheDocument();
   });
 
+  it("confirms before deleting a removed Tool and never opens it for debugging", async () => {
+    const user = userEvent.setup();
+    const onDeleteTool = vi.fn().mockResolvedValue(undefined);
+    const onSelectTool = vi.fn();
+    const onOpenTool = vi.fn();
+    render(<ToolTree connections={[first]}
+      catalogs={{ [first.id]: [catalog(first.id, "legacy/tool", "Legacy", "removed")] }}
+      onRefresh={vi.fn()} onSelectTool={onSelectTool} onOpenTool={onOpenTool} onDeleteTool={onDeleteTool} />);
+
+    await user.click(screen.getByRole("treeitem", { name: "legacy/tool，已移除" }));
+    expect(screen.getByRole("dialog", { name: "删除已移除 Tool" })).toBeVisible();
+    expect(onSelectTool).not.toHaveBeenCalled();
+    expect(onOpenTool).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "确认删除 legacy/tool" }));
+    expect(onDeleteTool).toHaveBeenCalledWith(expect.objectContaining({ name: "legacy/tool", status: "removed" }));
+    expect(screen.queryByRole("dialog", { name: "删除已移除 Tool" })).not.toBeInTheDocument();
+  });
+
   it("exposes manual refresh and keeps single-click separate from a real double-click", async () => {
     const onRefresh = vi.fn();
     const onSelectTool = vi.fn();
@@ -115,7 +134,6 @@ describe("ToolTree", () => {
     const unsafe = catalog(first.id, "<img onerror=alert(1)>", "unsafe", "current");
     const { container } = render(<ToolTree
       connections={[first]} catalogs={{ [first.id]: [unsafe] }}
-      errors={{ [first.id]: "目录刷新失败" }} readyConnectionIds={new Set()}
       onRefresh={onRefresh} onSelectTool={onSelectTool} onOpenTool={onOpenTool}
     />);
     await user.click(screen.getByRole("button", { name: "刷新 Catalog MCP Tools" }));
@@ -132,8 +150,9 @@ describe("ToolTree", () => {
     item.focus();
     await user.keyboard("{Enter}");
     expect(onSelectTool).toHaveBeenCalledOnce();
-    expect(screen.getByRole("alert")).toHaveTextContent("目录刷新失败");
-    expect(screen.getByText("已连接，目录未就绪")).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByText("已连接，目录未就绪")).not.toBeInTheDocument();
+    expect(container.querySelector(".catalog-readiness")).toBeNull();
     expect(container.querySelector("img")).toBeNull();
     expect(container.querySelector("script")).toBeNull();
   });

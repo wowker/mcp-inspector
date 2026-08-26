@@ -264,6 +264,22 @@ describe("ToolService", () => {
     expect(tools.get(projectId, connectionId, "echo").snapshots).toHaveLength(1);
   });
 
+  it("deletes only removed catalog entries while preserving immutable snapshots", async () => {
+    const tools = service();
+    await tools.refresh(projectId, connectionId);
+    pages = [{ tools: [tool("sum")] }];
+    await tools.refresh(projectId, connectionId);
+
+    expect(() => tools.deleteRemoved(projectId, connectionId, "sum")).toThrow("Only removed Tools");
+    tools.deleteRemoved(projectId, connectionId, "echo");
+
+    expect(tools.list(projectId, connectionId).map(({ name }) => name)).toEqual(["sum"]);
+    const snapshotCount = projects.open(projectId).database.prepare(
+      "SELECT count(*) AS count FROM tool_snapshots WHERE connection_id = ? AND tool_name = ?",
+    ).get(connectionId, "echo") as { count: number };
+    expect(snapshotCount.count).toBe(1);
+  });
+
   it("drains pagination before one atomic write and rejects duplicate names or repeated cursors", async () => {
     const tools = service();
     pages = [

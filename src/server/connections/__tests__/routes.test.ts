@@ -54,6 +54,7 @@ describe("connection routes", () => {
         transport: "streamable-http",
         authMode: "none",
         timeoutMs: 10_000,
+        headers: { "X-API-Key": "local-secret" },
       }),
     });
 
@@ -63,11 +64,12 @@ describe("connection routes", () => {
         name: "Catalog MCP",
         status: "disconnected",
         url: "https://mcp.example.test/mcp?region=eu",
+        headers: { "X-API-Key": "local-secret" },
       }),
     });
     const listResponse = await app().request(`/api/projects/${project.id}/connections`, { headers });
     expect(await listResponse.json()).toEqual({
-      connections: [expect.objectContaining({ status: "disconnected" })],
+      connections: [expect.objectContaining({ status: "disconnected", headers: { "X-API-Key": "local-secret" } })],
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });

@@ -15,6 +15,7 @@ const connection = {
   url: "https://mcp.example.test/mcp",
   transport: "streamable-http" as const,
   authMode: "none" as const,
+  headers: {},
   timeoutMs: 10_000,
   status: "disconnected" as const,
   lastProtocolVersion: null,
@@ -46,6 +47,7 @@ function api(overrides: Partial<InspectorApiClient> = {}): InspectorApiClient {
     listTools: vi.fn().mockResolvedValue([]),
     refreshTools: vi.fn().mockResolvedValue([]),
     getTool: vi.fn(),
+    deleteTool: vi.fn().mockResolvedValue(undefined),
     listTabs: vi.fn().mockResolvedValue([]),
     openTab: vi.fn(), replaceTabTool: vi.fn(), updateTab: vi.fn(), duplicateTab: vi.fn(),
     reorderTabs: vi.fn(), closeTab: vi.fn(), closeOtherTabs: vi.fn(), closeTabsRight: vi.fn(),
@@ -109,7 +111,8 @@ describe("ConnectionPanel", () => {
     await user.click(screen.getByRole("button", { name: "连接 Catalog MCP" }));
     await waitFor(() => expect(refreshTools).toHaveBeenCalledTimes(1));
     expect(refreshTools).toHaveBeenCalledWith(projectId, connection.id);
-    expect(screen.getByText("目录已就绪")).toBeVisible();
+    expect(screen.getByRole("status")).toHaveTextContent("Catalog MCP 的 Tool 目录已就绪");
+    expect(screen.queryByText("已连接，目录未就绪")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "断开 Catalog MCP" }));
     expect(disconnectConnection).toHaveBeenCalledWith(projectId, connection.id);
   });
@@ -136,9 +139,9 @@ describe("ConnectionPanel", () => {
     await screen.findByText("Catalog MCP");
     await user.click(screen.getByRole("button", { name: "连接 Catalog MCP" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("目录刷新失败");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Catalog MCP 的 Tool 目录刷新失败：目录刷新失败");
     expect(screen.getByRole("button", { name: "断开 Catalog MCP" })).toBeVisible();
-    expect(screen.getByText("已连接，目录未就绪")).toBeVisible();
+    expect(screen.queryByText("已连接，目录未就绪")).not.toBeInTheDocument();
     expect(disconnectConnection).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "刷新 Catalog MCP Tools" }));
     expect(refreshTools).toHaveBeenCalledTimes(2);
@@ -161,17 +164,17 @@ describe("ConnectionPanel", () => {
     })} projectId={projectId} />);
     await screen.findByText("Catalog MCP");
     await user.click(screen.getByRole("button", { name: "连接 Catalog MCP" }));
-    expect(await screen.findByText("目录已就绪")).toBeVisible();
+    expect(await screen.findByText("Catalog MCP 的 Tool 目录已就绪")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "刷新 Catalog MCP Tools" }));
     expect(screen.getByRole("button", { name: "刷新 Catalog MCP Tools" })).toHaveTextContent("刷新中");
-    expect(screen.getByText("正在刷新 Tool 目录")).toHaveAttribute("aria-live", "polite");
+    expect(screen.getByText("正在刷新 Catalog MCP 的 Tool 目录…")).toHaveAttribute("aria-live", "polite");
 
     await user.click(screen.getByRole("button", { name: "断开 Catalog MCP" }));
 
     expect(screen.getByRole("button", { name: "刷新 Catalog MCP Tools" })).toHaveTextContent("刷新");
-    expect(screen.queryByText("目录已就绪")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Tool 目录/)).not.toBeInTheDocument();
     await act(async () => pendingRefresh.resolve([]));
-    expect(screen.queryByText("目录已就绪")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Tool 目录/)).not.toBeInTheDocument();
   });
 
   it("invalidates an in-flight refresh before deleting its connection", async () => {
@@ -251,6 +254,32 @@ describe("ConnectionPanel", () => {
     expect(await screen.findByText("OAuth")).toBeVisible();
   });
 
+  it("adds, removes, and edits custom authentication headers in the connection dialog", async () => {
+    const withHeaders = {
+      ...connection,
+      headers: { Authorization: "Bearer local-secret", "X-Tenant": "supplier-eu" },
+    };
+    const updateConnection = vi.fn().mockResolvedValue(withHeaders);
+    const user = userEvent.setup();
+    render(<ConnectionPanel api={api({
+      listConnections: vi.fn().mockResolvedValue([withHeaders]), updateConnection,
+    })} projectId={projectId} />);
+
+    await user.click(await screen.findByRole("button", { name: "编辑 Catalog MCP" }));
+    expect(screen.getByLabelText("Header 名称 1")).toHaveValue("Authorization");
+    expect(screen.getByLabelText("Header 值 1")).toHaveValue("Bearer local-secret");
+    expect(screen.getByLabelText("Header 值 1")).toHaveAttribute("type", "password");
+    await user.click(screen.getByRole("button", { name: "删除 Header Authorization" }));
+    await user.click(screen.getByRole("button", { name: "添加 Header" }));
+    await user.type(screen.getByLabelText("Header 名称 2"), "X-API-Key");
+    await user.type(screen.getByLabelText("Header 值 2"), "replacement-secret");
+    await user.click(screen.getByRole("button", { name: "保存修改" }));
+
+    expect(updateConnection).toHaveBeenCalledWith(projectId, connection.id, expect.objectContaining({
+      headers: { "X-Tenant": "supplier-eu", "X-API-Key": "replacement-secret" },
+    }));
+  });
+
   it("edits a failed saved connection and keeps the form recoverable", async () => {
     const failed = { ...connection, status: "failed" as const,
       lastError: { code: "MCP_CONNECT_FAILED", message: "Unable to connect to MCP server" } };
@@ -280,6 +309,7 @@ describe("ConnectionPanel", () => {
     await user.click(screen.getByRole("button", { name: "保存修改" }));
     expect(updateConnection).toHaveBeenLastCalledWith(projectId, connection.id, {
       name: "Fixed MCP", url: "https://fixed.example.test/mcp", authMode: "none", timeoutMs: 20_000,
+      headers: {},
     });
     expect(await screen.findByText("Fixed MCP")).toBeVisible();
     expect(screen.getByText("https://fixed.example.test/mcp")).toBeVisible();

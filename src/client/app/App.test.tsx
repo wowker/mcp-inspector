@@ -120,7 +120,8 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Servers", level: 1 })).toBeVisible();
-    expect(screen.getByText("Supplier Tools")).toBeVisible();
+    expect(screen.queryByText("Supplier Tools")).not.toBeInTheDocument();
+    expect(document.querySelector(".project-identity")).not.toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "连接管理" })).toBeVisible();
     expect(fetchMock).toHaveBeenCalledWith(
       `/api/projects/${project.id}/connections`,

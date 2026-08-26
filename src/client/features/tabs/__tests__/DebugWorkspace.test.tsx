@@ -100,6 +100,55 @@ describe("DebugWorkspace", () => {
     expect(onExecute).not.toHaveBeenCalled();
   });
 
+  it("places the primary Execute action beside the parameter mode controls", () => {
+    render(<ParameterEditor tab={tab("00000000-0000-4000-8000-000000000620", "sum", { a: 1 })}
+      schema={tool.tool.currentSnapshot.definition.inputSchema} onChange={vi.fn()} onExecute={vi.fn()}
+      onSaveRequest={vi.fn()} />);
+
+    const modeTabs = screen.getByRole("tablist", { name: "参数输入模式" });
+    const execute = screen.getByRole("button", { name: "执行" });
+    const save = screen.getByRole("button", { name: "保存请求" });
+    const copy = screen.getByRole("button", { name: "复制参数" });
+
+    expect(execute.parentElement).toHaveClass("editor-primary-actions");
+    expect(execute.parentElement).toContainElement(modeTabs);
+    expect(save.parentElement).toHaveClass("editor-actions");
+    expect(copy.parentElement).toBe(save.parentElement);
+    expect(save.parentElement).not.toContainElement(execute);
+  });
+
+  it("collapses and restores parameter fields from the editor toolbar", () => {
+    render(<ParameterEditor tab={tab("00000000-0000-4000-8000-000000000621", "sum", { a: 1 })}
+      schema={tool.tool.currentSnapshot.definition.inputSchema} onChange={vi.fn()} />);
+
+    expect(screen.getByLabelText("a")).toBeVisible();
+    expect(screen.queryByText("参数输入", { selector: ".editor-mode-group > span" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "收起参数" }));
+    expect(screen.queryByLabelText("a")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "展开参数" }));
+    expect(screen.getByLabelText("a")).toBeVisible();
+  });
+
+  it("resizes request and response panes by vertical pointer movement", async () => {
+    const saved = tab("00000000-0000-4000-8000-000000000622", "sum", { a: 1 });
+    const updateTab = vi.fn(async (_project: string, _id: string, patch: Partial<DebugTabSummary>) => ({ ...saved, ...patch }));
+    const api = { listTabs: vi.fn(async () => [saved]), getTool: vi.fn(async () => tool), updateTab } as unknown as InspectorApiClient;
+    render(<DebugWorkspace api={api} projectId={projectId} />);
+    const resize = await screen.findByLabelText("请求区高度");
+    const split = resize.closest(".request-result-split") as HTMLElement;
+    vi.spyOn(split, "getBoundingClientRect").mockReturnValue({ top: 100, bottom: 600, left: 0, right: 1000,
+      width: 1000, height: 500, x: 0, y: 100, toJSON: () => ({}) });
+    const control = resize.closest(".split-control") as HTMLElement & {
+      setPointerCapture: (id: number) => void; hasPointerCapture: (id: number) => boolean;
+    };
+    control.setPointerCapture = vi.fn(); control.hasPointerCapture = vi.fn(() => true);
+
+    fireEvent.pointerDown(control, { pointerId: 7, clientY: 250 });
+    fireEvent.pointerMove(control, { pointerId: 7, clientY: 400 });
+    await waitFor(() => expect(updateTab).toHaveBeenCalledWith(projectId, saved.id,
+      expect.objectContaining({ viewState: expect.objectContaining({ splitRatio: 0.6 }) })));
+  });
+
   it("switches from valid Raw JSON to Form even when required Schema fields are missing", () => {
     const onChange = vi.fn();
     const rawTab = { ...tab("00000000-0000-4000-8000-000000000614", "sum", {}),
@@ -283,7 +332,10 @@ describe("DebugWorkspace", () => {
     const openTab = vi.fn(async () => ({ ...saved, id: "00000000-0000-4000-8000-000000000632", pinned: false, position: 1 }));
     const api = { listTabs: vi.fn(async () => [saved]), getTool: vi.fn(async () => tool), updateTab: vi.fn(),
       replaceTabTool: vi.fn(), openTab } as unknown as InspectorApiClient;
-    const view = render(<DebugWorkspace api={api} projectId={projectId} />); await screen.findByRole("tab", { name: /固定 sum/ });
+    const view = render(<DebugWorkspace api={api} projectId={projectId} />);
+    const pinnedTab = await screen.findByRole("tab", { name: "sum，已固定" });
+    expect(pinnedTab).toHaveTextContent(/^sum$/);
+    expect(screen.getByTitle("已固定")).toBeVisible();
     expect(screen.getByRole("button", { name: "关闭 sum" })).toBeDisabled();
     view.rerender(<DebugWorkspace api={api} projectId={projectId} toolIntent={{ sequence: 1, tool: tool.tool, newTab: false }} />);
     await waitFor(() => expect(openTab).toHaveBeenCalledTimes(1)); expect(api.replaceTabTool).not.toHaveBeenCalled();
@@ -471,7 +523,7 @@ describe("DebugWorkspace", () => {
       kind: "request", name: "nine", description: "known result", payload: { a: 4, b: 5 }, sourceRunId: null,
     });
     await waitFor(() => expect(dialog).not.toBeInTheDocument());
-    expect(await screen.findByRole("heading", { name: "已保存" })).toBeVisible();
+    expect(await screen.findByRole("tab", { name: /请求 1/ })).toHaveAttribute("aria-selected", "true");
   });
 
   it("shows current Tab history records without repeating the view title", async () => {
@@ -562,5 +614,25 @@ describe("DebugWorkspace", () => {
       expect(callback).toHaveBeenCalled();
       expect(summary.closest("details")).not.toHaveAttribute("open"); expect(summary).toHaveFocus();
     }
+  });
+
+  it("dismisses an open Tab menu when clicking elsewhere or pressing Escape", async () => {
+    const callbacks = { onSelect: vi.fn(), onClose: vi.fn(), onDuplicate: vi.fn(), onPin: vi.fn(),
+      onCloseOthers: vi.fn(), onCloseRight: vi.fn(), onMove: vi.fn() };
+    const saved = tab("00000000-0000-4000-8000-000000000646", "sum", {});
+    const user = userEvent.setup();
+    render(<><button type="button">页面空白操作</button><TabStrip tabs={[saved]} activeId={saved.id} {...callbacks} /></>);
+
+    const summary = screen.getByLabelText("sum 操作");
+    await user.click(summary);
+    expect(summary.closest("details")).toHaveAttribute("open");
+    await user.click(screen.getByRole("button", { name: "页面空白操作" }));
+    expect(summary.closest("details")).not.toHaveAttribute("open");
+
+    await user.click(summary);
+    expect(summary.closest("details")).toHaveAttribute("open");
+    await user.keyboard("{Escape}");
+    expect(summary.closest("details")).not.toHaveAttribute("open");
+    expect(summary).toHaveFocus();
   });
 });

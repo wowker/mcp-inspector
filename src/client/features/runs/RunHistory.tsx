@@ -2,11 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import type { InspectorApiClient, RunSummary } from "../../api/api-client.js";
 
 interface Props { api: InspectorApiClient; projectId: string; tabId?: string; connectionId?: string; toolName?: string;
-  onOpen: (run: RunSummary) => void; hideHeading?: boolean; compactId?: boolean }
+  onOpen: (run: RunSummary) => void; hideHeading?: boolean; compactId?: boolean; selectedId?: string }
 const statusLabel: Record<string, string> = { queued: "排队中", connecting: "连接中", authorizing: "授权中", running: "运行中",
   succeeded: "成功", failed: "失败", cancelled: "已取消", interrupted: "已中断" };
 
-export function RunHistory({ api, projectId, tabId, connectionId, toolName, onOpen, hideHeading = false, compactId = false }: Props) {
+export function RunHistory({ api, projectId, tabId, connectionId, toolName, onOpen, hideHeading = false, compactId = false, selectedId }: Props) {
   const [runs, setRuns] = useState<RunSummary[]>([]); const [cursor, setCursor] = useState<string | null | undefined>(undefined);
   const [loading, setLoading] = useState(true); const [error, setError] = useState<string | null>(null); const generation = useRef(0);
   const filter = tabId === undefined ? undefined : { tabId, ...(connectionId === undefined ? {} : { connectionId }),
@@ -29,9 +29,13 @@ export function RunHistory({ api, projectId, tabId, connectionId, toolName, onOp
   return <section className="run-history" aria-label={tabId === undefined ? "项目运行历史" : "当前 Tab 历史"}>
     {!hideHeading && <h2>{tabId === undefined ? "运行历史" : "当前 Tab 历史"}</h2>}{error !== null && <p role="alert">{error}</p>}
     {visible.length === 0 && !loading && <p>暂无运行记录</p>}
-    <ol>{visible.map((run) => <li key={run.id}><button type="button" className="history-run" aria-label={`打开运行 ${run.id}`} onClick={() => onOpen(run)}>
-      <span className="history-run__id">{compactId ? run.id.slice(-8) : run.id}</span><strong>{run.toolName}</strong><span className={`status-chip status-chip--${run.status}`}>{statusLabel[run.status] ?? run.status}</span>
-      <time>{new Date(run.createdAt).toLocaleString()}</time><span>{run.durationMs === null ? "未记录" : `${run.durationMs} ms`}</span></button></li>)}</ol>
+    <ol>{visible.map((run) => <li key={run.id}><button type="button" className={`history-run${selectedId === run.id ? " is-selected" : ""}`}
+      aria-current={selectedId === run.id ? "true" : undefined} aria-label={`打开运行 ${run.id}`} onClick={() => onOpen(run)}>
+      <span className="history-run__primary"><strong title={run.toolName}>{run.toolName}</strong>
+        <span className="history-run__id">{compactId ? run.id.slice(-8) : run.id}</span></span>
+      <span className={`status-chip status-chip--${run.status}`}>{statusLabel[run.status] ?? run.status}</span>
+      <span className="history-run__meta"><time>{new Date(run.createdAt).toLocaleString()}</time>
+        <span>{run.durationMs === null ? "未记录" : `${run.durationMs} ms`}</span></span></button></li>)}</ol>
     {loading && <p role="status">正在加载运行历史…</p>}
     {cursor !== null && cursor !== undefined && <button type="button" disabled={loading} onClick={() => void more()}>加载更多</button>}
   </section>;

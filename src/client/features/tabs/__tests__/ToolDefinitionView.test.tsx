@@ -45,6 +45,13 @@ const detail: ToolDetailSummary = {
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 describe("ToolDefinitionView", () => {
+  it("exposes the complete definition as a keyboard-scrollable content region", () => {
+    render(<ToolDefinitionView detail={detail} />);
+
+    expect(screen.getByRole("article", { name: "apply_product_mapping Tool 定义" })).toHaveAttribute("tabindex", "0");
+    expect(screen.queryByText("CURRENT TOOL DEFINITION")).not.toBeInTheDocument();
+  });
+
   it("turns structured description markers into readable sections without exposing Markdown syntax", () => {
     render(<ToolDefinitionView detail={detail} />);
 

@@ -16,12 +16,14 @@ const createConnectionBodySchema = z.object({
   url: z.string(),
   transport: z.literal("streamable-http"),
   authMode: z.enum(["none", "oauth"]),
+  headers: z.record(z.string(), z.string()).optional(),
   timeoutMs: z.number(),
 }).strict();
 const updateConnectionBodySchema = z.object({
   name: z.string().optional(),
   url: z.string().optional(),
   authMode: z.enum(["none", "oauth"]).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
   timeoutMs: z.number().optional(),
 }).strict().refine((value) => Object.keys(value).length > 0);
 

@@ -25,6 +25,8 @@ describe("SavedItemsView", () => {
     const onLoadRequest = vi.fn(); const user = userEvent.setup();
     render(<SavedItemsView api={api} projectId={projectId} connectionId={connectionId} toolName="sum" onLoadRequest={onLoadRequest} />);
     expect(await screen.findByRole("tab", { name: /请求 1/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByRole("heading", { name: "已保存" })).not.toBeInTheDocument();
+    expect(screen.queryByText("当前 Tool 的请求样例与响应基线。")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /^Happy path，/ }));
     expect((await screen.findAllByText("Regression args"))[1]).toBeVisible();
     await user.click(screen.getByRole("button", { name: "加载到当前 Tab" }));

@@ -43,14 +43,26 @@ describe("RunResultPanel", () => {
   it("defaults to a compact request and result view with secondary details hidden", () => {
     render(<RunResultPanel run={run} />);
     expect(screen.getByRole("tab", { name: "请求与结果" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("heading", { name: "请求参数" })).toBeVisible();
-    expect(screen.getByRole("heading", { name: "请求结果" })).toBeVisible();
+    expect(screen.getByText("请求参数").closest("details")).toHaveAttribute("open");
+    expect(screen.getByText("请求结果").closest("details")).toHaveAttribute("open");
     expect(screen.queryByText("Run ID")).not.toBeInTheDocument();
     expect(screen.queryByText("完整 JSON-RPC")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: "调用详情" }));
     expect(screen.getByText("Run ID")).toBeVisible();
     expect(screen.getByText(run.id)).toBeVisible();
+  });
+
+  it("collapses request and result independently and places HTTP before RPC", () => {
+    render(<RunResultPanel run={run} />);
+    const request = screen.getByText("请求参数").closest("details")!;
+    request.open = false;
+    fireEvent(request, new Event("toggle"));
+    expect(screen.queryByText(/^value/)).not.toBeInTheDocument();
+    expect(screen.getByText(/^answer/)).toBeVisible();
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+      "请求与结果", "调用详情", "HTTP", "RPC", "时间线",
+    ]);
   });
 
   it("uses one collapsible JSON viewer for request and response data without a duplicate subtree", () => {
@@ -119,10 +131,27 @@ describe("RunResultPanel", () => {
     expect(screen.getByRole("tabpanel")).toHaveAttribute("aria-labelledby", tab.id);
   });
 
+  it("keeps run status, timing, actions, and result navigation in one sticky header", () => {
+    render(<RunResultPanel run={run} />);
+    const sticky = document.querySelector(".run-result__sticky-header");
+    expect(sticky).toContainElement(screen.getByText("成功"));
+    expect(sticky).toContainElement(screen.getByText("40 ms"));
+    expect(sticky).toContainElement(screen.getByText("网络 25 ms"));
+    expect(sticky).toContainElement(screen.getByRole("button", { name: "复制全部结果" }));
+    expect(sticky).toContainElement(screen.getByRole("tab", { name: "请求与结果" }));
+  });
+
   it("offers the immutable response to a save workflow", () => {
     const onSaveResponse = vi.fn(); render(<RunResultPanel run={run} onSaveResponse={onSaveResponse} />);
     fireEvent.click(screen.getByRole("button", { name: "保存响应" }));
     expect(onSaveResponse).toHaveBeenCalledWith(run.response);
+  });
+
+  it("uses the same compact secondary-action treatment for every copy and save command", () => {
+    render(<RunResultPanel run={run} onSaveResponse={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "保存响应" })).toHaveClass("run-result-action");
+    expect(screen.getByRole("button", { name: "复制全部结果" })).toHaveClass("run-result-action");
+    expect(screen.getByRole("button", { name: "复制参数" })).toHaveClass("run-result-action");
   });
 
   it("labels truncated output and surfaces clipboard failures", async () => {

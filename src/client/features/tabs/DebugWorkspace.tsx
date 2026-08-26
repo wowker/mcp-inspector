@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { TerminalWindow, X } from "@phosphor-icons/react";
 import type { CatalogToolSummary, DebugTabSummary, InspectorApiClient, RunDetail, RunSummary, ToolDetailSummary } from "../../api/api-client.js";
 import { formatRawArguments, parseRawArguments } from "../../../shared/json.js";
@@ -325,6 +325,16 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
   const detail = active !== null && boundDetail?.tabId === active.id && boundDetail.connectionId === active.connectionId &&
     boundDetail.toolName === active.toolName ? boundDetail.value : null;
 
+  function resizeSplit(event: ReactPointerEvent<HTMLLabelElement>): void {
+    if (active === null) return;
+    const split = event.currentTarget.parentElement;
+    if (split === null) return;
+    const bounds = split.getBoundingClientRect();
+    if (bounds.height <= 0) return;
+    const ratio = Math.min(0.8, Math.max(0.2, (event.clientY - bounds.top) / bounds.height));
+    schedule(active.id, { viewState: { ...active.viewState, splitRatio: Math.round(ratio * 1000) / 1000 } });
+  }
+
   if (tabs === null) return <p role="status">正在恢复调试 Tabs…</p>;
   return <section className="debug-workspace" aria-label="Tool 调试工作台">
     {[...startingIds].map((tabId) => { const runId = activeRuns.current.get(tabId); return runId === undefined ? null
@@ -352,7 +362,7 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
       <button type="button" aria-label={`关闭只读运行 ${run.id}`} onClick={() => closeReadOnly(run.id)}><X size={15} aria-hidden="true" /></button></span>)}</div>}
     {activeReadOnlyId !== null ? <section id={`history-panel-${activeReadOnlyId}`} role="tabpanel" aria-labelledby={`history-tab-${activeReadOnlyId}`} className="read-only-run"><p role="status">只读历史结果，不会重新调用 Tool。</p>
         {observed.error !== null && <p role="alert">{observed.error}</p>}{observed.run === null ? <p role="status">正在加载运行详情…</p> : <RunResultPanel run={observed.run} />}</section>
-      : active === null ? <div className="workspace-empty"><h2>选择一个 Tool 开始调试</h2><p>单击复用当前未固定 Tab，双击打开新 Tab。</p></div> : <div id={`tabpanel-${active.id}`} role="tabpanel" aria-labelledby={`tab-${active.id}`}>
+      : active === null ? <div className="workspace-empty"><h2>选择一个 Tool 开始调试</h2><p>单击复用当前未固定 Tab，双击打开新 Tab。</p></div> : <div className="workspace-tab-panel" id={`tabpanel-${active.id}`} role="tabpanel" aria-labelledby={`tab-${active.id}`}>
       <nav className="workspace-nav" aria-label="当前 Tab 视图">
         {(["debug", "definition", "saved", "history"] as const).map((item) => <button type="button" key={item}
           aria-current={view === item ? "page" : undefined} onClick={() => setView(item)}>
@@ -371,7 +381,9 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
             onSaveRequest={(payload) => setSaveIntent({ tabId: active.id, connectionId: active.connectionId,
               toolName: active.toolName, kind: "request", payload, sourceRunId: null })} />
         </div>
-        <label className="split-control"><span className="sr-only">请求区高度</span>
+        <label className="split-control" onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); resizeSplit(event); }}
+          onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) resizeSplit(event); }}>
+          <span className="sr-only">请求区高度</span>
           <input aria-label="请求区高度" type="range" min="20" max="80" value={active.viewState.splitRatio * 100}
             onChange={(event) => schedule(active.id, { viewState: { ...active.viewState, splitRatio: Number(event.target.value) / 100 } })} />
         </label>

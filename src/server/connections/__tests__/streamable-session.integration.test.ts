@@ -18,6 +18,7 @@ describe("Streamable HTTP MCP session", () => {
       url: fixture.url,
       transport: "streamable-http",
       authMode: "none",
+      headers: { "X-API-Key": "local-secret", "X-Tenant": "supplier-eu" },
       timeoutMs: 2_000,
       status: "disconnected",
       lastProtocolVersion: null,
@@ -34,6 +35,13 @@ describe("Streamable HTTP MCP session", () => {
       expect(session.serverInfo).toEqual({ name: "loopback-fixture", version: "1.0.0" });
       expect(observations.some((event) => event.kind === "rpc-out")).toBe(true);
       expect(observations.some((event) => event.kind === "rpc-in")).toBe(true);
+      expect(fixture.receivedRequestHeaders.length).toBeGreaterThan(0);
+      expect(fixture.receivedRequestHeaders.every((headers) =>
+        headers["x-api-key"] === "local-secret" && headers["x-tenant"] === "supplier-eu"))
+        .toBe(true);
+      expect(observations.filter((event) => event.kind === "http-request").every((event) =>
+        event.headers["x-api-key"] === "[REDACTED]" && event.headers["x-tenant"] === "supplier-eu"))
+        .toBe(true);
     } finally {
       await session.close();
     }

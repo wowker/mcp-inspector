@@ -1,14 +1,8 @@
 import type { FetchLike } from "@modelcontextprotocol/client";
 import type { WireObservation } from "./connection-runtime.js";
+import { isSensitiveHeaderName } from "../../shared/custom-headers.js";
 
 export const OBSERVATION_TEXT_LIMIT = 64 * 1024;
-const sensitiveHeaders = new Set([
-  "authorization",
-  "proxy-authorization",
-  "cookie",
-  "set-cookie",
-]);
-
 type Observer = (event: WireObservation) => void;
 
 function emit(observer: Observer, event: WireObservation): void {
@@ -18,14 +12,14 @@ function emit(observer: Observer, event: WireObservation): void {
 function headersObject(headers: Headers): Record<string, string> {
   return Object.fromEntries(Array.from(headers.entries(), ([name, value]) => [
     name,
-    sensitiveHeaders.has(name.toLowerCase()) ? "[REDACTED]" : value,
+    isSensitiveHeaderName(name) ? "[REDACTED]" : value,
   ]));
 }
 
 export function redactWireObservation(event: WireObservation): WireObservation {
   if (event.kind !== "http-request" && event.kind !== "http-response") return event;
   return { ...event, headers: Object.fromEntries(Object.entries(event.headers).map(([name, value]) => [
-    name, sensitiveHeaders.has(name.toLowerCase()) ? "[REDACTED]" : value,
+    name, isSensitiveHeaderName(name) ? "[REDACTED]" : value,
   ])) };
 }
 

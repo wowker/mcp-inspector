@@ -1,5 +1,6 @@
 import { useEffect, useRef, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
-import { X } from "@phosphor-icons/react";
+import { Plus, Trash, X } from "@phosphor-icons/react";
+import type { ConnectionHeaderDraft } from "./ConnectionPanel.js";
 
 interface DialogSurfaceProps {
   children: ReactNode;
@@ -70,19 +71,24 @@ interface ConnectionFormDialogProps {
   url: string;
   timeoutMs: string;
   authMode: "none" | "oauth";
+  headers: ConnectionHeaderDraft[];
   submitting: boolean;
   error: string | null;
   onNameChange: (value: string) => void;
   onUrlChange: (value: string) => void;
   onTimeoutChange: (value: string) => void;
   onAuthModeChange: (value: "none" | "oauth") => void;
+  onAddHeader: () => void;
+  onHeaderChange: (id: number, field: "name" | "value", value: string) => void;
+  onRemoveHeader: (id: number) => void;
   onSubmit: (event: FormEvent) => void;
   onClose: () => void;
 }
 
 export function ConnectionFormDialog({
-  mode, name, url, timeoutMs, authMode, submitting, error,
-  onNameChange, onUrlChange, onTimeoutChange, onAuthModeChange, onSubmit, onClose,
+  mode, name, url, timeoutMs, authMode, headers, submitting, error,
+  onNameChange, onUrlChange, onTimeoutChange, onAuthModeChange,
+  onAddHeader, onHeaderChange, onRemoveHeader, onSubmit, onClose,
 }: ConnectionFormDialogProps) {
   const nameInput = useRef<HTMLInputElement>(null);
   const title = mode === "create" ? "添加连接" : "编辑连接";
@@ -157,6 +163,62 @@ export function ConnectionFormDialog({
             {authMode === "oauth" && <small>首次连接会打开浏览器完成授权。</small>}
           </label>
         </div>
+        <section className="connection-headers" aria-labelledby="connection-headers-title">
+          <div className="connection-headers__heading">
+            <div>
+              <h4 id="connection-headers-title">自定义 Headers</h4>
+              <p>连接、刷新 Tool 和调用 Tool 时都会发送。敏感值仅保存在本地项目中。</p>
+            </div>
+            <button type="button" className="button-secondary" onClick={onAddHeader} disabled={submitting || headers.length >= 32}>
+              <Plus size={15} weight="bold" aria-hidden="true" />添加 Header
+            </button>
+          </div>
+          {headers.length === 0 ? (
+            <p className="connection-headers__empty">未配置自定义 Header</p>
+          ) : (
+            <div className="connection-headers__list">
+              {headers.map((header, index) => (
+                <div className="connection-header-row" key={header.id}>
+                  <label>
+                    <span>名称</span>
+                    <input
+                      aria-label={`Header 名称 ${index + 1}`}
+                      value={header.name}
+                      onChange={(event) => onHeaderChange(header.id, "name", event.target.value)}
+                      placeholder="例如 X-API-Key"
+                      maxLength={256}
+                      required
+                    />
+                  </label>
+                  <label>
+                    <span>值</span>
+                    <input
+                      aria-label={`Header 值 ${index + 1}`}
+                      value={header.value}
+                      onChange={(event) => onHeaderChange(header.id, "value", event.target.value)}
+                      type="password"
+                      autoComplete="off"
+                      placeholder="输入 Header 值"
+                      maxLength={8192}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="connection-header-row__remove"
+                    aria-label={`删除 Header ${header.name || index + 1}`}
+                    disabled={submitting}
+                    onClick={() => onRemoveHeader(header.id)}
+                  >
+                    <Trash size={17} aria-hidden="true" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {authMode === "oauth" && (
+            <p className="connection-headers__notice">OAuth 模式下 Authorization 由授权流程自动管理。</p>
+          )}
+        </section>
         <dl className="connection-fixed-options">
           <div><dt>传输方式</dt><dd>Streamable HTTP</dd></div>
         </dl>

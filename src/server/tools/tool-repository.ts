@@ -105,6 +105,20 @@ export class ToolRepository {
     return { tool: catalogFromRow(row), snapshots: snapshots.map(snapshotFromRow) };
   }
 
+  deleteRemoved(projectId: string, connectionId: string, toolName: string): "deleted" | "active" | "missing" {
+    const row = this.store.database.prepare(`
+      SELECT status FROM tools
+      WHERE project_id = ? AND connection_id = ? AND name = ?
+    `).get(projectId, connectionId, toolName) as { status: ToolStatus } | undefined;
+    if (row === undefined) return "missing";
+    if (row.status !== "removed") return "active";
+    this.store.database.prepare(`
+      DELETE FROM tools
+      WHERE project_id = ? AND connection_id = ? AND name = ? AND status = 'removed'
+    `).run(projectId, connectionId, toolName);
+    return "deleted";
+  }
+
   replaceCatalog(
     projectId: string,
     connectionId: string,

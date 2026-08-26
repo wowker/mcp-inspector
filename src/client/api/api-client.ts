@@ -1,4 +1,5 @@
 import { parseToolDefinition, type ToolDefinition } from "../../shared/tool-definition.js";
+import { normalizeCustomHeaders } from "../../shared/custom-headers.js";
 
 export interface ProjectSummary {
   id: string;
@@ -15,6 +16,7 @@ export interface ConnectionSummary {
   url: string;
   transport: "streamable-http";
   authMode: "none" | "oauth";
+  headers: Record<string, string>;
   timeoutMs: number;
   status: "disconnected" | "connecting" | "connected" | "failed";
   lastProtocolVersion: string | null;
@@ -27,11 +29,12 @@ export interface CreateConnectionRequest {
   url: string;
   transport: "streamable-http";
   authMode: "none" | "oauth";
+  headers?: Record<string, string>;
   timeoutMs: number;
 }
 
 export type UpdateConnectionRequest = Partial<Pick<CreateConnectionRequest,
-  "name" | "url" | "authMode" | "timeoutMs">>;
+  "name" | "url" | "authMode" | "headers" | "timeoutMs">>;
 
 export interface ToolSnapshotSummary {
   id: string;
@@ -123,6 +126,7 @@ export interface InspectorApiClient {
   listTools(projectId: string, connectionId: string): Promise<CatalogToolSummary[]>;
   refreshTools(projectId: string, connectionId: string): Promise<CatalogToolSummary[]>;
   getTool(projectId: string, connectionId: string, toolName: string): Promise<ToolDetailSummary>;
+  deleteTool(projectId: string, connectionId: string, toolName: string): Promise<void>;
   listTabs(projectId: string): Promise<DebugTabSummary[]>;
   openTab(projectId: string, connectionId: string, toolName: string): Promise<DebugTabSummary>;
   replaceTabTool(projectId: string, tabId: string, connectionId: string, toolName: string): Promise<DebugTabSummary>;
@@ -186,6 +190,7 @@ function decodeConnection(value: unknown, projectId: string): ConnectionSummary 
     url: rawUrl,
     transport,
     authMode,
+    headers,
     timeoutMs,
     status,
     lastProtocolVersion,
@@ -204,6 +209,7 @@ function decodeConnection(value: unknown, projectId: string): ConnectionSummary 
     typeof lastError.code === "string" &&
     typeof lastError.message === "string"
   );
+  const normalizedHeaders = normalizeCustomHeaders(headers, authMode === "oauth" ? "oauth" : "none");
   if (
     typeof id !== "string" || !uuidPattern.test(id) ||
     typeof recordProjectId !== "string" || !uuidPattern.test(recordProjectId) ||
@@ -214,7 +220,7 @@ function decodeConnection(value: unknown, projectId: string): ConnectionSummary 
     transport !== "streamable-http" || (authMode !== "none" && authMode !== "oauth") || !isConnectionStatus(status) ||
     typeof timeoutMs !== "number" || !Number.isInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 600_000 ||
     !(lastProtocolVersion === null || typeof lastProtocolVersion === "string") ||
-    !isNullableObject(lastServerInfo) || !validError
+    !isNullableObject(lastServerInfo) || !validError || normalizedHeaders === null
   ) {
     throw new Error("Invalid connection response");
   }
@@ -225,6 +231,7 @@ function decodeConnection(value: unknown, projectId: string): ConnectionSummary 
     url: rawUrl,
     transport,
     authMode,
+    headers: normalizedHeaders,
     timeoutMs,
     status,
     lastProtocolVersion,
@@ -573,6 +580,13 @@ export function createApiClient(sessionToken: string): InspectorApiClient {
         { headers },
       );
       return decodeToolDetail(await decodeResponse<unknown>(response), projectId, connectionId, toolName);
+    },
+    async deleteTool(projectId, connectionId, toolName) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/connections/${encodeURIComponent(connectionId)}/tools/${encodeURIComponent(toolName)}`,
+        { method: "DELETE", headers },
+      );
+      if (!response.ok) await decodeResponse<never>(response);
     },
     async listTabs(projectId) {
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tabs`, { headers });

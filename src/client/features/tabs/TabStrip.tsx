@@ -1,5 +1,5 @@
 import { useEffect, useRef, type MouseEvent } from "react";
-import { DotsThree, X } from "@phosphor-icons/react";
+import { DotsThree, PushPin, X } from "@phosphor-icons/react";
 import type { DebugTabSummary } from "../../api/api-client.js";
 
 interface Props {
@@ -21,6 +21,28 @@ export function TabStrip({ tabs, activeId, onSelect, onClose, onDuplicate, onPin
     }
     previousActive.current = activeId;
   }, [activeId]);
+  useEffect(() => {
+    function closeMenusExcept(target: EventTarget | null): void {
+      strip.current?.querySelectorAll<HTMLDetailsElement>("details.tab-menu[open]").forEach((details) => {
+        if (!(target instanceof Node) || !details.contains(target)) details.open = false;
+      });
+    }
+    function dismissOnPointerDown(event: PointerEvent): void { closeMenusExcept(event.target); }
+    function dismissOnEscape(event: KeyboardEvent): void {
+      if (event.key !== "Escape") return;
+      const details = strip.current?.querySelector<HTMLDetailsElement>("details.tab-menu[open]");
+      if (details === null || details === undefined) return;
+      details.open = false;
+      details.querySelector<HTMLElement>("summary")?.focus();
+      event.preventDefault();
+    }
+    document.addEventListener("pointerdown", dismissOnPointerDown);
+    document.addEventListener("keydown", dismissOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", dismissOnPointerDown);
+      document.removeEventListener("keydown", dismissOnEscape);
+    };
+  }, []);
   function finishMenuAction(event: MouseEvent<HTMLButtonElement>, action: () => void): void {
     const details = event.currentTarget.closest("details"); action();
     details?.removeAttribute("open"); details?.querySelector("summary")?.focus();
@@ -44,8 +66,9 @@ export function TabStrip({ tabs, activeId, onSelect, onClose, onDuplicate, onPin
     const next = buttons[index]; if (next !== undefined) { event.preventDefault(); next.focus(); next.click(); }
   }}>
     {tabs.map((tab) => <div className="debug-tab" key={tab.id}>
-      <button id={`tab-${tab.id}`} aria-controls={`tabpanel-${tab.id}`} type="button" role="tab" aria-selected={tab.id === activeId} tabIndex={tab.id === activeId ? 0 : -1}
-        onClick={() => onSelect(tab.id)}>{tab.pinned ? "固定 " : ""}{tab.title}
+      <button id={`tab-${tab.id}`} aria-label={tab.pinned ? `${tab.title}，已固定` : undefined} aria-controls={`tabpanel-${tab.id}`} type="button" role="tab" aria-selected={tab.id === activeId} tabIndex={tab.id === activeId ? 0 : -1}
+        onClick={() => onSelect(tab.id)}>{tab.title}
+        {tab.pinned && <span className="tab-pin-indicator" title="已固定"><PushPin size={13} weight="fill" aria-hidden="true" /></span>}
         {dirtyIds.has(tab.id) && <span aria-label="未保存"> *</span>}
         {runningIds.has(tab.id) && <span aria-label="运行中"> ⟳</span>}</button>
       <details className="tab-menu" onToggle={(event) => { if (event.currentTarget.open) positionMenu(event.currentTarget); }}><summary aria-label={`${tab.title} 操作`} onKeyDown={(event) => {

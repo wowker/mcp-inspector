@@ -51,6 +51,67 @@ describe("ConnectionService", () => {
     })).toThrow(/http or https/i);
   });
 
+  it("persists validated custom headers, supplies them to the runtime, and replaces them on edit", async () => {
+    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-connections-"));
+    dataRoots.push(dataRoot);
+    projects = createProjectService({ dataRoot });
+    const project = projects.create("Header authenticated Tools");
+    const resolvedHeaders: Array<Record<string, string>> = [];
+    const service = createConnectionService(projects, {
+      createId: () => "00000000-0000-4000-8000-000000000220",
+      sessionFactory: async (configuration) => {
+        resolvedHeaders.push(configuration.headers);
+        return new FakeMcpSession();
+      },
+    });
+
+    const created = service.create(project.id, {
+      name: "Private MCP", url: "https://mcp.example.test/mcp", transport: "streamable-http",
+      authMode: "none", timeoutMs: 10_000,
+      headers: { Authorization: "Bearer local-secret", "X-Tenant": "supplier-eu" },
+    });
+    expect(created.headers).toEqual({ Authorization: "Bearer local-secret", "X-Tenant": "supplier-eu" });
+    await service.connect(project.id, created.id);
+    expect(resolvedHeaders).toEqual([{ Authorization: "Bearer local-secret", "X-Tenant": "supplier-eu" }]);
+
+    const updated = await service.update(project.id, created.id, {
+      headers: { "X-API-Key": "replacement-secret" },
+    });
+    expect(updated.headers).toEqual({ "X-API-Key": "replacement-secret" });
+    projects.close();
+    projects = createProjectService({ dataRoot });
+    expect(createConnectionService(projects).list(project.id)[0]?.headers)
+      .toEqual({ "X-API-Key": "replacement-secret" });
+  });
+
+  it.each([
+    [{ "Bad Header": "value" }, "invalid header name"],
+    [{ "X-Test": "value\r\ninjected: true" }, "header injection"],
+    [{ Host: "malicious.example" }, "protocol controlled header"],
+  ])("rejects unsafe custom headers: %s", (headers, _description) => {
+    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-connections-"));
+    dataRoots.push(dataRoot);
+    projects = createProjectService({ dataRoot });
+    const project = projects.create("Unsafe Headers");
+    const service = createConnectionService(projects);
+    expect(() => service.create(project.id, {
+      name: "Unsafe", url: "https://mcp.example.test/mcp", transport: "streamable-http",
+      authMode: "none", timeoutMs: 10_000, headers,
+    })).toThrow(/invalid/i);
+  });
+
+  it("rejects a custom Authorization header when OAuth owns authorization", () => {
+    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-connections-"));
+    dataRoots.push(dataRoot);
+    projects = createProjectService({ dataRoot });
+    const project = projects.create("OAuth Headers");
+    const service = createConnectionService(projects);
+    expect(() => service.create(project.id, {
+      name: "OAuth", url: "https://mcp.example.test/mcp", transport: "streamable-http",
+      authMode: "oauth", timeoutMs: 10_000, headers: { Authorization: "Bearer conflicting" },
+    })).toThrow(/invalid/i);
+  });
+
   it("normalizes bounded configuration input and rejects unsupported or secret-bearing values", () => {
     const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-connections-"));
     dataRoots.push(dataRoot);

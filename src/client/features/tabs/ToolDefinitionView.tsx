@@ -92,9 +92,9 @@ export function ToolDefinitionView({ detail }: { detail: ToolDetailSummary }) {
     }
   }
 
-  return <article className="tool-definition">
+  return <article className="tool-definition" aria-label={`${definition.name} Tool 定义`} tabIndex={0}>
     <header className="tool-definition__header">
-      <div><p className="definition-kicker">CURRENT TOOL DEFINITION</p><h2>{detail.tool.name}</h2>
+      <div><h2>{detail.tool.name}</h2>
         {definition.title !== undefined && <p className="tool-definition__title">{definition.title}</p>}</div>
       <div className="definition-copy"><button type="button" onClick={() => void copyDefinition()}>复制完整定义</button></div>
     </header>

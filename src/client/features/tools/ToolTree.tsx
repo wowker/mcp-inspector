@@ -7,11 +7,10 @@ interface ToolTreeProps {
   connections: ConnectionSummary[];
   catalogs: Readonly<Record<string, CatalogToolSummary[]>>;
   refreshingConnectionIds?: ReadonlySet<string>;
-  readyConnectionIds?: ReadonlySet<string>;
-  errors?: Readonly<Record<string, string>>;
   onRefresh: (connectionId: string) => void;
   onSelectTool: (tool: CatalogToolSummary) => void;
   onOpenTool: (tool: CatalogToolSummary) => void;
+  onDeleteTool?: (tool: CatalogToolSummary) => Promise<void>;
 }
 
 const statusLabels: Record<CatalogToolSummary["status"], string> = {
@@ -68,11 +67,10 @@ export function ToolTree({
   connections,
   catalogs,
   refreshingConnectionIds = new Set(),
-  readyConnectionIds = new Set(),
-  errors = {},
   onRefresh,
   onSelectTool,
   onOpenTool,
+  onDeleteTool = async () => undefined,
 }: ToolTreeProps) {
   const pendingSelection = useRef<{
     timer: ReturnType<typeof setTimeout>;
@@ -80,6 +78,10 @@ export function ToolTree({
   } | null>(null);
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const [pendingDelete, setPendingDelete] = useState<CatalogToolSummary | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const deleteTrigger = useRef<HTMLButtonElement | null>(null);
   const normalizedQuery = normalizeSearch(query);
   const filtered = useMemo(() => Object.fromEntries(connections.map((connection) => {
     const tools = catalogs[connection.id] ?? [];
@@ -95,6 +97,14 @@ export function ToolTree({
   }, []);
 
   function select(tool: CatalogToolSummary, event: MouseEvent<HTMLButtonElement>): void {
+    if (tool.status === "removed") {
+      if (pendingSelection.current !== null) clearTimeout(pendingSelection.current.timer);
+      pendingSelection.current = null;
+      deleteTrigger.current = event.currentTarget;
+      setDeleteError(null);
+      setPendingDelete(tool);
+      return;
+    }
     if (event.detail === 0) {
       onSelectTool(tool);
       return;
@@ -117,9 +127,25 @@ export function ToolTree({
   }
 
   function open(tool: CatalogToolSummary): void {
+    if (tool.status === "removed") return;
     if (pendingSelection.current !== null) clearTimeout(pendingSelection.current.timer);
     pendingSelection.current = null;
     onOpenTool(tool);
+  }
+
+  async function confirmDelete(): Promise<void> {
+    if (pendingDelete === null || deleting) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await onDeleteTool(pendingDelete);
+      setPendingDelete(null);
+      queueMicrotask(() => deleteTrigger.current?.focus());
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : "无法删除已移除 Tool");
+    } finally {
+      setDeleting(false);
+    }
   }
 
   function toggle(connectionId: string): void {
@@ -150,7 +176,6 @@ export function ToolTree({
           const isCollapsed = collapsed.has(connection.id);
           const tools = filtered[connection.id] ?? [];
           const refreshing = refreshingConnectionIds.has(connection.id);
-          const isReady = readyConnectionIds.has(connection.id);
           return (
             <li key={connection.id} role="none" className="tool-connection-group">
               <div className="tool-connection-group__heading">
@@ -169,13 +194,6 @@ export function ToolTree({
                     ))}
                   </span>
                 </button>
-                <span className="catalog-readiness" role="status" aria-live="polite">
-                  {refreshing
-                    ? "正在刷新 Tool 目录"
-                    : connection.status === "connected"
-                    ? isReady ? "目录已就绪" : "已连接，目录未就绪"
-                    : "连接后可刷新"}
-                </span>
                 <button
                   type="button"
                   className="button-secondary tool-refresh-button"
@@ -187,9 +205,6 @@ export function ToolTree({
                   <span className="sr-only">{refreshing ? "刷新中" : "刷新"}</span>
                 </button>
               </div>
-              {errors[connection.id] !== undefined && (
-                <p role="alert" className="tool-error">{errors[connection.id]}</p>
-              )}
               {!isCollapsed && (
                 <ul role="group" className="tool-items">
                   {tools.map((tool) => (
@@ -222,6 +237,30 @@ export function ToolTree({
           );
         })}
       </ul>
+      {pendingDelete !== null && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !deleting) setPendingDelete(null);
+      }}>
+        <section className="dialog-surface" role="dialog" aria-modal="true" aria-labelledby="delete-tool-title"
+          aria-describedby="delete-tool-description" onKeyDown={(event) => {
+            if (event.key === "Escape" && !deleting) setPendingDelete(null);
+          }}>
+          <div className="dialog-header dialog-header--compact"><div>
+            <p className="dialog-kicker dialog-kicker--danger">LOCAL CATALOG</p>
+            <h3 id="delete-tool-title">删除已移除 Tool</h3>
+            <p id="delete-tool-description">确认从本地 Tool 目录删除 {pendingDelete.name}？既有运行历史仍会保留。</p>
+          </div></div>
+          {deleteError !== null && <p role="alert" className="connection-error dialog-error">{deleteError}</p>}
+          <div className="dialog-actions">
+            <button type="button" className="button-secondary" disabled={deleting} onClick={() => {
+              setPendingDelete(null); queueMicrotask(() => deleteTrigger.current?.focus());
+            }}>取消</button>
+            <button type="button" className="button-danger" disabled={deleting}
+              aria-label={`确认删除 ${pendingDelete.name}`} onClick={() => void confirmDelete()}>
+              {deleting ? "正在删除…" : "确认删除"}
+            </button>
+          </div>
+        </section>
+      </div>}
     </section>
   );
 }

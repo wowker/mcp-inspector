@@ -12,6 +12,7 @@ export interface ConnectionRecord {
   url: string;
   transport: "streamable-http";
   authMode: "none" | "oauth";
+  headers: Record<string, string>;
   timeoutMs: number;
   status: ConnectionStatus;
   lastProtocolVersion: string | null;
@@ -24,8 +25,9 @@ export interface CreateConnectionInput {
   url: string;
   transport: "streamable-http";
   authMode: "none" | "oauth";
+  headers?: Record<string, string>;
   timeoutMs: number;
 }
 
 export type UpdateConnectionInput = Partial<Pick<CreateConnectionInput,
-  "name" | "url" | "authMode" | "timeoutMs">>;
+  "name" | "url" | "authMode" | "headers" | "timeoutMs">>;

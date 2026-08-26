@@ -75,6 +75,7 @@ export function createStreamableMcpSessionFactory(options: {
       ?? (oauthTransport = new StreamableHTTPClientTransport(new URL(connection.url), {
         fetch: observedFetch,
         authProvider,
+        requestInit: { headers: connection.headers },
       }));
     const client = createClient();
     try {

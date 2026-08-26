@@ -20,6 +20,18 @@ interface ConnectionPanelProps {
   onConnectionsLoaded?: (connections: ConnectionSummary[]) => void;
 }
 
+interface CatalogToast {
+  connectionId: string;
+  kind: "loading" | "success" | "error";
+  message: string;
+}
+
+export interface ConnectionHeaderDraft {
+  id: number;
+  name: string;
+  value: string;
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "无法管理连接配置";
 }
@@ -47,16 +59,20 @@ function ProjectScopedConnectionPanel({
   const dialogTrigger = useRef<HTMLButtonElement | null>(null);
   const addButton = useRef<HTMLButtonElement>(null);
   const catalogGenerations = useRef(new Map<string, number>());
+  const automaticallyRefreshed = useRef(new Set<string>());
+  const catalogToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const catalogToastConnectionId = useRef<string | null>(null);
+  const nextHeaderId = useRef(1);
   const [connections, setConnections] = useState<ConnectionSummary[] | null>(null);
   const [catalogs, setCatalogs] = useState<Record<string, CatalogToolSummary[]>>({});
-  const [catalogErrors, setCatalogErrors] = useState<Record<string, string>>({});
-  const [readyConnectionIds, setReadyConnectionIds] = useState<ReadonlySet<string>>(new Set());
+  const [catalogToast, setCatalogToast] = useState<CatalogToast | null>(null);
   const [refreshingConnectionIds, setRefreshingConnectionIds] = useState<ReadonlySet<string>>(new Set());
   const [pendingConnectionIds, setPendingConnectionIds] = useState<ReadonlySet<string>>(new Set());
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [timeoutMs, setTimeoutMs] = useState("10000");
   const [authMode, setAuthMode] = useState<"none" | "oauth">("none");
+  const [headers, setHeaders] = useState<ConnectionHeaderDraft[]>([]);
   const [formMode, setFormMode] = useState<"create" | "edit" | null>(null);
   const [editingConnectionId, setEditingConnectionId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -69,6 +85,7 @@ function ProjectScopedConnectionPanel({
     mounted.current = true;
     return () => {
       mounted.current = false;
+      if (catalogToastTimer.current !== null) clearTimeout(catalogToastTimer.current);
     };
   }, []);
 
@@ -76,11 +93,11 @@ function ProjectScopedConnectionPanel({
     let active = true;
     setConnections(null);
     setCatalogs({});
-    setCatalogErrors({});
-    setReadyConnectionIds(new Set());
     setRefreshingConnectionIds(new Set());
     setPendingConnectionIds(new Set());
     catalogGenerations.current.clear();
+    automaticallyRefreshed.current.clear();
+    clearCatalogToast();
     setError(null);
     void api.listConnections(projectId)
       .then((items) => {
@@ -99,10 +116,9 @@ function ProjectScopedConnectionPanel({
                 setCatalogs((current) => ({ ...current, [connection.id]: tools }));
               }
             })
-            .catch((cause: unknown) => {
-              if (active && catalogGenerations.current.get(connection.id) === generation) {
-                setCatalogErrors((current) => ({ ...current, [connection.id]: errorMessage(cause) }));
-              }
+            .catch(() => {
+              // A passive snapshot miss is superseded by the explicit refresh performed
+              // when the Tools workspace opens. User-facing refresh failures are toasted.
             });
         }
       })
@@ -122,18 +138,36 @@ function ProjectScopedConnectionPanel({
     });
   }
 
+  function clearCatalogToast(connectionId?: string): void {
+    if (connectionId !== undefined && catalogToastConnectionId.current !== connectionId) return;
+    if (catalogToastTimer.current !== null) clearTimeout(catalogToastTimer.current);
+    catalogToastTimer.current = null;
+    catalogToastConnectionId.current = null;
+    setCatalogToast(null);
+  }
+
+  function showCatalogToast(toast: CatalogToast, dismissAfterMs?: number): void {
+    if (catalogToastTimer.current !== null) clearTimeout(catalogToastTimer.current);
+    catalogToastTimer.current = null;
+    catalogToastConnectionId.current = toast.connectionId;
+    setCatalogToast(toast);
+    if (dismissAfterMs !== undefined) {
+      catalogToastTimer.current = setTimeout(() => {
+        if (!mounted.current || catalogToastConnectionId.current !== toast.connectionId) return;
+        catalogToastTimer.current = null;
+        catalogToastConnectionId.current = null;
+        setCatalogToast(null);
+      }, dismissAfterMs);
+    }
+  }
+
   function invalidateConnection(connectionId: string): number {
     const generation = (catalogGenerations.current.get(connectionId) ?? 0) + 1;
     catalogGenerations.current.set(connectionId, generation);
     setRefreshingConnectionIds((current) => {
       const next = new Set(current); next.delete(connectionId); return next;
     });
-    setReadyConnectionIds((current) => {
-      const next = new Set(current); next.delete(connectionId); return next;
-    });
-    setCatalogErrors((current) => {
-      const next = { ...current }; delete next[connectionId]; return next;
-    });
+    clearCatalogToast(connectionId);
     return generation;
   }
 
@@ -148,6 +182,7 @@ function ProjectScopedConnectionPanel({
     setUrl("");
     setTimeoutMs("10000");
     setAuthMode("none");
+    setHeaders([]);
     setError(null);
     if (restoreFocus) queueMicrotask(() => dialogTrigger.current?.focus());
   }
@@ -160,6 +195,7 @@ function ProjectScopedConnectionPanel({
     setUrl("");
     setTimeoutMs("10000");
     setAuthMode("none");
+    setHeaders([]);
     setFormMode("create");
   }
 
@@ -172,27 +208,58 @@ function ProjectScopedConnectionPanel({
     setUrl(connection.url);
     setTimeoutMs(String(connection.timeoutMs));
     setAuthMode(connection.authMode);
+    setHeaders(Object.entries(connection.headers).map(([headerName, value]) => ({
+      id: nextHeaderId.current++,
+      name: headerName,
+      value,
+    })));
     setFormMode("edit");
   }
 
+  function buildHeaders(): Record<string, string> {
+    const result: Record<string, string> = {};
+    const seen = new Set<string>();
+    for (const header of headers) {
+      const headerName = header.name.trim();
+      if (headerName === "" && header.value === "") continue;
+      if (headerName === "") throw new Error("Header 名称不能为空");
+      const normalizedName = headerName.toLowerCase();
+      if (seen.has(normalizedName)) throw new Error(`Header 名称重复：${headerName}`);
+      if (authMode === "oauth" && normalizedName === "authorization") {
+        throw new Error("OAuth 连接的 Authorization Header 由授权流程管理");
+      }
+      seen.add(normalizedName);
+      result[headerName] = header.value;
+    }
+    return result;
+  }
+
   async function refresh(connectionId: string): Promise<void> {
+    const connectionName = connections?.find(({ id }) => id === connectionId)?.name ?? "Server";
     const generation = (catalogGenerations.current.get(connectionId) ?? 0) + 1;
     catalogGenerations.current.set(connectionId, generation);
     setRefreshingConnectionIds((current) => new Set(current).add(connectionId));
-    setCatalogErrors((current) => {
-      const next = { ...current }; delete next[connectionId]; return next;
+    showCatalogToast({
+      connectionId,
+      kind: "loading",
+      message: `正在刷新 ${connectionName} 的 Tool 目录…`,
     });
     try {
       const tools = await api.refreshTools(projectId, connectionId);
       if (!mounted.current || catalogGenerations.current.get(connectionId) !== generation) return;
       setCatalogs((current) => ({ ...current, [connectionId]: tools }));
-      setReadyConnectionIds((current) => new Set(current).add(connectionId));
+      showCatalogToast({
+        connectionId,
+        kind: "success",
+        message: `${connectionName} 的 Tool 目录已就绪`,
+      }, 2_000);
     } catch (cause) {
       if (!mounted.current || catalogGenerations.current.get(connectionId) !== generation) return;
-      setReadyConnectionIds((current) => {
-        const next = new Set(current); next.delete(connectionId); return next;
-      });
-      setCatalogErrors((current) => ({ ...current, [connectionId]: errorMessage(cause) }));
+      showCatalogToast({
+        connectionId,
+        kind: "error",
+        message: `${connectionName} 的 Tool 目录刷新失败：${errorMessage(cause)}`,
+      }, 4_000);
     } finally {
       if (mounted.current && catalogGenerations.current.get(connectionId) === generation) {
         setRefreshingConnectionIds((current) => {
@@ -200,6 +267,27 @@ function ProjectScopedConnectionPanel({
         });
       }
     }
+  }
+
+  useEffect(() => {
+    if (mode !== "tools" || connections === null || connectionFilterId === null) return;
+    const connection = connections.find(({ id }) => id === connectionFilterId);
+    if (connection?.status !== "connected") return;
+    const refreshKey = `${projectId}:${connection.id}`;
+    if (automaticallyRefreshed.current.has(refreshKey)) return;
+    automaticallyRefreshed.current.add(refreshKey);
+    void refresh(connection.id);
+  }, [connectionFilterId, connections, mode, projectId]);
+
+  async function deleteTool(tool: CatalogToolSummary): Promise<void> {
+    const generation = (catalogGenerations.current.get(tool.connectionId) ?? 0) + 1;
+    catalogGenerations.current.set(tool.connectionId, generation);
+    await api.deleteTool(projectId, tool.connectionId, tool.name);
+    if (!mounted.current || catalogGenerations.current.get(tool.connectionId) !== generation) return;
+    setCatalogs((current) => ({
+      ...current,
+      [tool.connectionId]: (current[tool.connectionId] ?? []).filter(({ name }) => name !== tool.name),
+    }));
   }
 
   async function connect(connection: ConnectionSummary): Promise<void> {
@@ -210,7 +298,9 @@ function ProjectScopedConnectionPanel({
       const connected = await api.connectConnection(projectId, connection.id);
       if (!mounted.current || catalogGenerations.current.get(connection.id) !== generation) return;
       updateConnection(connected);
-      await refresh(connection.id);
+      // The Servers page hands control to the Tools workspace, whose mount performs
+      // the authoritative catalog refresh. Combined embeds still refresh in place.
+      if (mode !== "servers") await refresh(connection.id);
       if (mounted.current) onConnectionConnected(connected);
     } catch (cause) {
       if (mounted.current && catalogGenerations.current.get(connection.id) === generation) {
@@ -236,9 +326,6 @@ function ProjectScopedConnectionPanel({
       if (!mounted.current || catalogGenerations.current.get(connection.id) !== generation) return;
       updateConnection(disconnected);
       onConnectionDisconnected(connection.id);
-      setReadyConnectionIds((current) => {
-        const next = new Set(current); next.delete(connection.id); return next;
-      });
     } catch (cause) {
       if (mounted.current) setError(errorMessage(cause));
     } finally {
@@ -259,6 +346,7 @@ function ProjectScopedConnectionPanel({
       setPending(editingId, true);
     }
     try {
+      const customHeaders = buildHeaders();
       if (editingId === null) {
         const created = await api.createConnection(projectId, {
           name: name.trim(),
@@ -266,6 +354,7 @@ function ProjectScopedConnectionPanel({
           transport: "streamable-http",
           authMode,
           timeoutMs: Number(timeoutMs),
+          ...(Object.keys(customHeaders).length === 0 ? {} : { headers: customHeaders }),
         });
         if (!mounted.current) return;
         setConnections((current) => [
@@ -279,6 +368,7 @@ function ProjectScopedConnectionPanel({
           url: url.trim(),
           authMode,
           timeoutMs: Number(timeoutMs),
+          headers: customHeaders,
         });
         if (!mounted.current || catalogGenerations.current.get(editingId) !== generation) return;
         updateConnection(updated);
@@ -447,13 +537,22 @@ function ProjectScopedConnectionPanel({
         <ToolTree
           connections={visibleConnections}
           catalogs={catalogs}
-          errors={catalogErrors}
           refreshingConnectionIds={refreshingConnectionIds}
-          readyConnectionIds={readyConnectionIds}
           onRefresh={(connectionId) => void refresh(connectionId)}
           onSelectTool={onSelectTool}
           onOpenTool={onOpenTool}
+          onDeleteTool={deleteTool}
         />
+      )}
+
+      {catalogToast !== null && (
+        <div
+          className={`copy-toast catalog-toast copy-toast--${catalogToast.kind}`}
+          role={catalogToast.kind === "error" ? "alert" : "status"}
+          aria-live={catalogToast.kind === "error" ? "assertive" : "polite"}
+        >
+          {catalogToast.message}
+        </div>
       )}
 
       {formMode !== null && (
@@ -463,12 +562,19 @@ function ProjectScopedConnectionPanel({
           url={url}
           timeoutMs={timeoutMs}
           authMode={authMode}
+          headers={headers}
           submitting={submitting}
           error={error}
           onNameChange={setName}
           onUrlChange={setUrl}
           onTimeoutChange={setTimeoutMs}
           onAuthModeChange={setAuthMode}
+          onAddHeader={() => setHeaders((current) => [...current, {
+            id: nextHeaderId.current++, name: "", value: "",
+          }])}
+          onHeaderChange={(id, field, value) => setHeaders((current) => current.map((header) =>
+            header.id === id ? { ...header, [field]: value } : header))}
+          onRemoveHeader={(id) => setHeaders((current) => current.filter((header) => header.id !== id))}
           onSubmit={(event) => void save(event)}
           onClose={() => closeForm()}
         />
