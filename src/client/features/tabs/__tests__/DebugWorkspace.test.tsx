@@ -11,7 +11,7 @@ import { TabStrip } from "../TabStrip.js";
 const projectId = "00000000-0000-4000-8000-000000000601";
 const connectionId = "00000000-0000-4000-8000-000000000602";
 const tool: ToolDetailSummary = {
-  tool: { projectId, connectionId, name: "sum", status: "current",
+  tool: { projectId, connectionId, name: "sum", status: "current", folderId: null,
     updatedAt: "2026-08-17T00:00:00.000Z", currentSnapshot: {
       id: "00000000-0000-4000-8000-000000000603", projectId, connectionId,
       toolName: "sum", contentHash: "a".repeat(64), createdAt: "2026-08-17T00:00:00.000Z",
@@ -117,15 +117,52 @@ describe("DebugWorkspace", () => {
     expect(save.parentElement).not.toContainElement(execute);
   });
 
+  it("presents a compact executable state for a Tool without arguments", async () => {
+    const emptySchema = { type: "object" as const, properties: {} };
+    const onChange = vi.fn();
+    const compact = render(<ParameterEditor tab={tab("00000000-0000-4000-8000-000000000659", "list_stores", {})}
+      schema={emptySchema} onChange={onChange} onExecute={vi.fn()} />);
+
+    expect(screen.getByText("此 Tool 无需参数")).toBeVisible();
+    expect(screen.getByRole("button", { name: "执行" })).toBeEnabled();
+    const rawMode = screen.getByRole("tab", { name: "Raw JSON" });
+    expect(rawMode).toBeDisabled();
+    fireEvent.click(rawMode);
+    expect(onChange).not.toHaveBeenCalled();
+    compact.unmount();
+
+    const rawSavedTab = { ...tab("00000000-0000-4000-8000-000000000658", "list_stores", {}), inputMode: "raw" as const };
+    render(<ParameterEditor tab={rawSavedTab} schema={emptySchema} onChange={onChange} onExecute={vi.fn()} />);
+    expect(screen.getByRole("tab", { name: "Form" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByLabelText("完整 arguments JSON")).not.toBeInTheDocument();
+    expect(onChange).toHaveBeenCalledWith({ inputMode: "form" });
+    cleanup();
+
+    const saved = { ...tab("00000000-0000-4000-8000-000000000660", "list_stores", {}), toolName: "list_stores" };
+    const noArgumentTool: ToolDetailSummary = { ...tool, tool: { ...tool.tool, name: "list_stores",
+      currentSnapshot: { ...tool.tool.currentSnapshot, toolName: "list_stores",
+        definition: { name: "list_stores", inputSchema: emptySchema } } } };
+    const api = { listTabs: vi.fn(async () => [saved]), getTool: vi.fn(async () => noArgumentTool), updateTab: vi.fn() } as unknown as InspectorApiClient;
+    render(<DebugWorkspace api={api} projectId={projectId} />);
+    await screen.findByRole("tab", { name: "list_stores" });
+    expect((await screen.findByText("此 Tool 无需参数")).closest(".request-result-split"))
+      .toHaveClass("request-result-split--no-parameters");
+  });
+
   it("collapses and restores parameter fields from the editor toolbar", () => {
     render(<ParameterEditor tab={tab("00000000-0000-4000-8000-000000000621", "sum", { a: 1 })}
       schema={tool.tool.currentSnapshot.definition.inputSchema} onChange={vi.fn()} />);
 
     expect(screen.getByLabelText("a")).toBeVisible();
     expect(screen.queryByText("参数输入", { selector: ".editor-mode-group > span" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "收起参数" }));
+    const collapse = screen.getByRole("button", { name: "收起参数" });
+    expect(collapse).toHaveTextContent("▾");
+    expect(collapse.querySelector("svg")).toBeNull();
+    fireEvent.click(collapse);
     expect(screen.queryByLabelText("a")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "展开参数" }));
+    const expand = screen.getByRole("button", { name: "展开参数" });
+    expect(expand).toHaveTextContent("▸");
+    fireEvent.click(expand);
     expect(screen.getByLabelText("a")).toBeVisible();
   });
 

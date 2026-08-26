@@ -18,8 +18,18 @@ export interface CatalogTool {
   connectionId: string;
   name: string;
   status: ToolStatus;
+  folderId: string | null;
   updatedAt: string;
   currentSnapshot: ToolSnapshot;
+}
+
+export interface ToolFolder {
+  id: string;
+  projectId: string;
+  connectionId: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ToolDetail {

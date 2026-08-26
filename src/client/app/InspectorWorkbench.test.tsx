@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { InspectorApiClient, ProjectSummary } from "../api/api-client.js";
@@ -37,6 +37,7 @@ function api(): InspectorApiClient {
     connectConnection: vi.fn().mockResolvedValue({ ...connection, status: "connected" }),
     disconnectConnection: vi.fn().mockResolvedValue(connection),
     listTools: vi.fn().mockResolvedValue([]), refreshTools: vi.fn().mockResolvedValue([]), getTool: vi.fn(), deleteTool: vi.fn(),
+    listToolFolders: vi.fn().mockResolvedValue([]), createToolFolder: vi.fn(), moveToolToFolder: vi.fn(),
     listTabs: vi.fn().mockResolvedValue([]), openTab: vi.fn(), replaceTabTool: vi.fn(), updateTab: vi.fn(),
     duplicateTab: vi.fn(), reorderTabs: vi.fn(), closeTab: vi.fn(), closeOtherTabs: vi.fn(), closeTabsRight: vi.fn(),
     startRun: vi.fn(), getRunSummary: vi.fn(), getRun: vi.fn(),
@@ -68,6 +69,12 @@ describe("InspectorWorkbench", () => {
     expect(container.querySelector(".project-identity")).not.toBeInTheDocument();
     expect(container.querySelector(".server-tabbar__actions")).not.toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "工作台导航" })).toBeVisible();
+    for (const label of ["Servers", "Tools", "运行历史"]) {
+      const icon = screen.getByRole("button", { name: label }).querySelector(".workbench-nav-icon");
+      expect(icon).toBeVisible();
+      expect(icon).toHaveAttribute("width", "18");
+      expect(icon).toHaveAttribute("height", "18");
+    }
     await user.click(screen.getByRole("button", { name: "收起侧边栏" }));
     expect(screen.getByRole("button", { name: "展开侧边栏" })).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Tools" }));
@@ -158,7 +165,7 @@ describe("InspectorWorkbench", () => {
     expect(screen.queryByText("目录已就绪", { exact: true })).not.toBeInTheDocument();
   });
 
-  it("lets the user collapse and restore the Tool catalog without leaving the active Server", async () => {
+  it("keeps the active Server Tool catalog permanently visible and full-height", async () => {
     const user = userEvent.setup();
     const client = api();
     vi.mocked(client.listConnections).mockResolvedValue([{ ...connection, status: "connected" }]);
@@ -166,13 +173,23 @@ describe("InspectorWorkbench", () => {
 
     await user.click(await screen.findByRole("tab", { name: "Supplier MCP" }));
     const catalog = await screen.findByRole("complementary", { name: "Tool 目录" });
-    const collapse = screen.getByRole("button", { name: "隐藏 Tool 目录" });
-    expect(catalog).toContainElement(collapse);
-    await user.click(collapse);
-    expect(catalog).toHaveAttribute("hidden");
-    const restore = screen.getByRole("button", { name: "显示 Tool 目录" });
-    expect(restore).toHaveClass("catalog-restore");
-    await user.click(restore);
     expect(catalog).not.toHaveAttribute("hidden");
+    expect(screen.getByRole("tree", { name: "MCP Tools" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "隐藏 Tool 目录" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "显示 Tool 目录" })).not.toBeInTheDocument();
+  });
+
+  it("resizes the Tool catalog with an accessible separator", async () => {
+    const user = userEvent.setup();
+    const client = api();
+    vi.mocked(client.listConnections).mockResolvedValue([{ ...connection, status: "connected" }]);
+    const { container } = render(<InspectorWorkbench api={client} project={project} version="0.1.0" />);
+
+    await user.click(await screen.findByRole("tab", { name: "Supplier MCP" }));
+    const separator = screen.getByRole("separator", { name: "调整 Tool 目录宽度" });
+    expect(separator).toHaveAttribute("aria-valuenow", "300");
+    fireEvent.keyDown(separator, { key: "ArrowRight" });
+    expect(separator).toHaveAttribute("aria-valuenow", "312");
+    expect(container.querySelector(".tools-layout")).toHaveStyle("--tool-catalog-width: 312px");
   });
 });

@@ -6,6 +6,9 @@ import {
   InvalidToolCatalogError,
   ToolNotFoundError,
   ToolNotRemovedError,
+  InvalidToolFolderError,
+  ToolFolderConflictError,
+  ToolFolderNotFoundError,
   ToolRefreshError,
   type ToolService,
 } from "./tool-service.js";
@@ -21,6 +24,9 @@ const errors = {
   notConnected: { error: { code: "MCP_NOT_CONNECTED", message: "MCP connection is not active" } },
   invalidCatalog: { error: { code: "MCP_TOOL_CATALOG_INVALID", message: "MCP Tool catalog is invalid" } },
   refreshFailed: { error: { code: "MCP_TOOL_REFRESH_FAILED", message: "Unable to refresh MCP Tool catalog" } },
+  invalidFolder: { error: { code: "TOOL_FOLDER_INVALID", message: "Tool folder name is invalid" } },
+  folderConflict: { error: { code: "TOOL_FOLDER_CONFLICT", message: "Tool folder already exists" } },
+  folderNotFound: { error: { code: "TOOL_FOLDER_NOT_FOUND", message: "Tool folder not found" } },
 } as const;
 
 function resourceError(context: Context, error: unknown) {
@@ -28,6 +34,7 @@ function resourceError(context: Context, error: unknown) {
   if (error instanceof InvalidProjectStorageError) return context.json(errors.invalidProjectStorage, 409);
   if (error instanceof ConnectionNotFoundError) return context.json(errors.connectionNotFound, 404);
   if (error instanceof ToolNotFoundError) return context.json(errors.toolNotFound, 404);
+  if (error instanceof ToolFolderNotFoundError) return context.json(errors.folderNotFound, 404);
   throw error;
 }
 
@@ -53,6 +60,48 @@ export function createToolRoutes(tools: ToolService): Hono {
         context.req.param("projectId"), context.req.param("connectionId"),
       ) });
     } catch (error) {
+      return resourceError(context, error);
+    }
+  });
+
+  routes.get("/:projectId/connections/:connectionId/tool-folders", (context) => {
+    try {
+      return context.json({ folders: tools.listFolders(
+        context.req.param("projectId"), context.req.param("connectionId"),
+      ) });
+    } catch (error) {
+      return resourceError(context, error);
+    }
+  });
+
+  routes.post("/:projectId/connections/:connectionId/tool-folders", async (context) => {
+    let body: unknown;
+    try { body = await context.req.json(); } catch { return context.json(errors.invalidFolder, 400); }
+    const name = typeof body === "object" && body !== null && !Array.isArray(body)
+      ? (body as { name?: unknown }).name : undefined;
+    try {
+      return context.json({ folder: tools.createFolder(
+        context.req.param("projectId"), context.req.param("connectionId"), name,
+      ) }, 201);
+    } catch (error) {
+      if (error instanceof InvalidToolFolderError) return context.json(errors.invalidFolder, 400);
+      if (error instanceof ToolFolderConflictError) return context.json(errors.folderConflict, 409);
+      return resourceError(context, error);
+    }
+  });
+
+  routes.put("/:projectId/connections/:connectionId/tools/:toolName/folder", async (context) => {
+    let body: unknown;
+    try { body = await context.req.json(); } catch { return context.json(errors.folderNotFound, 400); }
+    const folderId = typeof body === "object" && body !== null && !Array.isArray(body) && "folderId" in body
+      ? (body as { folderId: unknown }).folderId : undefined;
+    try {
+      return context.json({ tool: tools.moveToFolder(
+        context.req.param("projectId"), context.req.param("connectionId"),
+        context.req.param("toolName"), folderId,
+      ) });
+    } catch (error) {
+      if (error instanceof ToolFolderNotFoundError) return context.json(errors.folderNotFound, 404);
       return resourceError(context, error);
     }
   });

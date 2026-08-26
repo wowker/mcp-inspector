@@ -11,9 +11,9 @@
 }
 
 .run-result__sticky-header > header {
-  min-height: 38px;
+  min-height: 42px;
   margin: 0;
-  padding: 0 4px 8px;
+  padding: 5px 4px 7px;
 }
 
 .run-result-action {
@@ -31,13 +31,14 @@
 .run-summary {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   color: var(--ui-text-muted);
   font: 500 0.76rem/1.4 var(--ui-mono);
 }
 
 .run-status,
 .status-chip { border-radius: 999px; }
+.run-status { padding: 3px 8px; font-family: "SF Pro Display", -apple-system, sans-serif; font-weight: 650; }
 .run-status--succeeded,
 .status-chip--succeeded { color: var(--ui-success); background: var(--ui-success-muted); }
 .run-status--failed,
@@ -82,7 +83,7 @@
 
 .run-result .result-tabs button {
   min-height: 38px;
-  padding: 7px 14px;
+  padding: 7px 12px;
   border: 0;
   border-bottom: 2px solid transparent;
   border-radius: 0;
@@ -96,7 +97,7 @@
   background: transparent;
 }
 
-.run-result .result-view { padding: 0 4px; }
+.run-result .result-view { padding: 0 6px; }
 .run-overview { display: grid; }
 .result-section { min-width: 0; padding: 12px 0; border-bottom: 1px solid var(--ui-border); }
 .section-toolbar { display: flex; min-height: 30px; align-items: center; justify-content: space-between; gap: 12px; }
@@ -111,7 +112,11 @@
   font-size: 0.84rem;
   font-weight: 650;
 }
-.result-disclosure__content { padding: 0 0 12px 16px; border-left: 2px solid var(--ui-border); }
+.result-disclosure__content {
+  width: 100%;
+  padding: 0 0 14px 16px;
+  border-left: 1px solid var(--ui-border);
+}
 
 .result-code {
   max-height: 220px;
@@ -132,7 +137,7 @@
   overflow: auto;
   color: var(--ui-text);
   background: transparent;
-  font: 500 0.76rem/1.55 var(--ui-mono);
+  font: 500 0.79rem/1.62 var(--ui-mono);
   overflow-wrap: anywhere;
 }
 
@@ -208,7 +213,7 @@
   font-weight: 600;
 }
 .raw-disclosure[open] > summary { color: var(--ui-text); }
-.raw-disclosure__content { padding: 0 0 8px 16px; border-left: 2px solid var(--ui-border); }
+.raw-disclosure__content { width: min(100%, 92rem); padding: 0 0 8px 16px; border-left: 1px solid var(--ui-border); }
 
 .json-block,
 .content-block,

@@ -4,7 +4,7 @@ import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { CatalogToolSummary, ConnectionSummary } from "../../../api/api-client.js";
+import type { CatalogToolSummary, ConnectionSummary, ToolFolderSummary } from "../../../api/api-client.js";
 import { ToolTree } from "../ToolTree.js";
 
 const projectId = "00000000-0000-4000-8000-000000000541";
@@ -20,7 +20,7 @@ const second: ConnectionSummary = { ...first,
 };
 function catalog(connectionId: string, name: string, description: string, status: CatalogToolSummary["status"]): CatalogToolSummary {
   return {
-    projectId, connectionId, name, status, updatedAt: "2026-08-17T12:00:00.000Z",
+    projectId, connectionId, name, status, folderId: null, updatedAt: "2026-08-17T12:00:00.000Z",
     currentSnapshot: {
       id: crypto.randomUUID(), projectId, connectionId, toolName: name,
       contentHash: "a".repeat(64), createdAt: "2026-08-17T12:00:00.000Z",
@@ -35,10 +35,21 @@ afterEach(() => {
 });
 
 describe("ToolTree", () => {
-  it("groups, filters name/description, collapses, and renders status as text", async () => {
+  it("renders only the active Server tools without a Server group or collapse control", () => {
+    render(<ToolTree connections={[first]}
+      catalogs={{ [first.id]: [catalog(first.id, "list_stores", "Lists stores", "current")] }}
+      onRefresh={vi.fn()} onSelectTool={vi.fn()} onOpenTool={vi.fn()} />);
+
+    expect(screen.getByRole("treeitem", { name: "list_stores" })).toBeVisible();
+    expect(screen.queryByText("Catalog MCP")).not.toBeInTheDocument();
+    expect(screen.queryByRole("treeitem", { name: /折叠 Catalog MCP/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "创建文件夹" })).toBeVisible();
+  });
+
+  it("filters the active Server catalog and renders status as text without a collapsible group", async () => {
     const user = userEvent.setup();
     render(<ToolTree
-      connections={[first, second]}
+      connections={[first]}
       catalogs={{
         [first.id]: [catalog(first.id, "sum", "Add Numbers", "changed"), catalog(first.id, "old", "legacy", "removed")],
         [second.id]: [catalog(second.id, "orders/list", "Recent Orders", "current")],
@@ -56,8 +67,44 @@ describe("ToolTree", () => {
     expect(screen.getByRole("treeitem", { name: /sum/ })).toBeVisible();
     expect(screen.queryByRole("treeitem", { name: /orders\/list/ })).not.toBeInTheDocument();
     await user.clear(screen.getByRole("searchbox", { name: "搜索 Tool" }));
-    await user.click(screen.getByRole("treeitem", { name: "折叠 Catalog MCP" }));
-    expect(screen.queryByRole("treeitem", { name: /sum/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("treeitem", { name: /sum/ })).toBeVisible();
+    expect(screen.queryByText("Catalog MCP")).not.toBeInTheDocument();
+  });
+
+  it("sorts folders first and creates or moves Tools with drag and keyboard-accessible controls", async () => {
+    const user = userEvent.setup();
+    const folder: ToolFolderSummary = {
+      id: "00000000-0000-4000-8000-000000000544", projectId, connectionId: first.id,
+      name: "Commerce", createdAt: "2026-08-17T12:00:00.000Z", updatedAt: "2026-08-17T12:00:00.000Z",
+    };
+    const filed = { ...catalog(first.id, "orders/list", "Recent orders", "current"), folderId: folder.id };
+    const loose = catalog(first.id, "sum", "Add numbers", "current");
+    const onCreateFolder = vi.fn().mockResolvedValue(undefined);
+    const onMoveTool = vi.fn().mockResolvedValue(undefined);
+    const { container } = render(<ToolTree connections={[first]} folders={[folder]}
+      catalogs={{ [first.id]: [loose, filed] }} onRefresh={vi.fn()} onSelectTool={vi.fn()}
+      onOpenTool={vi.fn()} onCreateFolder={onCreateFolder} onMoveTool={onMoveTool} />);
+
+    const labels = [...container.querySelectorAll(".tool-folder-heading strong, .tool-unfiled-heading")]
+      .map((node) => node.textContent?.trim());
+    expect(labels).toEqual(["Commerce", "未分类 1"]);
+
+    await user.click(screen.getByRole("button", { name: "创建文件夹" }));
+    await user.type(screen.getByRole("textbox", { name: "文件夹名称" }), "Fulfillment");
+    await user.click(screen.getByRole("button", { name: "创建" }));
+    expect(onCreateFolder).toHaveBeenCalledWith("Fulfillment");
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "移动 sum 到文件夹" }), folder.id);
+    expect(onMoveTool).toHaveBeenCalledWith(expect.objectContaining({ name: "sum" }), folder.id);
+
+    onMoveTool.mockClear();
+    const row = screen.getByRole("treeitem", { name: "sum" }).closest("li");
+    const folderTarget = screen.getByRole("treeitem", { name: "Commerce 文件夹，1 个 Tool" }).closest("li");
+    const dataTransfer = { effectAllowed: "none", setData: vi.fn() };
+    fireEvent.dragStart(row!, { dataTransfer });
+    fireEvent.dragEnter(folderTarget!, { dataTransfer });
+    fireEvent.drop(folderTarget!, { dataTransfer });
+    expect(onMoveTool).toHaveBeenCalledWith(expect.objectContaining({ name: "sum" }), folder.id);
   });
 
   it("fuzzy-matches incomplete tokens across a Tool name and its description", async () => {
@@ -106,6 +153,20 @@ describe("ToolTree", () => {
 
     expect(screen.queryByText("Store Products · Applies a confirmed product mapping.")).not.toBeInTheDocument();
     expect(screen.queryByText(/\*\*|\\\[/)).not.toBeInTheDocument();
+  });
+
+  it("marks the active Tool and offers an explicit search clear action", async () => {
+    const user = userEvent.setup();
+    render(<ToolTree connections={[first]}
+      catalogs={{ [first.id]: [catalog(first.id, "list_stores", "Lists stores", "current")] }}
+      selectedTool={{ connectionId: first.id, name: "list_stores" }}
+      onRefresh={vi.fn()} onSelectTool={vi.fn()} onOpenTool={vi.fn()} />);
+
+    expect(screen.getByRole("treeitem", { name: "list_stores" })).toHaveAttribute("aria-current", "true");
+    await user.type(screen.getByRole("searchbox", { name: "搜索 Tool" }), "missing");
+    await user.click(screen.getByRole("button", { name: "清除 Tool 搜索" }));
+    expect(screen.getByRole("searchbox", { name: "搜索 Tool" })).toHaveValue("");
+    expect(screen.getByRole("treeitem", { name: "list_stores" })).toBeVisible();
   });
 
   it("confirms before deleting a removed Tool and never opens it for debugging", async () => {

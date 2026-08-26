@@ -19,6 +19,13 @@ export function requiresWholeArgumentsFallback(schema: Record<string, unknown>):
     ("properties" in schema && !isObject(schema.properties));
 }
 
+export function schemaHasEditableArguments(
+  schema: Record<string, unknown>,
+  value: Record<string, unknown>,
+): boolean {
+  return requiresWholeArgumentsFallback(schema) || fieldsFromSchema(schema, value).length > 0;
+}
+
 function kind(schema: Record<string, unknown>): SchemaFieldKind {
   if (unsupported(schema)) return "json";
   if (Array.isArray(schema.enum)) return "enum";

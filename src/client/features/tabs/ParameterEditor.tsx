@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { CaretDown, CaretRight } from "@phosphor-icons/react";
+import { Play } from "@phosphor-icons/react";
 import type { DebugTabSummary } from "../../api/api-client.js";
 import { formatRawArguments, parseRawArguments } from "../../../shared/json.js";
 import { validateJsonSchema, type SchemaIssue } from "../../../shared/json-schema.js";
@@ -56,10 +56,16 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveReques
   const [expanded, setExpanded] = useState(true);
   useEffect(() => { setExpanded(true); }, [tab.id]);
   const parsed = parseRawArguments(tab.rawText);
-  const validation = validateJsonSchema(schema, tab.inputMode === "raw" && parsed.ok ? parsed.value : tab.arguments);
   const fields = useMemo(() => fieldsFromSchema(schema, tab.arguments), [schema, tab.arguments]);
-  const canExecute = validation.issues.length === 0 && (tab.inputMode === "form" || parsed.ok);
+  const wholeFallback = requiresWholeArgumentsFallback(schema);
+  const hasEditableArguments = wholeFallback || fields.length > 0;
+  const inputMode = hasEditableArguments ? tab.inputMode : "form";
+  const validation = validateJsonSchema(schema, inputMode === "raw" && parsed.ok ? parsed.value : tab.arguments);
+  const canExecute = validation.issues.length === 0 && (inputMode === "form" || parsed.ok);
   const rawErrorId = `raw-${tab.id}-error`;
+  useEffect(() => {
+    if (!hasEditableArguments && tab.inputMode === "raw") onChange({ inputMode: "form" });
+  }, [hasEditableArguments, onChange, tab.inputMode]);
 
   function commitRaw(): boolean {
     const current = parseRawArguments(tab.rawText);
@@ -68,8 +74,9 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveReques
     return true;
   }
   function mode(mode: "form" | "raw"): boolean {
-    if (mode === tab.inputMode) return true;
-    if (tab.inputMode === "raw" && mode === "form" && parsed.ok) commitRaw();
+    if (mode === "raw" && !hasEditableArguments) return false;
+    if (mode === inputMode) return true;
+    if (inputMode === "raw" && mode === "form" && parsed.ok) commitRaw();
     onChange({ inputMode: mode });
     return true;
   }
@@ -79,14 +86,12 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveReques
   }
   function issuesAt(path: string): SchemaIssue[] { return validation.issues.filter((item) => item.path === path); }
   function execute(): void {
-    if (!executing && canExecute && (tab.inputMode === "form" || commitRaw())) onExecute?.();
+    if (!executing && canExecute && (inputMode === "form" || commitRaw())) onExecute?.();
   }
   function rawChanged(text: string): void {
     const current = parseRawArguments(text);
     onChange(current.ok ? { rawText: text, arguments: current.value } : { rawText: text });
   }
-  const wholeFallback = requiresWholeArgumentsFallback(schema);
-
   return <section className="parameter-editor" onKeyDown={(event) => {
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); execute(); }
   }}>
@@ -95,36 +100,39 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveReques
         <button type="button" className="editor-collapse" aria-expanded={expanded}
           aria-controls={`parameter-content-${tab.id}`} aria-label={expanded ? "收起参数" : "展开参数"}
           title={expanded ? "收起参数" : "展开参数"} onClick={() => setExpanded((value) => !value)}>
-          {expanded ? <CaretDown size={16} aria-hidden="true" /> : <CaretRight size={16} aria-hidden="true" />}
+          <span aria-hidden="true">{expanded ? "▾" : "▸"}</span>
         </button>
         <div className="editor-mode-group">
           <div role="tablist" aria-label="参数输入模式" onKeyDown={(event) => {
             if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-            const nextMode = event.key === "Home" ? "form" : event.key === "End" ? "raw" : tab.inputMode === "form" ? "raw" : "form";
+            const nextMode = event.key === "Home" ? "form" : event.key === "End" ? "raw" : inputMode === "form" ? "raw" : "form";
             event.preventDefault(); if (mode(nextMode)) queueMicrotask(() => document.getElementById(`mode-${nextMode}-${tab.id}`)?.focus());
           }}>
-            <button id={`mode-form-${tab.id}`} aria-controls={`panel-form-${tab.id}`} type="button" role="tab" tabIndex={tab.inputMode === "form" ? 0 : -1} aria-selected={tab.inputMode === "form"} onClick={() => mode("form")}>Form</button>
-            <button id={`mode-raw-${tab.id}`} aria-controls={`panel-raw-${tab.id}`} type="button" role="tab" tabIndex={tab.inputMode === "raw" ? 0 : -1} aria-selected={tab.inputMode === "raw"} onClick={() => mode("raw")}>Raw JSON</button>
+            <button id={`mode-form-${tab.id}`} aria-controls={`panel-form-${tab.id}`} type="button" role="tab" tabIndex={inputMode === "form" ? 0 : -1} aria-selected={inputMode === "form"} onClick={() => mode("form")}>Form</button>
+            <button id={`mode-raw-${tab.id}`} aria-controls={`panel-raw-${tab.id}`} type="button" role="tab" tabIndex={inputMode === "raw" ? 0 : -1} aria-selected={inputMode === "raw"}
+              disabled={!hasEditableArguments} title={!hasEditableArguments ? "此 Tool 无需参数" : undefined} onClick={() => mode("raw")}>Raw JSON</button>
           </div>
         </div>
-        <button type="button" className="editor-execute" disabled={!canExecute || executing} onClick={execute}>{executing ? "执行中…" : "执行"}</button>
+        <button type="button" className="editor-execute" disabled={!canExecute || executing} onClick={execute}>
+          <Play size={14} weight="fill" aria-hidden="true" />{executing ? "执行中…" : "执行"}
+        </button>
       </div>
-      <div className="editor-actions">{onSaveRequest !== undefined && <button type="button" className="run-result-action" disabled={tab.inputMode === "raw" && !parsed.ok}
-        onClick={() => onSaveRequest(tab.inputMode === "raw" && parsed.ok ? parsed.value : tab.arguments)}>保存请求</button>}
+      <div className="editor-actions">{onSaveRequest !== undefined && <button type="button" className="run-result-action" disabled={inputMode === "raw" && !parsed.ok}
+        onClick={() => onSaveRequest(inputMode === "raw" && parsed.ok ? parsed.value : tab.arguments)}>保存请求</button>}
         <button type="button" className="run-result-action" onClick={() => void navigator.clipboard?.writeText(
-        tab.inputMode === "raw" && parsed.ok ? formatRawArguments(parsed.value) : formatRawArguments(tab.arguments))}>复制参数</button></div>
+        inputMode === "raw" && parsed.ok ? formatRawArguments(parsed.value) : formatRawArguments(tab.arguments))}>复制参数</button></div>
     </div>
     {expanded && <div id={`parameter-content-${tab.id}`} className="parameter-content">
     {validation.warning !== null && <p role="status" className="editor-warning">{validation.warning}</p>}
-    {tab.inputMode === "form" && !parsed.ok && <p role="status" className="editor-warning">
+    {inputMode === "form" && !parsed.ok && hasEditableArguments && <p role="status" className="editor-warning">
       Raw JSON 草稿暂时无效。Form 正在使用上一次有效参数，返回 Raw JSON 后可继续修改草稿。
     </p>}
-    {tab.inputMode === "raw" ? <div id={`panel-raw-${tab.id}`} role="tabpanel" aria-labelledby={`mode-raw-${tab.id}`} className="raw-arguments-panel">
+    {inputMode === "raw" ? <div id={`panel-raw-${tab.id}`} role="tabpanel" aria-labelledby={`mode-raw-${tab.id}`} className="raw-arguments-panel">
       <div className="raw-arguments-heading"><label htmlFor={`raw-${tab.id}`}>完整 arguments JSON</label><span>JSON Object</span></div>
       <textarea id={`raw-${tab.id}`} value={tab.rawText} onChange={(event) => rawChanged(event.target.value)}
         onBlur={() => commitRaw()} aria-invalid={!parsed.ok || validation.issues.length > 0}
         aria-describedby={!parsed.ok || validation.issues.length > 0 ? rawErrorId : undefined} />
-      {!parsed.ok && (rawTouched || tab.inputMode === "raw") && <p id={rawErrorId} role="alert">
+      {!parsed.ok && (rawTouched || inputMode === "raw") && <p id={rawErrorId} role="alert">
         {rawErrorMessage(parsed.message)}{parsed.offset === null ? "" : `（位置 ${parsed.offset}）`}
       </p>}
       {parsed.ok && validation.issues.length > 0 && <div id={rawErrorId} className="validation-summary" role="alert"><strong>参数尚未满足 Tool Schema</strong>
@@ -138,6 +146,12 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveReques
           onDraftChange={(text, base) => onSubtreeDraftChange?.("", text, base)}
           onCommit={(value) => onChange({ arguments: value as Record<string, unknown>, rawText: formatRawArguments(value as Record<string, unknown>) })} />
       </div>}
+      {!wholeFallback && fields.length === 0 && (
+        <div className="parameter-empty" role="status">
+          <strong>此 Tool 无需参数</strong>
+          <span>可以直接执行，或切换到 Raw JSON 查看完整 arguments。</span>
+        </div>
+      )}
       {!wholeFallback && fields.map((field) => {
         const errors = issuesAt(field.path); const inputId = `${tab.id}-${field.name}`;
         const visibleErrors = errors.filter(({ keyword }) => keyword !== "required");

@@ -4,6 +4,7 @@ import type {
   CatalogToolSummary,
   ConnectionSummary,
   InspectorApiClient,
+  ToolFolderSummary,
 } from "../../api/api-client.js";
 import { ToolTree } from "../tools/ToolTree.js";
 import { ConnectionFormDialog, DeleteConnectionDialog } from "./ConnectionDialogs.js";
@@ -18,6 +19,7 @@ interface ConnectionPanelProps {
   onConnectionConnected?: (connection: ConnectionSummary) => void;
   onConnectionDisconnected?: (connectionId: string) => void;
   onConnectionsLoaded?: (connections: ConnectionSummary[]) => void;
+  selectedTool?: { connectionId: string; name: string } | null;
 }
 
 interface CatalogToast {
@@ -53,6 +55,7 @@ function ProjectScopedConnectionPanel({
   onConnectionConnected = () => undefined,
   onConnectionDisconnected = () => undefined,
   onConnectionsLoaded = () => undefined,
+  selectedTool = null,
 }: ConnectionPanelProps) {
   const mounted = useRef(false);
   const submitLock = useRef(false);
@@ -65,6 +68,7 @@ function ProjectScopedConnectionPanel({
   const nextHeaderId = useRef(1);
   const [connections, setConnections] = useState<ConnectionSummary[] | null>(null);
   const [catalogs, setCatalogs] = useState<Record<string, CatalogToolSummary[]>>({});
+  const [folders, setFolders] = useState<Record<string, ToolFolderSummary[]>>({});
   const [catalogToast, setCatalogToast] = useState<CatalogToast | null>(null);
   const [refreshingConnectionIds, setRefreshingConnectionIds] = useState<ReadonlySet<string>>(new Set());
   const [pendingConnectionIds, setPendingConnectionIds] = useState<ReadonlySet<string>>(new Set());
@@ -93,6 +97,7 @@ function ProjectScopedConnectionPanel({
     let active = true;
     setConnections(null);
     setCatalogs({});
+    setFolders({});
     setRefreshingConnectionIds(new Set());
     setPendingConnectionIds(new Set());
     catalogGenerations.current.clear();
@@ -110,10 +115,13 @@ function ProjectScopedConnectionPanel({
           )) continue;
           const generation = 1;
           catalogGenerations.current.set(connection.id, generation);
-          void api.listTools(projectId, connection.id)
-            .then((tools) => {
+          void Promise.all([
+            api.listTools(projectId, connection.id),
+            api.listToolFolders(projectId, connection.id),
+          ]).then(([tools, toolFolders]) => {
               if (active && catalogGenerations.current.get(connection.id) === generation) {
                 setCatalogs((current) => ({ ...current, [connection.id]: tools }));
+                setFolders((current) => ({ ...current, [connection.id]: toolFolders }));
               }
             })
             .catch(() => {
@@ -246,8 +254,10 @@ function ProjectScopedConnectionPanel({
     });
     try {
       const tools = await api.refreshTools(projectId, connectionId);
+      const toolFolders = await api.listToolFolders(projectId, connectionId);
       if (!mounted.current || catalogGenerations.current.get(connectionId) !== generation) return;
       setCatalogs((current) => ({ ...current, [connectionId]: tools }));
+      setFolders((current) => ({ ...current, [connectionId]: toolFolders }));
       showCatalogToast({
         connectionId,
         kind: "success",
@@ -287,6 +297,26 @@ function ProjectScopedConnectionPanel({
     setCatalogs((current) => ({
       ...current,
       [tool.connectionId]: (current[tool.connectionId] ?? []).filter(({ name }) => name !== tool.name),
+    }));
+  }
+
+  async function createFolder(connectionId: string, name: string): Promise<void> {
+    const folder = await api.createToolFolder(projectId, connectionId, name);
+    if (!mounted.current) return;
+    setFolders((current) => ({
+      ...current,
+      [connectionId]: [...(current[connectionId] ?? []), folder],
+    }));
+  }
+
+  async function moveTool(tool: CatalogToolSummary, folderId: string | null): Promise<void> {
+    const generation = invalidateConnection(tool.connectionId);
+    const updated = await api.moveToolToFolder(projectId, tool.connectionId, tool.name, folderId);
+    if (!mounted.current || catalogGenerations.current.get(tool.connectionId) !== generation) return;
+    setCatalogs((current) => ({
+      ...current,
+      [tool.connectionId]: (current[tool.connectionId] ?? []).map((item) =>
+        item.name === updated.name ? updated : item),
     }));
   }
 
@@ -537,11 +567,15 @@ function ProjectScopedConnectionPanel({
         <ToolTree
           connections={visibleConnections}
           catalogs={catalogs}
+          folders={visibleConnections.length === 1 ? folders[visibleConnections[0]!.id] ?? [] : []}
           refreshingConnectionIds={refreshingConnectionIds}
           onRefresh={(connectionId) => void refresh(connectionId)}
           onSelectTool={onSelectTool}
           onOpenTool={onOpenTool}
           onDeleteTool={deleteTool}
+          onCreateFolder={(name) => createFolder(visibleConnections[0]!.id, name)}
+          onMoveTool={moveTool}
+          selectedTool={selectedTool}
         />
       )}
 

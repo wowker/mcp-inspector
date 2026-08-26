@@ -135,8 +135,8 @@ describe("RunResultPanel", () => {
     render(<RunResultPanel run={run} />);
     const sticky = document.querySelector(".run-result__sticky-header");
     expect(sticky).toContainElement(screen.getByText("成功"));
-    expect(sticky).toContainElement(screen.getByText("40 ms"));
-    expect(sticky).toContainElement(screen.getByText("网络 25 ms"));
+    expect(sticky).toContainElement(screen.getByText("总耗时 40 ms"));
+    expect(sticky).toContainElement(screen.getByText("网络耗时 25 ms"));
     expect(sticky).toContainElement(screen.getByRole("button", { name: "复制全部结果" }));
     expect(sticky).toContainElement(screen.getByRole("tab", { name: "请求与结果" }));
   });

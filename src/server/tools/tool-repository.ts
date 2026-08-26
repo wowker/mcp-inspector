@@ -1,17 +1,27 @@
 import type { ProjectStore } from "../projects/project-store.js";
-import type { CatalogTool, ToolDefinition, ToolDetail, ToolSnapshot, ToolStatus } from "./tool-types.js";
+import type { CatalogTool, ToolDefinition, ToolDetail, ToolFolder, ToolSnapshot, ToolStatus } from "./tool-types.js";
 
 interface CatalogRow {
   project_id: string;
   connection_id: string;
   name: string;
   status: ToolStatus;
+  folder_id: string | null;
   updated_at: string;
   snapshot_id: string;
   tool_name: string;
   content_hash: string;
   definition_json: string;
   created_at: string;
+}
+
+interface FolderRow {
+  id: string;
+  project_id: string;
+  connection_id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
 }
 
 interface SnapshotRow {
@@ -58,6 +68,7 @@ function catalogFromRow(row: CatalogRow): CatalogTool {
     connectionId: row.connection_id,
     name: row.name,
     status: row.status,
+    folderId: row.folder_id,
     updatedAt: row.updated_at,
     currentSnapshot: snapshotFromRow({
       id: row.snapshot_id,
@@ -71,11 +82,25 @@ function catalogFromRow(row: CatalogRow): CatalogTool {
   };
 }
 
+function folderFromRow(row: FolderRow): ToolFolder {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    connectionId: row.connection_id,
+    name: row.name,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 const catalogSelect = `
   SELECT t.project_id, t.connection_id, t.name, t.status, t.updated_at,
+         a.folder_id,
          s.id AS snapshot_id, s.tool_name, s.content_hash, s.definition_json, s.created_at
   FROM tools t
   JOIN tool_snapshots s ON s.id = t.current_snapshot_id
+  LEFT JOIN tool_folder_assignments a
+    ON a.project_id = t.project_id AND a.connection_id = t.connection_id AND a.tool_name = t.name
 `;
 
 export class ToolRepository {
@@ -88,6 +113,68 @@ export class ToolRepository {
       ORDER BY t.name COLLATE NOCASE, t.name
     `).all(projectId, connectionId) as CatalogRow[];
     return rows.map(catalogFromRow);
+  }
+
+  listFolders(projectId: string, connectionId: string): ToolFolder[] {
+    const rows = this.store.database.prepare(`
+      SELECT id, project_id, connection_id, name, created_at, updated_at
+      FROM tool_folders
+      WHERE project_id = ? AND connection_id = ?
+      ORDER BY name COLLATE NOCASE, name, id
+    `).all(projectId, connectionId) as FolderRow[];
+    return rows.map(folderFromRow);
+  }
+
+  createFolder(
+    projectId: string,
+    connectionId: string,
+    id: string,
+    name: string,
+    timestamp: string,
+  ): ToolFolder | null {
+    const duplicate = this.store.database.prepare(`
+      SELECT 1 FROM tool_folders
+      WHERE project_id = ? AND connection_id = ? AND name = ? COLLATE NOCASE
+    `).get(projectId, connectionId, name);
+    if (duplicate !== undefined) return null;
+    this.store.database.prepare(`
+      INSERT INTO tool_folders (id, project_id, connection_id, name, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(id, projectId, connectionId, name, timestamp, timestamp);
+    const row = this.store.database.prepare(`
+      SELECT id, project_id, connection_id, name, created_at, updated_at
+      FROM tool_folders WHERE project_id = ? AND connection_id = ? AND id = ?
+    `).get(projectId, connectionId, id) as FolderRow;
+    return folderFromRow(row);
+  }
+
+  moveToFolder(
+    projectId: string,
+    connectionId: string,
+    toolName: string,
+    folderId: string | null,
+  ): "tool-missing" | "folder-missing" | CatalogTool {
+    return this.store.database.transaction(() => {
+      const tool = this.get(projectId, connectionId, toolName);
+      if (tool === null) return "tool-missing" as const;
+      if (folderId !== null) {
+        const folder = this.store.database.prepare(`
+          SELECT 1 FROM tool_folders WHERE project_id = ? AND connection_id = ? AND id = ?
+        `).get(projectId, connectionId, folderId);
+        if (folder === undefined) return "folder-missing" as const;
+      }
+      this.store.database.prepare(`
+        DELETE FROM tool_folder_assignments
+        WHERE project_id = ? AND connection_id = ? AND tool_name = ?
+      `).run(projectId, connectionId, toolName);
+      if (folderId !== null) {
+        this.store.database.prepare(`
+          INSERT INTO tool_folder_assignments (project_id, connection_id, tool_name, folder_id)
+          VALUES (?, ?, ?, ?)
+        `).run(projectId, connectionId, toolName, folderId);
+      }
+      return this.get(projectId, connectionId, toolName)!.tool;
+    })();
   }
 
   get(projectId: string, connectionId: string, toolName: string): ToolDetail | null {

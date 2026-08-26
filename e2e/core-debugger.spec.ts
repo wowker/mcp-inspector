@@ -8,6 +8,7 @@ import { startStreamableMcpServer } from "../test-support/streamable-mcp-server.
 interface InspectorRuntime { address: { origin: string }; close(): Promise<void> }
 
 test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state", async ({ page, request }) => {
+  await page.setViewportSize({ width: 2560, height: 1318 });
   const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-e2e-"));
   let mcp: Awaited<ReturnType<typeof startStreamableMcpServer>> | undefined;
   let browserUrl = "";
@@ -51,14 +52,28 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     await page.getByRole("button", { name: "连接 Loopback MCP" }).click();
     await expect(page.getByRole("tab", { name: "Loopback MCP" })).toHaveAttribute("aria-selected", "true");
     await expect(page.getByRole("tabpanel", { name: "Loopback MCP" })).toBeVisible();
-    await expect(page.getByRole("treeitem", { name: "echo" })).toBeVisible();
+    const echoTool = page.getByRole("treeitem", { name: "echo" });
+    await expect(echoTool).toBeVisible();
     const sumTool = page.getByRole("treeitem", { name: "sum" });
     await expect(sumTool).toBeVisible();
     const catalog = page.getByRole("complementary", { name: "Tool 目录" });
-    await page.getByRole("button", { name: "隐藏 Tool 目录" }).click();
-    await expect(catalog).toBeHidden();
-    await page.getByRole("button", { name: "显示 Tool 目录" }).click();
     await expect(catalog).toBeVisible();
+    await expect(page.getByRole("button", { name: "隐藏 Tool 目录" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "显示 Tool 目录" })).toHaveCount(0);
+    const toolSearch = page.getByRole("searchbox", { name: "搜索 Tool" });
+    await toolSearch.focus();
+    await expect(toolSearch).toHaveCSS("outline-style", "none");
+    await expect(toolSearch.locator("xpath=..")).not.toHaveCSS("box-shadow", "none");
+
+    await page.getByRole("button", { name: "创建文件夹" }).click();
+    await page.getByRole("textbox", { name: "文件夹名称" }).fill("Commerce");
+    await page.getByRole("button", { name: "创建", exact: true }).click();
+    const emptyFolder = page.getByRole("treeitem", { name: "Commerce 文件夹，0 个 Tool" });
+    await expect(emptyFolder).toBeVisible();
+    await page.locator(".tool-row").filter({ has: echoTool }).dragTo(emptyFolder.locator("xpath=.."));
+    const commerceFolder = page.getByRole("treeitem", { name: "Commerce 文件夹，1 个 Tool" });
+    await expect(commerceFolder).toBeVisible();
+    await expect(commerceFolder.locator("xpath=..").getByRole("treeitem", { name: "echo" })).toBeVisible();
 
     const titles = ["sum", ...Array.from({ length: 7 }, (_, index) => `sum (${index + 2})`)];
     for (let index = 0; index < 8; index += 1) {
@@ -73,7 +88,11 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     await page.getByLabel("完整 arguments JSON").fill("{}");
     await page.getByRole("tab", { name: "Form" }).click();
     await expect(page.getByRole("tab", { name: "Form" })).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByLabel(/^a(?:\s|\*)*必填$/)).toBeVisible();
+    const requiredA = page.getByLabel(/^a(?:\s|\*)*必填$/);
+    await expect(requiredA).toBeVisible();
+    await requiredA.focus();
+    await expect(requiredA).toHaveCSS("outline-style", "none");
+    await expect(requiredA).toHaveCSS("box-shadow", "none");
     await page.getByRole("button", { name: "收起参数" }).click();
     await expect(page.getByLabel(/^a(?:\s|\*)*必填$/)).toBeHidden();
     await page.getByRole("button", { name: "展开参数" }).click();
@@ -132,6 +151,18 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
       const detail = page.locator("article.run-result");
       await expect(detail.locator(".run-status")).toHaveText("成功");
       if (index === 0) {
+        const resultPane = page.locator(".result-placeholder");
+        await detail.getByRole("tab", { name: "RPC" }).click();
+        await page.locator(".request-result-split").evaluate((element) => {
+          (element as HTMLElement).style.gridTemplateRows = "80% 10px minmax(0, 1fr)";
+        });
+        await resultPane.evaluate((element) => { element.scrollTop = 80; });
+        expect(await resultPane.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+        const paneBox = await resultPane.boundingBox();
+        const stickyBox = await detail.locator(".run-result__sticky-header").boundingBox();
+        expect(paneBox).not.toBeNull();
+        expect(stickyBox).not.toBeNull();
+        expect(Math.abs(stickyBox!.y - paneBox!.y)).toBeLessThanOrEqual(1);
         const split = page.locator(".request-result-split");
         const before = await split.getAttribute("style");
         const handle = await page.locator(".split-control").boundingBox();
@@ -143,6 +174,19 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
         await expect.poll(() => split.getAttribute("style")).not.toBe(before);
       }
       await detail.getByRole("tab", { name: "请求与结果" }).click();
+      if (index === 0) {
+        const disclosureBox = await detail.locator("details.result-disclosure").first().boundingBox();
+        const contentBox = await detail.locator(".result-disclosure__content").first().boundingBox();
+        expect(disclosureBox).not.toBeNull();
+        expect(contentBox).not.toBeNull();
+        expect(Math.abs((contentBox!.x + contentBox!.width) - (disclosureBox!.x + disclosureBox!.width)))
+          .toBeLessThanOrEqual(1);
+        const parameterCaretSize = await page.locator(".editor-collapse > span").evaluate((element) =>
+          getComputedStyle(element).fontSize);
+        const resultCaretSize = await detail.locator("details.result-disclosure > summary").first().evaluate((element) =>
+          getComputedStyle(element).fontSize);
+        expect(parameterCaretSize).toBe(resultCaretSize);
+      }
       const formattedResult = detail.getByLabel("结构化响应 JSON");
       await expect(formattedResult.locator(".json-viewer__row").filter({ hasText: /^total:/ }).locator(".json-viewer__number"))
         .toHaveText(String(inputs[index].total));
@@ -199,6 +243,9 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     await expect(page.getByRole("heading", { name: "Servers", level: 1 })).toBeVisible();
     await page.getByRole("tab", { name: "Loopback MCP" }).click();
     await expect(page.getByRole("tabpanel", { name: "Loopback MCP" })).toBeVisible();
+    const restoredFolder = page.getByRole("treeitem", { name: "Commerce 文件夹，1 个 Tool" });
+    await expect(restoredFolder).toBeVisible();
+    await expect(restoredFolder.locator("xpath=..").getByRole("treeitem", { name: "echo" })).toBeVisible();
     await expect(tabList.getByRole("tab")).toHaveCount(8);
     await expect(page.getByRole("tab", { name: titles[5], exact: true })).toHaveAttribute("aria-selected", "true");
     for (let index = 0; index < 8; index += 1) {

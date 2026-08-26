@@ -461,7 +461,7 @@ describe("RunService", () => {
       projects.open(projectId).database.prepare("UPDATE run_requests SET arguments_json = 'not-json' WHERE run_id = ?").run(runs[0].id);
       expect(() => service.get(projectId, runs[0].id)).toThrow(/corrupt/i);
       expect(projects.open(projectId).database.prepare("SELECT version FROM schema_migrations ORDER BY version").all())
-        .toEqual([1, 2, 3, 4, 5, 6, 7].map((version) => ({ version })));
+        .toEqual([1, 2, 3, 4, 5, 6, 7, 8].map((version) => ({ version })));
       const store = projects.open(projectId); const snapshotId = store.database.prepare("SELECT id FROM tool_snapshots LIMIT 1").get() as { id: string };
       const insert = store.database.prepare(`INSERT INTO runs
         (id, project_id, connection_id, tab_id, tool_name, tool_snapshot_id, idempotency_key, status, created_at, client_info_json)

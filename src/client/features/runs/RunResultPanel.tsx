@@ -130,6 +130,10 @@ function metadata(run: RunDetail) {
   ];
 }
 
+function formatDuration(durationMs: number): string {
+  return durationMs < 1_000 ? `${durationMs} ms` : `${(durationMs / 1_000).toFixed(2)} s`;
+}
+
 export function RunResultPanel({ run, onSaveResponse }: { run: RunDetail; onSaveResponse?: (response: NonNullable<RunDetail["response"]>) => void }) {
   const [view, setView] = useState<View>("overview");
   const [requestOpen, setRequestOpen] = useState(true);
@@ -163,8 +167,8 @@ export function RunResultPanel({ run, onSaveResponse }: { run: RunDetail; onSave
   return <article className="run-result" aria-label={`运行 ${run.id} 详情`}>
     <div className="run-result__sticky-header">
       <header><div className="run-summary"><div className={`run-status run-status--${run.status}`}>{terminalLabels[run.status] ?? run.status}</div>
-        <span>{run.durationMs === null ? "总耗时未记录" : `${run.durationMs} ms`}</span>
-        {run.networkDurationMs !== null && <span>网络 {run.networkDurationMs} ms</span>}</div>
+        <span>{run.durationMs === null ? "总耗时未记录" : `总耗时 ${formatDuration(run.durationMs)}`}</span>
+        {run.networkDurationMs !== null && <span>网络耗时 {formatDuration(run.networkDurationMs)}</span>}</div>
         <div className="run-result-actions">{run.response !== null && onSaveResponse !== undefined && <button type="button" className="run-result-action" onClick={() => onSaveResponse(run.response!)}>保存响应</button>}
           <CopyButton value={run.response} label="复制全部结果" className="run-result-action" /></div></header>
       {run.response?.truncated && <p role="status" className="truncated-warning">结果已截断（原始大小 {run.response.originalBytes ?? "未知"} bytes），以下仅为安全预览。</p>}

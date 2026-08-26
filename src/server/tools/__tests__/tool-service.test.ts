@@ -80,6 +80,28 @@ describe("ToolService", () => {
     });
   }
 
+  it("persists connection-scoped folders and Tool placement across catalog refreshes", async () => {
+    const tools = service() as unknown as {
+      refresh(projectId: string, connectionId: string): Promise<Array<{ name: string; folderId: string | null }>>;
+      list(projectId: string, connectionId: string): Array<{ name: string; folderId: string | null }>;
+      listFolders(projectId: string, connectionId: string): Array<{ id: string; name: string; connectionId: string }>;
+      createFolder(projectId: string, connectionId: string, name: string): { id: string; name: string; connectionId: string };
+      moveToFolder(projectId: string, connectionId: string, toolName: string, folderId: string | null): { name: string; folderId: string | null };
+    };
+
+    await tools.refresh(projectId, connectionId);
+    const folder = tools.createFolder(projectId, connectionId, "  Commerce  ");
+    expect(folder).toEqual(expect.objectContaining({ name: "Commerce", connectionId }));
+    expect(tools.listFolders(projectId, connectionId)).toEqual([folder]);
+    expect(tools.moveToFolder(projectId, connectionId, "sum", folder.id))
+      .toEqual(expect.objectContaining({ name: "sum", folderId: folder.id }));
+
+    pages = [{ tools: [tool("sum"), tool("echo"), tool("new_tool")] }];
+    await tools.refresh(projectId, connectionId);
+    expect(tools.list(projectId, connectionId).find(({ name }) => name === "sum")?.folderId).toBe(folder.id);
+    expect(tools.moveToFolder(projectId, connectionId, "sum", null).folderId).toBeNull();
+  });
+
   it("canonicalizes object keys recursively, preserves array order, and rejects non-JSON values", () => {
     expect(canonicalJson({ z: 1, a: { y: 2, x: [3, { b: 2, a: 1 }] } }))
       .toBe('{"a":{"x":[3,{"a":1,"b":2}],"y":2},"z":1}');

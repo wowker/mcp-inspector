@@ -223,9 +223,8 @@ summary:focus-visible {
 .tools-catalog { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; border-right: 1px solid #e4e7ec; background: #fbfbfa; }
 .tools-catalog .connection-panel { display: flex; min-height: 0; margin: 0; padding: 12px; flex: 1; flex-direction: column; overflow: hidden; border: 0; border-radius: 0; background: transparent; }
 .tools-catalog .tool-tree-panel { display: flex; min-height: 0; margin-top: 0; padding-top: 0; flex: 1; flex-direction: column; overflow: hidden; border-top: 0; }
-.tools-catalog .tool-tree { display: flex; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }
-.tools-catalog .tool-connection-group { display: flex; min-height: 0; flex: 1; flex-direction: column; }
-.tools-catalog .tool-items { min-height: 0; flex: 1; overflow-y: auto; }
+.tools-catalog .tool-tree { display: flex; min-height: 0; flex: 1; flex-direction: column; overflow-y: auto; }
+.tools-catalog .tool-items { flex: none; overflow: visible; }
 .tools-layout .debug-workspace { min-height: 0; height: 100%; border: 0; border-radius: 0; }
 .tools-layout .request-result-split { height: calc(100vh - 216px); min-height: 420px; }
 .tools-layout .debug-workspace { display: flex; flex-direction: column; }
@@ -233,9 +232,6 @@ summary:focus-visible {
 .workspace-tab-panel > .workspace-nav { flex: none; }
 .workspace-tab-panel > .request-result-split { height: auto; min-height: 0; flex: 1; }
 .workspace-tab-panel > .tool-definition { width: 100%; min-height: 0; flex: 1; box-sizing: border-box; overflow-y: auto; }
-
-.catalog-collapse { display: flex; min-height: 40px; align-items: center; justify-content: center; gap: 7px; flex: none; border: 0; border-top: 1px solid #e4e7ec; border-radius: 0; }
-.catalog-restore { position: absolute; z-index: 6; bottom: 12px; left: 12px; display: grid; width: 34px; min-width: 34px; min-height: 34px; padding: 0; place-items: center; }
 
 .workbench-empty { align-self: start; width: min(100% - 48px, 620px); margin: 64px auto; padding: 40px; border: 1px dashed #cfd4dc; border-radius: 12px; background: #fff; text-align: center; }
 .workbench-empty strong { font-size: 1.1rem; }

@@ -48,6 +48,9 @@ function api(overrides: Partial<InspectorApiClient> = {}): InspectorApiClient {
     refreshTools: vi.fn().mockResolvedValue([]),
     getTool: vi.fn(),
     deleteTool: vi.fn().mockResolvedValue(undefined),
+    listToolFolders: vi.fn().mockResolvedValue([]),
+    createToolFolder: vi.fn(),
+    moveToolToFolder: vi.fn(),
     listTabs: vi.fn().mockResolvedValue([]),
     openTab: vi.fn(), replaceTabTool: vi.fn(), updateTab: vi.fn(), duplicateTab: vi.fn(),
     reorderTabs: vi.fn(), closeTab: vi.fn(), closeOtherTabs: vi.fn(), closeTabsRight: vi.fn(),
@@ -337,7 +340,7 @@ describe("ConnectionPanel", () => {
     const deleteConnection = vi.fn().mockRejectedValueOnce(new Error("database is busy"));
     const connected = { ...connection, status: "connected" as const };
     const savedTool: CatalogToolSummary = {
-      projectId, connectionId: connection.id, name: "offline/tool", status: "current",
+      projectId, connectionId: connection.id, name: "offline/tool", status: "current", folderId: null,
       updatedAt: "2026-08-17T12:00:00.000Z",
       currentSnapshot: {
         id: "00000000-0000-4000-8000-000000000410", projectId,
@@ -557,7 +560,7 @@ describe("ConnectionPanel", () => {
       projectId,
       connectionId: connection.id,
       name: "stale/tool",
-      status: "current" as const,
+      status: "current" as const, folderId: null,
       updatedAt: "2026-08-17T12:00:00.000Z",
       currentSnapshot: {
         id: "00000000-0000-4000-8000-000000000409",

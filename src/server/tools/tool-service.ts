@@ -5,7 +5,7 @@ import { McpNotConnectedError } from "../connections/connection-runtime.js";
 import type { ProjectService } from "../projects/project-service.js";
 import { parseToolDefinition } from "../../shared/tool-definition.js";
 import { ToolRepository, type RefreshedTool } from "./tool-repository.js";
-import type { CatalogTool, JsonValue, ToolDefinition, ToolDetail } from "./tool-types.js";
+import type { CatalogTool, JsonValue, ToolDefinition, ToolDetail, ToolFolder } from "./tool-types.js";
 
 export class ToolNotFoundError extends Error {
   constructor() { super("Tool not found"); this.name = "ToolNotFoundError"; }
@@ -13,6 +13,18 @@ export class ToolNotFoundError extends Error {
 
 export class ToolNotRemovedError extends Error {
   constructor() { super("Only removed Tools can be deleted"); this.name = "ToolNotRemovedError"; }
+}
+
+export class InvalidToolFolderError extends Error {
+  constructor() { super("Tool folder name is invalid"); this.name = "InvalidToolFolderError"; }
+}
+
+export class ToolFolderConflictError extends Error {
+  constructor() { super("Tool folder already exists"); this.name = "ToolFolderConflictError"; }
+}
+
+export class ToolFolderNotFoundError extends Error {
+  constructor() { super("Tool folder not found"); this.name = "ToolFolderNotFoundError"; }
 }
 
 export class InvalidToolCatalogError extends Error {
@@ -75,6 +87,9 @@ export interface ToolService {
   list(projectId: string, connectionId: string): CatalogTool[];
   get(projectId: string, connectionId: string, toolName: string): ToolDetail;
   deleteRemoved(projectId: string, connectionId: string, toolName: string): void;
+  listFolders(projectId: string, connectionId: string): ToolFolder[];
+  createFolder(projectId: string, connectionId: string, name: unknown): ToolFolder;
+  moveToFolder(projectId: string, connectionId: string, toolName: string, folderId: unknown): CatalogTool;
 }
 
 export function createToolService(
@@ -147,6 +162,36 @@ export function createToolService(
 
     list(projectId, connectionId) {
       return repository(projectId, connectionId).list(projectId, connectionId);
+    },
+
+    listFolders(projectId, connectionId) {
+      return repository(projectId, connectionId).listFolders(projectId, connectionId);
+    },
+
+    createFolder(projectId, connectionId, value) {
+      if (typeof value !== "string") throw new InvalidToolFolderError();
+      const name = value.trim();
+      if (name.length === 0 || name.length > 80 || /[\u0000-\u001f\u007f]/u.test(name)) {
+        throw new InvalidToolFolderError();
+      }
+      const created = repository(projectId, connectionId).createFolder(
+        projectId, connectionId, createId(), name, now().toISOString(),
+      );
+      if (created === null) throw new ToolFolderConflictError();
+      return created;
+    },
+
+    moveToFolder(projectId, connectionId, toolName, value) {
+      if (toolName.length === 0) throw new ToolNotFoundError();
+      if (!(value === null || (typeof value === "string" && value.length > 0))) {
+        throw new ToolFolderNotFoundError();
+      }
+      const result = repository(projectId, connectionId).moveToFolder(
+        projectId, connectionId, toolName, value,
+      );
+      if (result === "tool-missing") throw new ToolNotFoundError();
+      if (result === "folder-missing") throw new ToolFolderNotFoundError();
+      return result;
     },
 
     get(projectId, connectionId, toolName) {

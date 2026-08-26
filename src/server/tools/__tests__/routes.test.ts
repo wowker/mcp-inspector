@@ -92,6 +92,38 @@ describe("Tool routes", () => {
     expect(listTools).not.toHaveBeenCalled();
   });
 
+  it("creates Tool folders and moves a Tool into and out of a folder", async () => {
+    await connections.connect(projectId, connectionId);
+    const base = `/api/projects/${projectId}/connections/${connectionId}`;
+    await app().request(`${base}/tools/refresh`, { method: "POST", headers });
+
+    const created = await app().request(`${base}/tool-folders`, {
+      method: "POST", headers, body: JSON.stringify({ name: "  Catalog  " }),
+    });
+    expect(created.status).toBe(201);
+    const folder = (await created.json() as { folder: { id: string; name: string } }).folder;
+    expect(folder.name).toBe("Catalog");
+    expect(await (await app().request(`${base}/tool-folders`, { headers })).json())
+      .toEqual({ folders: [expect.objectContaining({ id: folder.id, name: "Catalog" })] });
+
+    const moved = await app().request(`${base}/tools/${encodeURIComponent("catalog/read item")}/folder`, {
+      method: "PUT", headers, body: JSON.stringify({ folderId: folder.id }),
+    });
+    expect(moved.status).toBe(200);
+    expect(await moved.json()).toEqual({ tool: expect.objectContaining({
+      name: "catalog/read item", folderId: folder.id,
+    }) });
+    expect((await (await app().request(`${base}/tools`, { headers })).json() as {
+      tools: Array<{ folderId: string | null }>;
+    }).tools[0]?.folderId).toBe(folder.id);
+
+    const unfiled = await app().request(`${base}/tools/${encodeURIComponent("catalog/read item")}/folder`, {
+      method: "PUT", headers, body: JSON.stringify({ folderId: null }),
+    });
+    expect(unfiled.status).toBe(200);
+    expect(await unfiled.json()).toEqual({ tool: expect.objectContaining({ folderId: null }) });
+  });
+
   it("enforces project ownership and stable missing-resource errors", async () => {
     const other = projects.create("Other");
     const cross = await app().request(

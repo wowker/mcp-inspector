@@ -10,11 +10,13 @@ import { TabStrip } from "./TabStrip.js";
 import { ToolDefinitionView } from "./ToolDefinitionView.js";
 import { SavedItemDialog } from "../saved-items/SavedItemDialog.js";
 import { SavedItemsView } from "../saved-items/SavedItemsView.js";
+import { schemaHasEditableArguments } from "./schema-form.js";
 
 export interface ToolOpenIntent { sequence: number; tool: CatalogToolSummary; newTab: boolean }
 interface Props {
   api: InspectorApiClient; projectId: string; toolIntent?: ToolOpenIntent | null;
   onExecute?: (tab: DebugTabSummary) => void;
+  onActiveToolChange?: (tool: { connectionId: string; name: string } | null) => void;
 }
 
 type WorkspaceView = "debug" | "definition" | "history" | "saved";
@@ -46,7 +48,7 @@ export function DebugWorkspace(props: Props) {
   return <ProjectWorkspace key={props.projectId} {...props} />;
 }
 
-function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Props) {
+function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActiveToolChange }: Props) {
   const [tabs, setTabs] = useState<DebugTabSummary[] | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [boundDetail, setBoundDetail] = useState<BoundToolDetail | null>(null);
@@ -169,6 +171,9 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
   const inspected = useRunEvents(api, projectId, selectedUsesActiveObserver ? null : selectedRunId);
   const observed = selectedUsesActiveObserver && active !== null
     ? activeObservations[active.id] ?? { run: null, error: null } : inspected;
+  useEffect(() => {
+    onActiveToolChange?.(active === null ? null : { connectionId: active.connectionId, name: active.toolName });
+  }, [active?.connectionId, active?.toolName, onActiveToolChange]);
   const handleActiveObservation = useCallback((tabId: string, runId: string, observation: ActiveObservation) => {
     if (activeRuns.current.get(tabId) !== runId) return;
     if (observation.run !== null && terminalRunStatuses.has(observation.run.status)) {
@@ -324,6 +329,8 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
 
   const detail = active !== null && boundDetail?.tabId === active.id && boundDetail.connectionId === active.connectionId &&
     boundDetail.toolName === active.toolName ? boundDetail.value : null;
+  const noEditableParameters = active !== null && detail !== null && active.inputMode === "form" &&
+    !schemaHasEditableArguments(detail.tool.currentSnapshot.definition.inputSchema, active.arguments);
 
   function resizeSplit(event: ReactPointerEvent<HTMLLabelElement>): void {
     if (active === null) return;
@@ -347,6 +354,11 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
         onDuplicate={(id) => void duplicate(id)} onPin={(id, pinned) => schedule(id, { pinned })}
         onMove={(id, offset) => void move(id, offset)}
         onCloseOthers={(id) => void bulk(id, "others")} onCloseRight={(id) => void bulk(id, "right")} />
+      {activeReadOnlyId === null && active !== null && <nav className="workspace-nav" aria-label="当前 Tab 视图">
+        {(["debug", "definition", "saved", "history"] as const).map((item) => <button type="button" key={item}
+          aria-current={view === item ? "page" : undefined} onClick={() => setView(item)}>
+          {item === "debug" ? "调试" : item === "definition" ? "Tool 定义" : item === "saved" ? "已保存" : "当前 Tab 历史"}</button>)}
+      </nav>}
     </div>
     {readOnlyTabs.length > 0 && <div className="history-tabs" role="tablist" aria-label="只读运行 Tabs" onKeyDown={(event) => {
       if (!(event.target instanceof HTMLElement) || event.target.getAttribute("role") !== "tab" ||
@@ -363,14 +375,9 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
     {activeReadOnlyId !== null ? <section id={`history-panel-${activeReadOnlyId}`} role="tabpanel" aria-labelledby={`history-tab-${activeReadOnlyId}`} className="read-only-run"><p role="status">只读历史结果，不会重新调用 Tool。</p>
         {observed.error !== null && <p role="alert">{observed.error}</p>}{observed.run === null ? <p role="status">正在加载运行详情…</p> : <RunResultPanel run={observed.run} />}</section>
       : active === null ? <div className="workspace-empty"><h2>选择一个 Tool 开始调试</h2><p>单击复用当前未固定 Tab，双击打开新 Tab。</p></div> : <div className="workspace-tab-panel" id={`tabpanel-${active.id}`} role="tabpanel" aria-labelledby={`tab-${active.id}`}>
-      <nav className="workspace-nav" aria-label="当前 Tab 视图">
-        {(["debug", "definition", "saved", "history"] as const).map((item) => <button type="button" key={item}
-          aria-current={view === item ? "page" : undefined} onClick={() => setView(item)}>
-          {item === "debug" ? "调试" : item === "definition" ? "Tool 定义" : item === "saved" ? "已保存" : "当前 Tab 历史"}</button>)}
-      </nav>
       {view === "debug" && detail === null && <p role="status">正在加载 Tool 定义…</p>}
-      {view === "debug" && detail !== null && <div className={`request-result-split${selectedRunId === null ? " request-result-split--empty" : ""}`}
-        style={{ gridTemplateRows: selectedRunId === null ? "minmax(0, 1fr) 10px auto" : `${active.viewState.splitRatio * 100}% 10px 1fr` }}>
+      {view === "debug" && detail !== null && <div className={`request-result-split${selectedRunId === null ? " request-result-split--empty" : ""}${noEditableParameters ? " request-result-split--no-parameters" : ""}`}
+        style={{ gridTemplateRows: noEditableParameters ? "auto 10px minmax(0, 1fr)" : selectedRunId === null ? "minmax(0, 1fr) 10px auto" : `${active.viewState.splitRatio * 100}% 10px 1fr` }}>
         <div className="request-pane" ref={(node) => { if (node !== null && node.scrollTop !== active.viewState.editorScrollTop) node.scrollTop = active.viewState.editorScrollTop; }}
           onScroll={(event) => schedule(active.id, { viewState: { ...active.viewState, editorScrollTop: event.currentTarget.scrollTop } })}>
           <ParameterEditor tab={active} schema={detail.tool.currentSnapshot.definition.inputSchema} executing={startingIds.has(active.id)}

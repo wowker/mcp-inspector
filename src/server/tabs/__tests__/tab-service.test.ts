@@ -116,11 +116,11 @@ describe("TabService", () => {
     } finally { projects.close(); }
   });
 
-  it("applies migrations 1-7 once and enforces Tab foreign keys", () => {
+  it("applies migrations 1-8 once and enforces Tab foreign keys", () => {
     const { dataRoot, projects } = fixture();
     const store = projects.open(projectId);
     expect(store.database.prepare("SELECT version FROM schema_migrations ORDER BY version").all())
-      .toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }]);
+      .toEqual([1, 2, 3, 4, 5, 6, 7, 8].map((version) => ({ version })));
     expect(() => store.database.prepare(`INSERT INTO debug_tabs
       (id, project_id, connection_id, tool_name, title, position, pinned, input_mode,
        arguments_json, raw_text, view_state_json, created_at, updated_at)
@@ -137,6 +137,15 @@ describe("TabService", () => {
         connectionId, "sum", "sum", 0, 0, "form", "{}", "{}",
         '{"editorScrollTop":0,"resultScrollTop":0,"splitRatio":0.5}',
         "2026-08-17T00:00:00.000Z", "2026-08-17T00:00:00.000Z")).toThrow(/foreign key/i);
+    const foreignProjectId = "00000000-0000-4000-8000-000000000697";
+    store.database.prepare(`INSERT INTO projects (id, name, created_at, updated_at)
+      VALUES (?, ?, ?, ?)`).run(foreignProjectId, "Foreign", "2026-08-17T00:00:00.000Z", "2026-08-17T00:00:00.000Z");
+    expect(() => store.database.prepare(`INSERT INTO tool_folders
+      (id, project_id, connection_id, name, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)`).run(
+        "00000000-0000-4000-8000-000000000696", foreignProjectId, connectionId, "Wrong Server",
+        "2026-08-17T00:00:00.000Z", "2026-08-17T00:00:00.000Z",
+      )).toThrow(/foreign key/i);
     projects.close();
     const reopened = createProjectService({ dataRoot });
     try {

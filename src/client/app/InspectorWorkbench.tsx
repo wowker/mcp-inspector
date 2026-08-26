@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import {
   ClockCounterClockwise,
   HardDrives,
@@ -27,19 +27,26 @@ interface ServerWorkspaceState {
   activeId: string | null;
 }
 
-function NavIcon({ type }: { type: WorkbenchPage }) {
-  if (type === "servers") return <HardDrives size={19} weight="regular" aria-hidden="true" />;
-  if (type === "tools") return <Wrench size={19} weight="regular" aria-hidden="true" />;
-  return <ClockCounterClockwise size={19} weight="regular" aria-hidden="true" />;
+function NavIcon({ type, active }: { type: WorkbenchPage; active: boolean }) {
+  const iconProps = {
+    className: "workbench-nav-icon",
+    size: 18,
+    weight: active ? "bold" : "regular",
+    "aria-hidden": true,
+  } as const;
+  if (type === "servers") return <HardDrives {...iconProps} />;
+  if (type === "tools") return <Wrench {...iconProps} />;
+  return <ClockCounterClockwise {...iconProps} />;
 }
 
 export function InspectorWorkbench({ api, project, version }: InspectorWorkbenchProps) {
   const [page, setPage] = useState<WorkbenchPage>("servers");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [catalogCollapsed, setCatalogCollapsed] = useState(false);
+  const [catalogWidth, setCatalogWidth] = useState(300);
   const [theme, setTheme] = useState<ThemeMode>(() => applyInitialTheme());
   const [servers, setServers] = useState<ServerWorkspaceState>({ tabs: [], activeId: null });
   const [toolIntent, setToolIntent] = useState<ToolOpenIntent | null>(null);
+  const [activeTool, setActiveTool] = useState<{ connectionId: string; name: string } | null>(null);
   const serversRef = useRef(servers); serversRef.current = servers;
 
   useEffect(() => {
@@ -105,6 +112,13 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
     queueMicrotask(() => document.getElementById(`server-tab-${target.id}`)?.focus());
   }
 
+  function resizeCatalog(event: ReactPointerEvent<HTMLDivElement>): void {
+    const layout = event.currentTarget.parentElement;
+    if (layout === null) return;
+    const bounds = layout.getBoundingClientRect();
+    setCatalogWidth(Math.round(Math.min(380, Math.max(260, event.clientX - bounds.left))));
+  }
+
   return (
     <div className={`workbench${sidebarCollapsed ? " workbench--sidebar-collapsed" : ""}`}>
       <a className="skip-link" href="#workbench-content">跳到主要内容</a>
@@ -121,7 +135,7 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
               aria-current={page === item ? "page" : undefined}
               onClick={() => setPage(item)}
             >
-              <NavIcon type={item} />
+              <NavIcon type={item} active={page === item} />
               <span>{item === "servers" ? "Servers" : item === "tools" ? "Tools" : "运行历史"}</span>
             </button>
           ))}
@@ -210,26 +224,39 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
                   <button type="button" onClick={() => setPage("servers")}>前往 Servers</button>
                 </div>
               ) : (
-                <div className={`tools-layout${catalogCollapsed ? " tools-layout--catalog-collapsed" : ""}`}>
-                  <aside id="tool-catalog" className="tools-catalog" aria-label="Tool 目录" hidden={catalogCollapsed}>
+                <div
+                  className="tools-layout"
+                  style={{ "--tool-catalog-width": `${catalogWidth}px` } as CSSProperties}
+                >
+                  <aside id="tool-catalog" className="tools-catalog" aria-label="Tool 目录">
                     <ConnectionPanel
                       api={api}
                       projectId={project.id}
                       mode="tools"
                       connectionFilterId={servers.activeId}
+                      selectedTool={activeTool}
                       onSelectTool={(tool) => setToolIntent((current) => ({ sequence: (current?.sequence ?? 0) + 1, tool, newTab: false }))}
                       onOpenTool={(tool) => setToolIntent((current) => ({ sequence: (current?.sequence ?? 0) + 1, tool, newTab: true }))}
                     />
-                    <button type="button" className="catalog-collapse" aria-controls="tool-catalog" aria-expanded="true" aria-label="隐藏 Tool 目录"
-                      onClick={() => setCatalogCollapsed(true)}>
-                      <SidebarSimple size={17} aria-hidden="true" />收起 Tool 目录
-                    </button>
                   </aside>
-                  {catalogCollapsed && <button type="button" className="catalog-restore" aria-controls="tool-catalog"
-                    aria-expanded="false" aria-label="显示 Tool 目录" title="显示 Tool 目录" onClick={() => setCatalogCollapsed(false)}>
-                    <SidebarSimple size={18} aria-hidden="true" />
-                  </button>}
-                  <DebugWorkspace api={api} projectId={project.id} toolIntent={toolIntent} />
+                  <div
+                    className="catalog-resize-handle"
+                    role="separator"
+                    tabIndex={0}
+                    aria-label="调整 Tool 目录宽度"
+                    aria-orientation="vertical"
+                    aria-valuemin={260}
+                    aria-valuemax={380}
+                    aria-valuenow={catalogWidth}
+                    onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); resizeCatalog(event); }}
+                    onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) resizeCatalog(event); }}
+                    onKeyDown={(event) => {
+                      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                      event.preventDefault();
+                      setCatalogWidth((current) => Math.min(380, Math.max(260, current + (event.key === "ArrowRight" ? 12 : -12))));
+                    }}
+                  ><span aria-hidden="true" /></div>
+                  <DebugWorkspace api={api} projectId={project.id} toolIntent={toolIntent} onActiveToolChange={setActiveTool} />
                 </div>
               )}
             </section>

@@ -51,8 +51,18 @@ export interface CatalogToolSummary {
   connectionId: string;
   name: string;
   status: "current" | "changed" | "removed";
+  folderId: string | null;
   updatedAt: string;
   currentSnapshot: ToolSnapshotSummary;
+}
+
+export interface ToolFolderSummary {
+  id: string;
+  projectId: string;
+  connectionId: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ToolDetailSummary {
@@ -127,6 +137,9 @@ export interface InspectorApiClient {
   refreshTools(projectId: string, connectionId: string): Promise<CatalogToolSummary[]>;
   getTool(projectId: string, connectionId: string, toolName: string): Promise<ToolDetailSummary>;
   deleteTool(projectId: string, connectionId: string, toolName: string): Promise<void>;
+  listToolFolders(projectId: string, connectionId: string): Promise<ToolFolderSummary[]>;
+  createToolFolder(projectId: string, connectionId: string, name: string): Promise<ToolFolderSummary>;
+  moveToolToFolder(projectId: string, connectionId: string, toolName: string, folderId: string | null): Promise<CatalogToolSummary>;
   listTabs(projectId: string): Promise<DebugTabSummary[]>;
   openTab(projectId: string, connectionId: string, toolName: string): Promise<DebugTabSummary>;
   replaceTabTool(projectId: string, tabId: string, connectionId: string, toolName: string): Promise<DebugTabSummary>;
@@ -309,16 +322,38 @@ function decodeSnapshot(
 
 function decodeTool(value: unknown, projectId: string, connectionId: string): CatalogToolSummary {
   if (!isObject(value)) throw new Error("Invalid Tool response");
-  const { projectId: owner, connectionId: connection, name, status, updatedAt, currentSnapshot } = value;
+  const { projectId: owner, connectionId: connection, name, status, folderId, updatedAt, currentSnapshot } = value;
   if (owner !== projectId || connection !== connectionId || typeof name !== "string" || name.length === 0 ||
       (status !== "current" && status !== "changed" && status !== "removed") ||
+      !(folderId === null || (typeof folderId === "string" && uuidPattern.test(folderId))) ||
       !isCanonicalUtcTimestamp(updatedAt)) {
     throw new Error("Invalid Tool response");
   }
   return {
-    projectId, connectionId, name, status, updatedAt,
+    projectId, connectionId, name, status, folderId, updatedAt,
     currentSnapshot: decodeSnapshot(currentSnapshot, projectId, connectionId, name),
   };
+}
+
+function decodeToolFolder(value: unknown, projectId: string, connectionId: string): ToolFolderSummary {
+  if (!isObject(value)) throw new Error("Invalid Tool folder response");
+  const { id, projectId: owner, connectionId: connection, name, createdAt, updatedAt } = value;
+  if (typeof id !== "string" || !uuidPattern.test(id) || owner !== projectId || connection !== connectionId ||
+      typeof name !== "string" || name !== name.trim() || name.length === 0 || name.length > 80 ||
+      /[\u0000-\u001f\u007f]/u.test(name) || !isCanonicalUtcTimestamp(createdAt) || !isCanonicalUtcTimestamp(updatedAt)) {
+    throw new Error("Invalid Tool folder response");
+  }
+  return { id, projectId, connectionId, name, createdAt, updatedAt };
+}
+
+function decodeToolFolders(value: unknown, projectId: string, connectionId: string): ToolFolderSummary[] {
+  if (!isObject(value) || !Array.isArray(value.folders)) throw new Error("Invalid Tool folder response");
+  const folders = value.folders.map((folder) => decodeToolFolder(folder, projectId, connectionId));
+  if (new Set(folders.map(({ id }) => id)).size !== folders.length ||
+      new Set(folders.map(({ name }) => name.toLocaleLowerCase())).size !== folders.length) {
+    throw new Error("Invalid Tool folder response");
+  }
+  return folders;
 }
 
 function decodeToolList(value: unknown, projectId: string, connectionId: string): CatalogToolSummary[] {
@@ -587,6 +622,33 @@ export function createApiClient(sessionToken: string): InspectorApiClient {
         { method: "DELETE", headers },
       );
       if (!response.ok) await decodeResponse<never>(response);
+    },
+    async listToolFolders(projectId, connectionId) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/connections/${encodeURIComponent(connectionId)}/tool-folders`,
+        { headers },
+      );
+      return decodeToolFolders(await decodeResponse<unknown>(response), projectId, connectionId);
+    },
+    async createToolFolder(projectId, connectionId, name) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/connections/${encodeURIComponent(connectionId)}/tool-folders`,
+        { method: "POST", headers, body: JSON.stringify({ name }) },
+      );
+      const value = await decodeResponse<unknown>(response);
+      if (!isObject(value) || !("folder" in value)) throw new Error("Invalid Tool folder response");
+      return decodeToolFolder(value.folder, projectId, connectionId);
+    },
+    async moveToolToFolder(projectId, connectionId, toolName, folderId) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/connections/${encodeURIComponent(connectionId)}/tools/${encodeURIComponent(toolName)}/folder`,
+        { method: "PUT", headers, body: JSON.stringify({ folderId }) },
+      );
+      const value = await decodeResponse<unknown>(response);
+      if (!isObject(value) || !("tool" in value)) throw new Error("Invalid Tool response");
+      const tool = decodeTool(value.tool, projectId, connectionId);
+      if (tool.name !== toolName || tool.folderId !== folderId) throw new Error("Invalid Tool response");
+      return tool;
     },
     async listTabs(projectId) {
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tabs`, { headers });

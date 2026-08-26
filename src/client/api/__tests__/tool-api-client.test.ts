@@ -36,6 +36,7 @@ const snapshot = {
 };
 const tool = {
   projectId, connectionId, name: definition.name, status: "current",
+  folderId: null,
   updatedAt: "2026-08-17T12:00:00.000Z", currentSnapshot: snapshot,
 };
 
@@ -176,6 +177,41 @@ describe("Tool API response decoding", () => {
       expect.objectContaining({ method: "DELETE", headers: expect.objectContaining({
         "X-DSers-Inspector-Session": "session",
       }) }),
+    );
+  });
+
+  it("strictly decodes folders and moves a URL-encoded Tool into one", async () => {
+    const folder = {
+      id: "00000000-0000-4000-8000-000000000534", projectId, connectionId,
+      name: "Commerce", createdAt: "2026-08-17T12:00:00.000Z", updatedAt: "2026-08-17T12:00:00.000Z",
+    };
+    const client = createApiClient("session") as unknown as {
+      listToolFolders(projectId: string, connectionId: string): Promise<typeof folder[]>;
+      createToolFolder(projectId: string, connectionId: string, name: string): Promise<typeof folder>;
+      moveToolToFolder(projectId: string, connectionId: string, toolName: string, folderId: string | null): Promise<typeof tool>;
+    };
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ folders: [folder] }), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    }));
+    await expect(client.listToolFolders(projectId, connectionId)).resolves.toEqual([folder]);
+
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ folder }), {
+      status: 201, headers: { "Content-Type": "application/json" },
+    }));
+    await expect(client.createToolFolder(projectId, connectionId, "Commerce")).resolves.toEqual(folder);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      `/api/projects/${projectId}/connections/${connectionId}/tool-folders`,
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ name: "Commerce" }) }),
+    );
+
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ tool: { ...tool, folderId: folder.id } }), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    }));
+    await expect(client.moveToolToFolder(projectId, connectionId, definition.name, folder.id))
+      .resolves.toEqual({ ...tool, folderId: folder.id });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      `/api/projects/${projectId}/connections/${connectionId}/tools/catalog%2Fread%20item/folder`,
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ folderId: folder.id }) }),
     );
   });
 

@@ -12,6 +12,7 @@ const detail: ToolDetailSummary = {
     connectionId: "00000000-0000-4000-8000-000000000802",
     name: "apply_product_mapping",
     status: "current",
+    folderId: null,
     updatedAt: "2026-08-24T09:27:36.623Z",
     currentSnapshot: {
       id: "00000000-0000-4000-8000-000000000803",
