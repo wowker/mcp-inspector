@@ -48,6 +48,7 @@ describe("ToolTree", () => {
     expect(screen.getByText("Tool Catalog")).toBeVisible();
     expect(screen.queryByRole("heading", { name: "Tools" })).not.toBeInTheDocument();
     expect(screen.queryByText("搜索 Tool")).not.toBeInTheDocument();
+    expect(screen.queryByText("当前")).not.toBeInTheDocument();
     expect(screen.getByText("已变化")).toBeVisible();
     expect(screen.getByText("已移除")).toBeVisible();
     await user.type(screen.getByRole("searchbox", { name: "搜索 Tool" }), "ADD NUMBERS");

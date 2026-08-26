@@ -198,7 +198,7 @@ export function ToolTree({
                         type="button"
                         role="treeitem"
                         className="tool-item"
-                        aria-label={`${tool.name}，${statusLabels[tool.status]}`}
+                        aria-label={`${tool.name}${tool.status === "current" ? "" : `，${statusLabels[tool.status]}`}`}
                         onClick={(event) => select(tool, event)}
                         onDoubleClick={() => open(tool)}
                       >
@@ -208,9 +208,9 @@ export function ToolTree({
                             <span>{summarizeToolDescription(tool.currentSnapshot.definition.description)}</span>
                           )}
                         </span>
-                        <span className={`tool-status tool-status--${tool.status}`}>
+                        {tool.status !== "current" && <span className={`tool-status tool-status--${tool.status}`}>
                           {statusLabels[tool.status]}
-                        </span>
+                        </span>}
                       </button>
                     </li>
                   ))}
