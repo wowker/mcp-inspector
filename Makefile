@@ -26,22 +26,24 @@ deps:
 	fi
 
 start:
-	@if [ ! -f dist/server/main.js ]; then \
+	@set -eu; \
+	if [ ! -f dist/server/main.js ]; then \
 		echo "Build output is missing; compiling first..."; \
 		$(MAKE) --no-print-directory build; \
-	fi
-	@mkdir -p "$(RUN_DIR)"
-	@if [ -f "$(PID_FILE)" ]; then \
+	fi; \
+	mkdir -p "$(RUN_DIR)"; \
+	if [ -f "$(PID_FILE)" ]; then \
 		pid=$$(cat "$(PID_FILE)"); \
 		command=$$(ps -p "$$pid" -o command= 2>/dev/null || true); \
 		case "$$command" in \
 			*"$(APP_ENTRY)"*) echo "DSers MCP Inspector is already running (PID $$pid)."; exit 0 ;; \
 		esac; \
 		rm -f "$(PID_FILE)"; \
-	fi
-	@nohup $(NODE) "$(APP_ENTRY)" > "$(LOG_FILE)" 2>&1 & echo $$! > "$(PID_FILE)"
-	@sleep 1
-	@pid=$$(cat "$(PID_FILE)"); \
+	fi; \
+	nohup $(NODE) "$(APP_ENTRY)" > "$(LOG_FILE)" 2>&1 & \
+	pid=$$!; \
+	echo "$$pid" > "$(PID_FILE)"; \
+	sleep 1; \
 	if kill -0 "$$pid" 2>/dev/null; then \
 		echo "DSers MCP Inspector started (PID $$pid)."; \
 		echo "The browser will open automatically. Logs: $(LOG_FILE)"; \
