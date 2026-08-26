@@ -97,12 +97,13 @@ describe("Makefile npm release", () => {
     const npm = join(root, "npm");
     const git = join(root, "git");
     const npmLog = join(root, "npm.log");
+    const version = JSON.parse(readFileSync(resolve("package.json"), "utf8")).version;
     writeFileSync(npm, `#!/bin/sh
 printf '%s\\n' "$*" >> "$FAKE_NPM_LOG"
 if [ "$1" = "whoami" ]; then printf 'wuwei0215\\n'; fi
 `);
     writeFileSync(git, `#!/bin/sh
-if [ "$1" = "tag" ] && [ "$2" = "--points-at" ]; then printf 'v0.1.0\\n'; fi
+if [ "$1" = "tag" ] && [ "$2" = "--points-at" ]; then printf 'v${version}\\n'; fi
 `);
     chmodSync(npm, 0o755);
     chmodSync(git, 0o755);
