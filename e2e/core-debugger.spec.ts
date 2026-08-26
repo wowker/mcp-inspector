@@ -73,7 +73,7 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     await page.locator(".tool-row").filter({ has: echoTool }).dragTo(emptyFolder.locator("xpath=.."));
     const commerceFolder = page.getByRole("treeitem", { name: "Commerce 文件夹，1 个 Tool" });
     await expect(commerceFolder).toBeVisible();
-    await expect(commerceFolder.locator("xpath=..").getByRole("treeitem", { name: "echo" })).toBeVisible();
+    await expect(page.locator(".tool-folder-group").filter({ has: commerceFolder }).getByRole("treeitem", { name: "echo" })).toBeVisible();
 
     const titles = ["sum", ...Array.from({ length: 7 }, (_, index) => `sum (${index + 2})`)];
     for (let index = 0; index < 8; index += 1) {
@@ -181,11 +181,9 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
         expect(contentBox).not.toBeNull();
         expect(Math.abs((contentBox!.x + contentBox!.width) - (disclosureBox!.x + disclosureBox!.width)))
           .toBeLessThanOrEqual(1);
-        const parameterCaretSize = await page.locator(".editor-collapse > span").evaluate((element) =>
-          getComputedStyle(element).fontSize);
-        const resultCaretSize = await detail.locator("details.result-disclosure > summary").first().evaluate((element) =>
-          getComputedStyle(element).fontSize);
-        expect(parameterCaretSize).toBe(resultCaretSize);
+        const parameterCaret = page.locator(".editor-collapse > svg");
+        await expect(parameterCaret).toHaveCSS("width", "18px");
+        await expect(parameterCaret).toHaveCSS("height", "18px");
       }
       const formattedResult = detail.getByLabel("结构化响应 JSON");
       await expect(formattedResult.locator(".json-viewer__row").filter({ hasText: /^total:/ }).locator(".json-viewer__number"))
@@ -217,6 +215,7 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     await responseDialog.getByLabel("名称").fill("sum 成功响应");
     await responseDialog.getByLabel("描述").fill("第八个 Tab 的响应基线");
     await responseDialog.getByRole("button", { name: "确认保存响应" }).click();
+    await page.getByRole("button", { name: "已保存" }).click();
     const savedResponseTab = page.getByRole("tab", { name: "响应 1" });
     await expect(savedResponseTab).toBeVisible();
     await savedResponseTab.click();
@@ -231,6 +230,7 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     await requestDialog.getByLabel("名称").fill("sum 回归参数");
     await requestDialog.getByLabel("描述").fill("第八个 Tab 的请求样例");
     await requestDialog.getByRole("button", { name: "确认保存请求" }).click();
+    await page.getByRole("button", { name: "已保存" }).click();
     await expect(page.getByRole("tab", { name: "请求 1" })).toHaveAttribute("aria-selected", "true");
     await page.getByRole("button", { name: /^sum 回归参数，/ }).click();
     await page.getByRole("button", { name: "加载到当前 Tab" }).click();
@@ -245,7 +245,7 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     await expect(page.getByRole("tabpanel", { name: "Loopback MCP" })).toBeVisible();
     const restoredFolder = page.getByRole("treeitem", { name: "Commerce 文件夹，1 个 Tool" });
     await expect(restoredFolder).toBeVisible();
-    await expect(restoredFolder.locator("xpath=..").getByRole("treeitem", { name: "echo" })).toBeVisible();
+    await expect(page.locator(".tool-folder-group").filter({ has: restoredFolder }).getByRole("treeitem", { name: "echo" })).toBeVisible();
     await expect(tabList.getByRole("tab")).toHaveCount(8);
     await expect(page.getByRole("tab", { name: titles[5], exact: true })).toHaveAttribute("aria-selected", "true");
     for (let index = 0; index < 8; index += 1) {
