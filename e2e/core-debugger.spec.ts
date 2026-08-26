@@ -9,7 +9,7 @@ interface InspectorRuntime { address: { origin: string }; close(): Promise<void>
 
 test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state", async ({ page, request }) => {
   await page.setViewportSize({ width: 2560, height: 1318 });
-  const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-e2e-"));
+  const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-e2e-"));
   let mcp: Awaited<ReturnType<typeof startStreamableMcpServer>> | undefined;
   let browserUrl = "";
   let inspector: InspectorRuntime | undefined;
@@ -25,12 +25,12 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     });
     const bootstrap = new URL(browserUrl);
     const token = bootstrap.searchParams.get("session")!;
-    const apiHeaders = { Origin: inspector.address.origin, "X-DSers-Inspector-Session": token };
+    const apiHeaders = { Origin: inspector.address.origin, "X-MCP-Inspector-Session": token };
     expect((await request.get(`${inspector.address.origin}/api/health`, { headers: {
-      Origin: inspector.address.origin, "X-DSers-Inspector-Session": "invalid-session",
+      Origin: inspector.address.origin, "X-MCP-Inspector-Session": "invalid-session",
     } })).status()).toBe(401);
     expect((await request.get(`${inspector.address.origin}/api/health`, { headers: {
-      Origin: "https://attacker.example", "X-DSers-Inspector-Session": token,
+      Origin: "https://attacker.example", "X-MCP-Inspector-Session": token,
     } })).status()).toBe(403);
 
     await page.goto(browserUrl);

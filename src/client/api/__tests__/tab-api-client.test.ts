@@ -49,7 +49,7 @@ describe("Tab API client", () => {
       headers: { "Content-Type": "application/json" } }));
     await createApiClient("session").updateTab(projectId, tabId, { pinned: true });
     expect(fetchMock).toHaveBeenCalledWith(`/api/projects/${projectId}/tabs/${tabId}`,
-      expect.objectContaining({ method: "PATCH", headers: expect.objectContaining({ "X-DSers-Inspector-Session": "session" }),
+      expect.objectContaining({ method: "PATCH", headers: expect.objectContaining({ "X-MCP-Inspector-Session": "session" }),
         body: JSON.stringify({ pinned: true }) }));
   });
 

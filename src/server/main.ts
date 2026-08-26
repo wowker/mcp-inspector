@@ -37,7 +37,7 @@ export interface StartInspectorOptions {
 
 export function reportStartupFailure(_error: unknown,
   write: (message: string) => void = (message) => { console.error(message); }): void {
-  write("Unable to start DSers MCP Inspector");
+  write("Unable to start MCP Inspector");
 }
 
 export async function runInspectorCli(options: {
@@ -48,7 +48,7 @@ export async function runInspectorCli(options: {
   try {
     const runtime = await (options.start ?? (() => startInspector()))();
     (options.writeInfo ?? ((message) => { console.info(message); }))(
-      `DSers MCP Inspector listening on ${runtime.address.origin}`,
+      `MCP Inspector listening on ${runtime.address.origin}`,
     );
     return 0;
   } catch (error) {

@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import type { MiddlewareHandler } from "hono";
 
-export const SESSION_HEADER = "X-DSers-Inspector-Session";
+export const SESSION_HEADER = "X-MCP-Inspector-Session";
 
 function tokensMatch(actual: string, expected: string): boolean {
   const actualBytes = Buffer.from(actual);

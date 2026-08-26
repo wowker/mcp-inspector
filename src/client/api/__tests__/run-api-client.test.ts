@@ -19,7 +19,7 @@ describe("Run API client", () => {
     expect(fetchMock.mock.calls[0]).toEqual([`/api/projects/${projectId}/runs`, expect.objectContaining({ method: "POST",
       body: JSON.stringify({ tabId, idempotencyKey: "once", arguments: { a: 1 } }) })]);
     expect(fetchMock.mock.calls[1]).toEqual([`/api/projects/${projectId}/runs/${run.id}/events?after=7`, expect.objectContaining({
-      headers: expect.objectContaining({ "X-DSers-Inspector-Session": "session", Accept: "text/event-stream" }), signal: controller.signal,
+      headers: expect.objectContaining({ "X-MCP-Inspector-Session": "session", Accept: "text/event-stream" }), signal: controller.signal,
     })]);
   });
 

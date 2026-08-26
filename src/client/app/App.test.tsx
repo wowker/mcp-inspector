@@ -37,7 +37,7 @@ describe("App", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/health",
       expect.objectContaining({
-        headers: { "X-DSers-Inspector-Session": "test-session" },
+        headers: { "X-MCP-Inspector-Session": "test-session" },
       }),
     );
     expect(location.search).toBe("");
@@ -51,7 +51,7 @@ describe("App", () => {
   });
 
   test("announces a non-success health response as an error", async () => {
-    sessionStorage.setItem("dsers-inspector-session", "test-session");
+    sessionStorage.setItem("mcp-inspector-session", "test-session");
     fetchMock.mockResolvedValue(new Response(null, { status: 503 }));
 
     render(<App />);
@@ -62,7 +62,7 @@ describe("App", () => {
   });
 
   test("announces a network failure as an error", async () => {
-    sessionStorage.setItem("dsers-inspector-session", "test-session");
+    sessionStorage.setItem("mcp-inspector-session", "test-session");
     fetchMock.mockRejectedValue(new Error("connection refused"));
 
     render(<App />);
@@ -71,7 +71,7 @@ describe("App", () => {
   });
 
   test("rejects a malformed success response", async () => {
-    sessionStorage.setItem("dsers-inspector-session", "test-session");
+    sessionStorage.setItem("mcp-inspector-session", "test-session");
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ ok: "yes" }), {
         status: 200,
@@ -87,7 +87,7 @@ describe("App", () => {
   });
 
   test("shows connection configuration management after a project opens", async () => {
-    sessionStorage.setItem("dsers-inspector-session", "test-session");
+    sessionStorage.setItem("mcp-inspector-session", "test-session");
     const project = {
       id: "00000000-0000-4000-8000-000000000501",
       name: "Supplier Tools",
@@ -126,7 +126,7 @@ describe("App", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       `/api/projects/${project.id}/connections`,
       expect.objectContaining({
-        headers: expect.objectContaining({ "X-DSers-Inspector-Session": "test-session" }),
+        headers: expect.objectContaining({ "X-MCP-Inspector-Session": "test-session" }),
       }),
     );
   });

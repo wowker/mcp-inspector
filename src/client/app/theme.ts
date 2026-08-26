@@ -1,6 +1,6 @@
 export type ThemeMode = "light" | "dark";
 
-const THEME_STORAGE_KEY = "dsers-inspector-theme";
+const THEME_STORAGE_KEY = "mcp-inspector-theme";
 
 function isThemeMode(value: string | null): value is ThemeMode {
   return value === "light" || value === "dark";

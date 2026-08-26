@@ -49,7 +49,7 @@ export class OAuthFlowCoordinator {
       get redirectUrl() { return new URL(thisCoordinator.options.redirectUrl()); },
       get clientMetadata(): OAuthClientMetadata {
         return {
-          client_name: "DSers MCP Inspector",
+          client_name: "MCP Inspector",
           redirect_uris: [thisCoordinator.options.redirectUrl()],
           token_endpoint_auth_method: "none",
           grant_types: ["authorization_code", "refresh_token"],

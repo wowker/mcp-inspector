@@ -1,4 +1,4 @@
-const SESSION_KEY = "dsers-inspector-session";
+const SESSION_KEY = "mcp-inspector-session";
 
 export function consumeBootstrapSession(): string | null {
   const url = new URL(window.location.href);

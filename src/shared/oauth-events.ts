@@ -1,4 +1,4 @@
-export const OAUTH_CHANNEL = "dsers-inspector-oauth";
+export const OAUTH_CHANNEL = "mcp-inspector-oauth";
 
 export interface OAuthCompleteEvent {
   type: "oauth-complete";

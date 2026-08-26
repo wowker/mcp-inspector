@@ -1,8 +1,8 @@
-# DSers MCP Tool 调试平台设计
+# MCP Tool 调试平台设计
 
 - 日期：2026-08-17
 - 状态：对话设计已确认，等待书面规格最终审阅
-- 工作名称：DSers MCP Inspector
+- 工作名称：MCP Inspector
 
 ## 1. 摘要
 

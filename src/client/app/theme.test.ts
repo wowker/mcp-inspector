@@ -22,7 +22,7 @@ describe("application theme", () => {
   });
 
   it("restores and applies a saved light theme", () => {
-    localStorage.setItem("dsers-inspector-theme", "light");
+    localStorage.setItem("mcp-inspector-theme", "light");
     vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: true }));
 
     expect(applyInitialTheme()).toBe("light");
@@ -33,7 +33,7 @@ describe("application theme", () => {
     const next: ThemeMode = toggleTheme("light");
 
     expect(next).toBe("dark");
-    expect(localStorage.getItem("dsers-inspector-theme")).toBe("dark");
+    expect(localStorage.getItem("mcp-inspector-theme")).toBe("dark");
     expect(document.documentElement).toHaveAttribute("data-color-mode", "dark");
   });
 });

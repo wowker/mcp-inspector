@@ -4,9 +4,9 @@ SHELL := /bin/sh
 NODE ?= node
 NPM ?= npm
 RUN_DIR := .run
-PID_FILE := $(RUN_DIR)/dsers-inspector.pid
-LOG_FILE := $(RUN_DIR)/dsers-inspector.log
-APP_ENTRY := bin/dsers-inspector.mjs
+PID_FILE := $(RUN_DIR)/mcp-inspector.pid
+LOG_FILE := $(RUN_DIR)/mcp-inspector.log
+APP_ENTRY := bin/mcp-inspector.mjs
 
 .PHONY: restart build deps start stop status logs help
 
@@ -36,7 +36,7 @@ start:
 		pid=$$(cat "$(PID_FILE)"); \
 		command=$$(ps -p "$$pid" -o command= 2>/dev/null || true); \
 		case "$$command" in \
-			*"$(APP_ENTRY)"*) echo "DSers MCP Inspector is already running (PID $$pid)."; exit 0 ;; \
+			*"$(APP_ENTRY)"*) echo "MCP Inspector is already running (PID $$pid)."; exit 0 ;; \
 		esac; \
 		rm -f "$(PID_FILE)"; \
 	fi; \
@@ -45,10 +45,10 @@ start:
 	echo "$$pid" > "$(PID_FILE)"; \
 	sleep 1; \
 	if kill -0 "$$pid" 2>/dev/null; then \
-		echo "DSers MCP Inspector started (PID $$pid)."; \
+		echo "MCP Inspector started (PID $$pid)."; \
 		echo "The browser will open automatically. Logs: $(LOG_FILE)"; \
 	else \
-		echo "DSers MCP Inspector failed to start. Recent logs:"; \
+		echo "MCP Inspector failed to start. Recent logs:"; \
 		tail -n 30 "$(LOG_FILE)" 2>/dev/null || true; \
 		rm -f "$(PID_FILE)"; \
 		exit 1; \
@@ -56,7 +56,7 @@ start:
 
 stop:
 	@if [ ! -f "$(PID_FILE)" ]; then \
-		echo "DSers MCP Inspector is not running."; \
+		echo "MCP Inspector is not running."; \
 		exit 0; \
 	fi; \
 	pid=$$(cat "$(PID_FILE)"); \
@@ -76,17 +76,17 @@ stop:
 		exit 1; \
 	fi; \
 	rm -f "$(PID_FILE)"; \
-	echo "DSers MCP Inspector stopped."
+	echo "MCP Inspector stopped."
 
 status:
 	@if [ -f "$(PID_FILE)" ]; then \
 		pid=$$(cat "$(PID_FILE)"); \
 		command=$$(ps -p "$$pid" -o command= 2>/dev/null || true); \
 		case "$$command" in \
-			*"$(APP_ENTRY)"*) echo "DSers MCP Inspector is running (PID $$pid)."; exit 0 ;; \
+			*"$(APP_ENTRY)"*) echo "MCP Inspector is running (PID $$pid)."; exit 0 ;; \
 		esac; \
 	fi; \
-	echo "DSers MCP Inspector is not running."; \
+	echo "MCP Inspector is not running."; \
 	exit 1
 
 logs:

@@ -32,7 +32,7 @@ setInterval(() => undefined, 1_000);
     try {
       const first = spawnSync("make", args, options);
       expect(first.status, `${first.stdout}${first.stderr}`).toBe(0);
-      const pid = readFileSync(join(runDir, "dsers-inspector.pid"), "utf8").trim();
+      const pid = readFileSync(join(runDir, "mcp-inspector.pid"), "utf8").trim();
       const command = spawnSync("ps", ["-p", pid, "-o", "command="], { encoding: "utf8" }).stdout;
       expect(command).toContain(appEntry);
       const second = spawnSync("make", args, options);

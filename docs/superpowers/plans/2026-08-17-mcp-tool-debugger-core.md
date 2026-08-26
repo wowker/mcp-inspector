@@ -44,7 +44,7 @@ This plan is independently useful: a tester can start the app, create a project,
 ## File Structure
 
 ```text
-bin/dsers-inspector.mjs
+bin/mcp-inspector.mjs
 src/client/main.tsx
 src/client/app/App.tsx
 src/client/app/app.css
@@ -130,7 +130,7 @@ Each file has one responsibility. Feature services depend on repository and runt
 **Interfaces:**
 - Produces: `RuntimeConfig`, `createRuntimeConfig(overrides?)`, and `createApp(deps)`.
 - Produces: authenticated `GET /api/health` returning `{ ok: true, version: string }`.
-- Produces: `X-DSers-Inspector-Session` as the only browser API session header.
+- Produces: `X-MCP-Inspector-Session` as the only browser API session header.
 
 - [ ] **Step 1: Install pinned dependencies and configure scripts**
 
@@ -174,12 +174,12 @@ expect((await app.request("/api/health", {
 
 expect((await app.request("/api/health", { headers: {
   Origin: "https://malicious.example",
-  "X-DSers-Inspector-Session": "test-session",
+  "X-MCP-Inspector-Session": "test-session",
 } })).status).toBe(403);
 
 const ok = await app.request("/api/health", { headers: {
   Origin: "http://127.0.0.1:5173",
-  "X-DSers-Inspector-Session": "test-session",
+  "X-MCP-Inspector-Session": "test-session",
 } });
 expect(await ok.json()).toEqual({ ok: true, version: "0.1.0" });
 ```
@@ -204,7 +204,7 @@ export interface AppDependencies {
 export function createApp(deps: AppDependencies): Hono;
 ```
 
-Use constant-time token comparison when lengths match. Return 401 for missing/invalid tokens and 403 for foreign Origins. The client reads `session` from the initial query string, stores it in `sessionStorage`, removes it with `history.replaceState`, calls `/api/health`, and displays `DSers MCP Inspector` plus health state. `scripts/copy-static.mjs` recursively copies `src/server/projects/migrations` into `dist/server/projects/migrations` when the source directory exists, so production resolves SQL relative to `import.meta.url`.
+Use constant-time token comparison when lengths match. Return 401 for missing/invalid tokens and 403 for foreign Origins. The client reads `session` from the initial query string, stores it in `sessionStorage`, removes it with `history.replaceState`, calls `/api/health`, and displays `MCP Inspector` plus health state. `scripts/copy-static.mjs` recursively copies `src/server/projects/migrations` into `dist/server/projects/migrations` when the source directory exists, so production resolves SQL relative to `import.meta.url`.
 
 During development Vite listens only on `127.0.0.1:5173` and proxies `/api` to the loopback Hono port. The production server serves the built client itself, so the browser never needs a second origin or direct access to SQLite/MCP internals.
 
@@ -282,7 +282,7 @@ database.pragma("journal_mode = WAL");
 database.pragma("busy_timeout = 5000");
 ```
 
-Resolve the default data root to `~/Library/Application Support/DSers MCP Inspector` on macOS and `%APPDATA%/DSers MCP Inspector` on Windows; tests inject a temporary root. Cache exactly one open `ProjectStore` per project ID so every repository for that project shares the same configured database handle. `ProjectService.close()` closes every cached store before closing the registry.
+Resolve the default data root to `~/Library/Application Support/MCP Inspector` on macOS and `%APPDATA%/MCP Inspector` on Windows; tests inject a temporary root. Cache exactly one open `ProjectStore` per project ID so every repository for that project shares the same configured database handle. `ProjectService.close()` closes every cached store before closing the registry.
 
 - [ ] **Step 4: Implement service, routes, and picker**
 
@@ -473,7 +473,7 @@ const transport = new StreamableHTTPClientTransport(new URL(connection.url), {
   fetch: createObservedFetch(globalThis.fetch, observe),
 });
 const client = new Client(
-  { name: "dsers-mcp-inspector", version: APP_VERSION },
+  { name: "mcp-inspector", version: APP_VERSION },
   {
     capabilities: {},
     jsonSchemaValidator: new DialectAwareJsonSchemaValidator(),
@@ -938,7 +938,7 @@ git commit -m "feat: inspect tool results and run history"
 ### Task 9: Ship the One-Command Core and Prove the Vertical Slice
 
 **Files:**
-- Create: `bin/dsers-inspector.mjs`, `playwright.config.ts`, `e2e/core-debugger.spec.ts`
+- Create: `bin/mcp-inspector.mjs`, `playwright.config.ts`, `e2e/core-debugger.spec.ts`
 - Test: `src/server/__tests__/main.test.ts`
 - Modify: `src/server/main.ts`, `src/server/app.ts`, `package.json`
 - Create: `README.md`
@@ -979,12 +979,12 @@ Set:
 
 ```json
 {
-  "name": "dsers-mcp-inspector",
+  "name": "mcp-inspector",
   "version": "0.1.0",
-  "bin": { "dsers-inspector": "bin/dsers-inspector.mjs" },
+  "bin": { "mcp-inspector": "bin/mcp-inspector.mjs" },
   "files": ["bin", "dist", "README.md"],
   "scripts": {
-    "start": "node bin/dsers-inspector.mjs",
+    "start": "node bin/mcp-inspector.mjs",
     "verify": "npm run typecheck && npm run test && npm run build && npm run test:e2e"
   }
 }

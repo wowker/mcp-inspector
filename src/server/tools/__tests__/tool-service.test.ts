@@ -40,7 +40,7 @@ describe("ToolService", () => {
   let listTools: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
-    dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-tools-"));
+    dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-tools-"));
     projects = createProjectService({ dataRoot });
     const project = projects.create("Catalog");
     projectId = project.id;

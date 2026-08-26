@@ -21,7 +21,7 @@ interface Props {
 
 type WorkspaceView = "debug" | "definition" | "history" | "saved";
 const PERSIST_DELAY = 300;
-const ACTIVE_TAB_KEY_PREFIX = "dsers-inspector-active-tab:";
+const ACTIVE_TAB_KEY_PREFIX = "mcp-inspector-active-tab:";
 interface PendingSave { revision: number; patch: Partial<DebugTabSummary> }
 interface BoundToolDetail { tabId: string; connectionId: string; toolName: string; value: ToolDetailSummary }
 interface SubtreeDraft { text: string; base: string }

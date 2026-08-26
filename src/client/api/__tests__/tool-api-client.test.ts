@@ -164,7 +164,7 @@ describe("Tool API response decoding", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       `/api/projects/${projectId}/connections/${connectionId}/tools/refresh`,
       expect.objectContaining({ method: "POST", headers: expect.objectContaining({
-        "X-DSers-Inspector-Session": "session",
+        "X-MCP-Inspector-Session": "session",
       }) }),
     );
   });
@@ -175,7 +175,7 @@ describe("Tool API response decoding", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       `/api/projects/${projectId}/connections/${connectionId}/tools/catalog%2Fread%20item`,
       expect.objectContaining({ method: "DELETE", headers: expect.objectContaining({
-        "X-DSers-Inspector-Session": "session",
+        "X-MCP-Inspector-Session": "session",
       }) }),
     );
   });

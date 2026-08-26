@@ -11,21 +11,21 @@ export function resolveDefaultDataRoot(options: {
   const homeDirectory = options.homeDirectory ?? homedir();
 
   if (platform === "darwin") {
-    return join(homeDirectory, "Library", "Application Support", "DSers MCP Inspector");
+    return join(homeDirectory, "Library", "Application Support", "MCP Inspector");
   }
 
   if (platform === "win32") {
     const appData = environment.APPDATA;
     if (appData === undefined || appData.trim().length === 0) {
-      throw new Error("APPDATA is required to locate DSers MCP Inspector data");
+      throw new Error("APPDATA is required to locate MCP Inspector data");
     }
-    return join(appData, "DSers MCP Inspector");
+    return join(appData, "MCP Inspector");
   }
 
   const dataHome = environment.XDG_DATA_HOME?.trim();
   return join(
     dataHome && dataHome.length > 0 ? dataHome : join(homeDirectory, ".local", "share"),
-    "DSers MCP Inspector",
+    "MCP Inspector",
   );
 }
 

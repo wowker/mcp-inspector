@@ -18,7 +18,7 @@ describe("ProjectService", () => {
   });
 
   it("creates, lists, and opens a SQLite-backed project", () => {
-    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-projects-"));
+    const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-projects-"));
     dataRoots.push(dataRoot);
     const service = createProjectService({ dataRoot });
 
@@ -38,7 +38,7 @@ describe("ProjectService", () => {
   });
 
   it("normalizes names, caches one handle, and closes it deterministically", () => {
-    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-projects-"));
+    const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-projects-"));
     dataRoots.push(dataRoot);
     const service = createProjectService({ dataRoot });
     const created = service.create("  Supplier Tools  ");
@@ -54,7 +54,7 @@ describe("ProjectService", () => {
   });
 
   it("rejects invalid names and unknown or malformed project IDs", () => {
-    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-projects-"));
+    const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-projects-"));
     dataRoots.push(dataRoot);
     const service = createProjectService({ dataRoot });
 
@@ -71,8 +71,8 @@ describe("ProjectService", () => {
   });
 
   it("applies each migration and its version row atomically", () => {
-    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-projects-"));
-    const migrationsRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-migrations-"));
+    const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-projects-"));
+    const migrationsRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-migrations-"));
     dataRoots.push(dataRoot, migrationsRoot);
     writeFileSync(
       join(migrationsRoot, "001_project.sql"),
@@ -112,8 +112,8 @@ describe("ProjectService", () => {
   });
 
   it("removes registry and canonical project artifacts when initialization fails", () => {
-    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-projects-"));
-    const migrationsRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-migrations-"));
+    const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-projects-"));
+    const migrationsRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-migrations-"));
     dataRoots.push(dataRoot, migrationsRoot);
     writeFileSync(join(migrationsRoot, "001_broken.sql"), "THIS IS NOT SQL;");
     const projectId = "00000000-0000-4000-8000-000000000102";
@@ -130,7 +130,7 @@ describe("ProjectService", () => {
   });
 
   it("does not claim or delete a pre-existing canonical project directory", () => {
-    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-projects-"));
+    const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-projects-"));
     dataRoots.push(dataRoot);
     const projectId = "00000000-0000-4000-8000-000000000104";
     const projectDirectory = join(dataRoot, "projects", projectId);
@@ -150,8 +150,8 @@ describe("ProjectService", () => {
     { label: "unknown", applied: [1, 99] },
     { label: "later migration with earlier pending", applied: [2, 3] },
   ])("rejects $label migration history before executing pending SQL", ({ applied }) => {
-    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-projects-"));
-    const migrationsRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-migrations-"));
+    const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-projects-"));
+    const migrationsRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-migrations-"));
     dataRoots.push(dataRoot, migrationsRoot);
     for (const version of [1, 2, 3]) {
       writeFileSync(
@@ -192,7 +192,7 @@ describe("ProjectService", () => {
   });
 
   it("rejects a registry database path that is not canonical", () => {
-    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-projects-"));
+    const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-projects-"));
     dataRoots.push(dataRoot);
     const service = createProjectService({ dataRoot });
     const created = service.create("Supplier Tools");
@@ -208,8 +208,8 @@ describe("ProjectService", () => {
   });
 
   it("rejects duplicate migration versions before applying them", () => {
-    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-projects-"));
-    const migrationsRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-migrations-"));
+    const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-projects-"));
+    const migrationsRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-migrations-"));
     dataRoots.push(dataRoot, migrationsRoot);
     mkdirSync(join(dataRoot, "projects"), { recursive: true });
     writeFileSync(join(migrationsRoot, "001_first.sql"), "CREATE TABLE first (id TEXT);");
@@ -224,7 +224,7 @@ describe("ProjectService", () => {
   });
 
   it("resolves migrations in both source and bundled server layouts", () => {
-    const root = mkdtempSync(join(tmpdir(), "dsers-inspector-layouts-"));
+    const root = mkdtempSync(join(tmpdir(), "mcp-inspector-layouts-"));
     dataRoots.push(root);
     const sourceModule = join(root, "src", "server", "projects", "project-store.js");
     const sourceMigrations = join(root, "src", "server", "projects", "migrations");

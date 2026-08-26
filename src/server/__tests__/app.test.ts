@@ -21,7 +21,7 @@ describe("createApp", () => {
     const response = await app.request("/api/health", {
       headers: {
         Origin: "https://malicious.example",
-        "X-DSers-Inspector-Session": "test-session",
+        "X-MCP-Inspector-Session": "test-session",
       },
     });
 
@@ -32,7 +32,7 @@ describe("createApp", () => {
     const response = await app.request("/api/health", {
       headers: {
         Origin: "http://127.0.0.1:5173",
-        "X-DSers-Inspector-Session": "test-session",
+        "X-MCP-Inspector-Session": "test-session",
       },
     });
 
@@ -44,7 +44,7 @@ describe("createApp", () => {
     const response = await app.request("/api/health", {
       headers: {
         Origin: "http://127.0.0.1:5173",
-        "X-DSers-Inspector-Session": "wrong-session",
+        "X-MCP-Inspector-Session": "wrong-session",
       },
     });
 
@@ -58,7 +58,7 @@ describe("createApp", () => {
     ]) {
       expect((await app.request(path, { headers: { Origin: "http://127.0.0.1:5173" } })).status).toBe(401);
       expect((await app.request(path, { headers: { Origin: "https://malicious.example",
-        "X-DSers-Inspector-Session": "test-session" } })).status).toBe(403);
+        "X-MCP-Inspector-Session": "test-session" } })).status).toBe(403);
     }
   });
 
@@ -66,7 +66,7 @@ describe("createApp", () => {
     const response = await app.request("/api/health", {
       headers: {
         Origin: "http://127.0.0.1:5173",
-        "X-DSers-Inspector-Session": "wrong-sessio",
+        "X-MCP-Inspector-Session": "wrong-sessio",
       },
     });
 
@@ -77,7 +77,7 @@ describe("createApp", () => {
     const response = await app.request("/api/health", {
       headers: {
         Origin: "https://malicious.example",
-        "X-DSers-Inspector-Session": "wrong-sessio",
+        "X-MCP-Inspector-Session": "wrong-sessio",
       },
     });
 

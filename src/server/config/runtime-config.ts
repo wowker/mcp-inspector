@@ -19,7 +19,7 @@ export function createRuntimeConfig(
   const port = overrides.port ?? 3000;
 
   if (host !== "127.0.0.1") {
-    throw new Error("DSers MCP Inspector must bind to the IPv4 loopback address");
+    throw new Error("MCP Inspector must bind to the IPv4 loopback address");
   }
 
   if (!Number.isInteger(port) || port < 0 || port > 65_535) {

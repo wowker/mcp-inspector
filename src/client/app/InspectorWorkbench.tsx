@@ -123,7 +123,7 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
     <div className={`workbench${sidebarCollapsed ? " workbench--sidebar-collapsed" : ""}`}>
       <a className="skip-link" href="#workbench-content">跳到主要内容</a>
       <aside className="workbench-sidebar">
-        <div className="workbench-brand" aria-label="DSers MCP Inspector">
+        <div className="workbench-brand" aria-label="MCP Inspector">
           <span className="workbench-brand__mark" aria-hidden="true">M</span>
           <span className="workbench-brand__text"><strong>MCP</strong><small>Inspector</small></span>
         </div>

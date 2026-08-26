@@ -16,11 +16,11 @@ describe("Tool routes", () => {
   const listTools = vi.fn();
   const headers = {
     Origin: "http://127.0.0.1:5173",
-    "X-DSers-Inspector-Session": "test-session",
+    "X-MCP-Inspector-Session": "test-session",
   };
 
   beforeEach(async () => {
-    dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-tool-routes-"));
+    dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-tool-routes-"));
     projects = createProjectService({ dataRoot });
     projectId = projects.create("Catalog").id;
     listTools.mockReset().mockResolvedValue({ tools: [{

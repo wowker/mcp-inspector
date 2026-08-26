@@ -530,7 +530,7 @@ function decodeSavedItemDetail(value: unknown, projectId: string, connectionId: 
 export function createApiClient(sessionToken: string): InspectorApiClient {
   const headers = {
     "Content-Type": "application/json",
-    "X-DSers-Inspector-Session": sessionToken,
+    "X-MCP-Inspector-Session": sessionToken,
   };
 
   return {
@@ -749,7 +749,7 @@ export function createApiClient(sessionToken: string): InspectorApiClient {
     },
     async openRunEventStream(projectId, runId, after, signal) {
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/runs/${encodeURIComponent(runId)}/events?after=${after}`, {
-        headers: { "X-DSers-Inspector-Session": sessionToken, Accept: "text/event-stream" }, signal,
+        headers: { "X-MCP-Inspector-Session": sessionToken, Accept: "text/event-stream" }, signal,
       });
       if (!response.ok) await decodeResponse<never>(response);
       return response;

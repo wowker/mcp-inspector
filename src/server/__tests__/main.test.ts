@@ -5,7 +5,7 @@ import { describe, expect, test, vi } from "vitest";
 import { reportStartupFailure, runInspectorCli, startInspector } from "../main.js";
 
 function fixture() {
-  const root = mkdtempSync(join(tmpdir(), "dsers-inspector-main-"));
+  const root = mkdtempSync(join(tmpdir(), "mcp-inspector-main-"));
   const staticRoot = join(root, "client");
   mkdirSync(join(staticRoot, "assets"), { recursive: true });
   writeFileSync(join(staticRoot, "index.html"), "<!doctype html><main>Inspector shell</main>");
@@ -72,7 +72,7 @@ describe("startInspector", () => {
       const token = new URL(browserUrl).searchParams.get("session")!;
       expect(new URL(browserUrl).origin).toBe("http://127.0.0.1:5173");
       const health = await fetch(`${runtime.address.origin}/api/health`, { headers: {
-        Origin: "http://127.0.0.1:5173", "X-DSers-Inspector-Session": token,
+        Origin: "http://127.0.0.1:5173", "X-MCP-Inspector-Session": token,
       } });
       expect(health.status).toBe(200);
     } finally { await runtime.close(); }
@@ -87,7 +87,7 @@ describe("startInspector", () => {
     });
     try {
       const token = new URL(browserUrl).searchParams.get("session")!;
-      const headers = { Origin: runtime.address.origin, "X-DSers-Inspector-Session": token };
+      const headers = { Origin: runtime.address.origin, "X-MCP-Inspector-Session": token };
       const asset = await fetch(`${runtime.address.origin}/assets/app.js`);
       expect(asset.status).toBe(200);
       expect(await asset.text()).toContain("inspectorLoaded");
@@ -157,7 +157,7 @@ describe("startInspector", () => {
     expect(String(thrown)).not.toContain(openedUrl);
     const logged: string[] = [];
     reportStartupFailure(thrown, (message) => { logged.push(message); });
-    expect(logged).toEqual(["Unable to start DSers MCP Inspector"]);
+    expect(logged).toEqual(["Unable to start MCP Inspector"]);
     expect(logged.join("\n")).not.toContain(token);
     expect(logged.join("\n")).not.toContain(openedUrl);
     await expect(fetch(opened.origin)).rejects.toThrow();
@@ -178,7 +178,7 @@ describe("runInspectorCli", () => {
       writeInfo: (message) => { infos.push(message); },
     });
     expect(exitCode).toBe(1); expect(infos).toEqual([]);
-    expect(errors).toEqual(["Unable to start DSers MCP Inspector"]);
+    expect(errors).toEqual(["Unable to start MCP Inspector"]);
     expect(errors.join("\n")).not.toContain(secretUrl); expect(errors.join("\n")).not.toContain("top-secret");
   });
 });

@@ -80,7 +80,7 @@ export function createRunService(projects: ProjectService, connections: Connecti
   const createId = options.createId ?? randomUUID;
   const now = options.now ?? (() => new Date());
   const eventBus = options.eventBus ?? new RunEventBus();
-  const clientInfo = options.clientInfo ?? { name: "dsers-mcp-inspector", version: "0.1.0" };
+  const clientInfo = options.clientInfo ?? { name: "mcp-inspector", version: "0.1.0" };
   const activeRuns = new Map<string, ActiveRun>();
   const executions = new Set<Promise<void>>();
   const repository = (projectId: string) => new RunRepository(projects.open(projectId), eventBus,

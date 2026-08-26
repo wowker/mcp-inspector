@@ -651,7 +651,7 @@ describe("DebugWorkspace", () => {
       idempotencyKey: "history-42", status: "succeeded", createdAt: "2026-08-25T01:00:00.000Z",
       startedAt: "2026-08-25T01:00:00.010Z", completedAt: "2026-08-25T01:00:00.020Z",
       durationMs: 10, networkDurationMs: 8, protocolVersion: "2025-06-18", serverInfo: null,
-      clientInfo: { name: "dsers-mcp-inspector", version: "0.1.0" },
+      clientInfo: { name: "mcp-inspector", version: "0.1.0" },
       request: { arguments: { a: 40, b: 2 }, jsonrpc: { jsonrpc: "2.0", method: "tools/call" }, http: null },
       response: { result: { structuredContent: { answer: 42 } }, error: null, truncated: false, originalBytes: 64 },
       events: [],

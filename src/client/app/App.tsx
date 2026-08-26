@@ -11,7 +11,7 @@ import { ProjectPicker } from "../features/projects/ProjectPicker.js";
 import { consumeBootstrapSession } from "./bootstrap-session.js";
 import { InspectorWorkbench } from "./InspectorWorkbench.js";
 
-const SESSION_HEADER = "X-DSers-Inspector-Session";
+const SESSION_HEADER = "X-MCP-Inspector-Session";
 
 type HealthState =
   | { status: "checking" }
@@ -92,7 +92,7 @@ export function App() {
     <main className="app-shell">
       <section className="welcome-card" aria-labelledby="app-title">
         <p className="eyebrow">MCP Tool 调试平台</p>
-        <h1 id="app-title">DSers MCP Inspector</h1>
+        <h1 id="app-title">MCP Inspector</h1>
         <p className="summary">安全的本地调试工作台正在准备中。</p>
         <p
           className={`health health--${health.status}`}

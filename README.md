@@ -1,10 +1,20 @@
-# DSers MCP Inspector
+# MCP Inspector
 
-DSers MCP Inspector 是一款运行在测试人员电脑上的 MCP Tool 调试工作台。当前版本支持无认证与 OAuth 的 Streamable HTTP MCP Server，并以类似接口调试工具的方式组织连接、Tools、请求参数、结果和协议详情。
+MCP Inspector 是一款运行在测试人员电脑上的 MCP Tool 调试工作台。当前版本支持无认证与 OAuth 的 Streamable HTTP MCP Server，并以类似接口调试工具的方式组织连接、Tools、请求参数、结果和协议详情。
 
 ## 环境要求与启动
 
 需要 Node.js 22 或更高版本。
+
+发布到 npm 后可直接运行：
+
+```bash
+npx --yes mcp-inspector@latest
+```
+
+执行前请确认 npm 上的 `mcp-inspector` 包由本项目维护；如果不拥有该名称，请改用组织 scope 下的包名。
+
+也可以从源码安装并启动：
 
 ```bash
 npm install

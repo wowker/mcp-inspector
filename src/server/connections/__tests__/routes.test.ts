@@ -12,7 +12,7 @@ describe("connection routes", () => {
   let projects: ProjectService;
 
   beforeEach(() => {
-    dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-connection-routes-"));
+    dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-connection-routes-"));
     projects = createProjectService({ dataRoot });
   });
 
@@ -24,7 +24,7 @@ describe("connection routes", () => {
 
   const headers = {
     Origin: "http://127.0.0.1:5173",
-    "X-DSers-Inspector-Session": "test-session",
+    "X-MCP-Inspector-Session": "test-session",
     "Content-Type": "application/json",
   };
 

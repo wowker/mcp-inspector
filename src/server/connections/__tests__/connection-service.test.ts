@@ -19,7 +19,7 @@ describe("ConnectionService", () => {
   });
 
   it("persists a disconnected Streamable HTTP connection and rejects non-HTTP URLs", () => {
-    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-connections-"));
+    const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-connections-"));
     dataRoots.push(dataRoot);
     projects = createProjectService({ dataRoot });
     const project = projects.create("Supplier Tools");
@@ -52,7 +52,7 @@ describe("ConnectionService", () => {
   });
 
   it("persists validated custom headers, supplies them to the runtime, and replaces them on edit", async () => {
-    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-connections-"));
+    const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-connections-"));
     dataRoots.push(dataRoot);
     projects = createProjectService({ dataRoot });
     const project = projects.create("Header authenticated Tools");
@@ -89,7 +89,7 @@ describe("ConnectionService", () => {
     [{ "X-Test": "value\r\ninjected: true" }, "header injection"],
     [{ Host: "malicious.example" }, "protocol controlled header"],
   ])("rejects unsafe custom headers: %s", (headers, _description) => {
-    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-connections-"));
+    const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-connections-"));
     dataRoots.push(dataRoot);
     projects = createProjectService({ dataRoot });
     const project = projects.create("Unsafe Headers");
@@ -101,7 +101,7 @@ describe("ConnectionService", () => {
   });
 
   it("rejects a custom Authorization header when OAuth owns authorization", () => {
-    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-connections-"));
+    const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-connections-"));
     dataRoots.push(dataRoot);
     projects = createProjectService({ dataRoot });
     const project = projects.create("OAuth Headers");
@@ -113,7 +113,7 @@ describe("ConnectionService", () => {
   });
 
   it("normalizes bounded configuration input and rejects unsupported or secret-bearing values", () => {
-    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-connections-"));
+    const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-connections-"));
     dataRoots.push(dataRoot);
     projects = createProjectService({ dataRoot });
     const project = projects.create("Supplier Tools");
@@ -152,7 +152,7 @@ describe("ConnectionService", () => {
   });
 
   it("updates a failed configuration, clears stale diagnostics, and leaves it disconnected", async () => {
-    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-connections-"));
+    const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-connections-"));
     dataRoots.push(dataRoot);
     projects = createProjectService({ dataRoot });
     const project = projects.create("Supplier Tools");
@@ -188,7 +188,7 @@ describe("ConnectionService", () => {
   });
 
   it("disconnects an active session before updating and keeps the old configuration if close fails", async () => {
-    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-connections-"));
+    const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-connections-"));
     dataRoots.push(dataRoot);
     projects = createProjectService({ dataRoot });
     const project = projects.create("Supplier Tools");
@@ -221,7 +221,7 @@ describe("ConnectionService", () => {
   });
 
   it("makes a simultaneous first connect resolve the updated configuration", async () => {
-    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-connections-"));
+    const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-connections-"));
     dataRoots.push(dataRoot);
     projects = createProjectService({ dataRoot });
     const project = projects.create("Supplier Tools");
@@ -248,7 +248,7 @@ describe("ConnectionService", () => {
   });
 
   it("survives closing and reopening the project store", () => {
-    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-connections-"));
+    const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-connections-"));
     dataRoots.push(dataRoot);
     projects = createProjectService({ dataRoot });
     const project = projects.create("Supplier Tools");
@@ -269,7 +269,7 @@ describe("ConnectionService", () => {
   });
 
   it("deletes only from the owning project and rejects unknown IDs", async () => {
-    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-connections-"));
+    const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-connections-"));
     dataRoots.push(dataRoot);
     projects = createProjectService({ dataRoot });
     const firstProject = projects.create("First");
@@ -294,7 +294,7 @@ describe("ConnectionService", () => {
   });
 
   it("disconnects an active session before deleting its configuration", async () => {
-    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-connections-"));
+    const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-connections-"));
     dataRoots.push(dataRoot);
     projects = createProjectService({ dataRoot });
     const project = projects.create("Supplier Tools");
@@ -317,7 +317,7 @@ describe("ConnectionService", () => {
   });
 
   it("keeps configuration when closing its active session fails", async () => {
-    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-connections-"));
+    const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-connections-"));
     dataRoots.push(dataRoot);
     projects = createProjectService({ dataRoot });
     const project = projects.create("Supplier Tools");
@@ -339,7 +339,7 @@ describe("ConnectionService", () => {
   });
 
   it("decodes malformed observation JSON defensively", () => {
-    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-connections-"));
+    const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-connections-"));
     dataRoots.push(dataRoot);
     projects = createProjectService({ dataRoot });
     const project = projects.create("Supplier Tools");
@@ -365,7 +365,7 @@ describe("ConnectionService", () => {
   });
 
   it("persists negotiated metadata, clears errors, and keeps runtime project-scoped", async () => {
-    const dataRoot = mkdtempSync(join(tmpdir(), "dsers-inspector-connections-"));
+    const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-connections-"));
     dataRoots.push(dataRoot);
     projects = createProjectService({ dataRoot });
     const first = projects.create("First");

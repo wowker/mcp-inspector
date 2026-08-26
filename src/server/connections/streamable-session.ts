@@ -55,7 +55,7 @@ export function createStreamableMcpSessionFactory(options: {
   const observerContext = new AsyncLocalStorage<Observer | undefined>();
   const baseFetch: FetchLike = options.fetch ?? globalThis.fetch;
   const createClient: () => ClientLike = options.createClient ?? (() => new Client(
-    { name: "dsers-mcp-inspector", version: options.appVersion ?? "0.1.0" },
+    { name: "mcp-inspector", version: options.appVersion ?? "0.1.0" },
     { capabilities: {}, jsonSchemaValidator: new DialectAwareJsonSchemaValidator() },
   ));
 
