@@ -1315,17 +1315,8 @@ h1 {
 }
 
 .tool-item__copy {
-  display: grid;
   min-width: 0;
-  gap: 3px;
-}
-
-.tool-item__copy > span {
   overflow: hidden;
-  color: #667085;
-  font-size: 0.82rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .tool-status {

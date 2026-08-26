@@ -95,7 +95,7 @@ describe("ToolTree", () => {
     ]);
   });
 
-  it("shows a clean catalog summary instead of raw description markup", () => {
+  it("does not render Tool descriptions in catalog rows", () => {
     render(<ToolTree
       connections={[first]}
       catalogs={{ [first.id]: [catalog(first.id, "mapping/apply",
@@ -103,7 +103,7 @@ describe("ToolTree", () => {
       onRefresh={vi.fn()} onSelectTool={vi.fn()} onOpenTool={vi.fn()}
     />);
 
-    expect(screen.getByText("Store Products · Applies a confirmed product mapping.")).toBeVisible();
+    expect(screen.queryByText("Store Products · Applies a confirmed product mapping.")).not.toBeInTheDocument();
     expect(screen.queryByText(/\*\*|\\\[/)).not.toBeInTheDocument();
   });
 

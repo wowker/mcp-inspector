@@ -204,9 +204,6 @@ export function ToolTree({
                       >
                         <span className="tool-item__copy">
                           <strong>{tool.name}</strong>
-                          {typeof tool.currentSnapshot.definition.description === "string" && (
-                            <span>{summarizeToolDescription(tool.currentSnapshot.definition.description)}</span>
-                          )}
                         </span>
                         {tool.status !== "current" && <span className={`tool-status tool-status--${tool.status}`}>
                           {statusLabels[tool.status]}
