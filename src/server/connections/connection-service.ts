@@ -16,21 +16,38 @@ import { createStreamableMcpSessionFactory } from "./streamable-session.js";
 import { OAuthFlowCoordinator } from "./oauth-flow.js";
 import { normalizeCustomHeaders } from "../../shared/custom-headers.js";
 import { createServerExport, type ServerExportBundle } from "./connection-export.js";
+import { isValidBearerToken, MAX_BEARER_TOKEN_LENGTH } from "../../shared/connection-auth.js";
 
 const connectionIdSchema = z.string().uuid();
-const createConnectionSchema = z.object({
+const bearerTokenSchema = z.string().min(1).max(MAX_BEARER_TOKEN_LENGTH)
+  .refine(isValidBearerToken, "Bearer token contains unsupported characters");
+const connectionConfigurationSchema = z.object({
   name: z.string().trim().min(1).max(120),
   url: z.string().trim().min(1).max(8192),
   transport: z.literal("streamable-http"),
-  authMode: z.enum(["none", "oauth"]),
+  authMode: z.enum(["none", "bearer", "oauth"]),
+  bearerToken: bearerTokenSchema.nullable().optional().default(null),
   headers: z.record(z.string(), z.string()).optional().default({}),
   redactSensitiveInfo: z.boolean().optional().default(true),
   timeoutMs: z.number().int().min(100).max(600_000),
-}).strict();
-const updateConnectionSchema = createConnectionSchema
-  .pick({ name: true, url: true, authMode: true, headers: true, redactSensitiveInfo: true, timeoutMs: true })
-  .partial()
-  .strict()
+}).strict().superRefine((value, context) => {
+  if (value.authMode === "bearer" && value.bearerToken === null) {
+    context.addIssue({ code: "custom", path: ["bearerToken"], message: "Bearer token is required" });
+  }
+  if (value.authMode !== "bearer" && value.bearerToken !== null) {
+    context.addIssue({ code: "custom", path: ["bearerToken"], message: "Bearer token is not allowed" });
+  }
+});
+const createConnectionSchema = connectionConfigurationSchema;
+const updateConnectionSchema = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+  url: z.string().trim().min(1).max(8192).optional(),
+  authMode: z.enum(["none", "bearer", "oauth"]).optional(),
+  bearerToken: bearerTokenSchema.nullable().optional(),
+  headers: z.record(z.string(), z.string()).optional(),
+  redactSensitiveInfo: z.boolean().optional(),
+  timeoutMs: z.number().int().min(100).max(600_000).optional(),
+}).strict()
   .refine((value) => Object.keys(value).length > 0);
 
 export class InvalidConnectionError extends Error {
@@ -189,6 +206,9 @@ export function createConnectionService(projects: ProjectService, options: {
         timeoutMs: parsed.data.timeoutMs ?? existing.timeoutMs,
         transport: existing.transport,
         authMode: parsed.data.authMode ?? existing.authMode,
+        bearerToken: (parsed.data.authMode ?? existing.authMode) === "bearer"
+          ? (parsed.data.bearerToken === undefined ? existing.bearerToken : parsed.data.bearerToken)
+          : null,
         headers: parsed.data.headers ?? existing.headers,
         redactSensitiveInfo: parsed.data.redactSensitiveInfo ?? existing.redactSensitiveInfo,
       });
@@ -207,11 +227,13 @@ export function createConnectionService(projects: ProjectService, options: {
         url: normalizedUrl,
         timeoutMs: next.data.timeoutMs,
         authMode: next.data.authMode,
+        bearerToken: next.data.bearerToken,
         headers,
         redactSensitiveInfo: next.data.redactSensitiveInfo,
         updatedAt: now().toISOString(),
         resetDiagnostics: normalizedUrl !== existing.url || next.data.timeoutMs !== existing.timeoutMs ||
-          next.data.authMode !== existing.authMode || JSON.stringify(headers) !== JSON.stringify(existing.headers),
+          next.data.authMode !== existing.authMode || next.data.bearerToken !== existing.bearerToken ||
+          JSON.stringify(headers) !== JSON.stringify(existing.headers),
       });
       if (updated === null) throw new ConnectionNotFoundError();
       return present(updated, "disconnected");

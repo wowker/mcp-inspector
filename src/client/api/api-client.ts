@@ -1,5 +1,6 @@
 import { parseToolDefinition, type ToolDefinition } from "../../shared/tool-definition.js";
 import { normalizeCustomHeaders } from "../../shared/custom-headers.js";
+import { isValidBearerToken, type ConnectionAuthMode } from "../../shared/connection-auth.js";
 
 export interface ProjectSummary {
   id: string;
@@ -15,7 +16,8 @@ export interface ConnectionSummary {
   name: string;
   url: string;
   transport: "streamable-http";
-  authMode: "none" | "oauth";
+  authMode: ConnectionAuthMode;
+  bearerToken: string | null;
   headers: Record<string, string>;
   redactSensitiveInfo: boolean;
   authorizationStatus: "not-required" | "required" | "authorizing" | "authorized";
@@ -30,14 +32,15 @@ export interface CreateConnectionRequest {
   name: string;
   url: string;
   transport: "streamable-http";
-  authMode: "none" | "oauth";
+  authMode: ConnectionAuthMode;
+  bearerToken?: string | null;
   headers?: Record<string, string>;
   redactSensitiveInfo?: boolean;
   timeoutMs: number;
 }
 
 export type UpdateConnectionRequest = Partial<Pick<CreateConnectionRequest,
-  "name" | "url" | "authMode" | "headers" | "redactSensitiveInfo" | "timeoutMs">>;
+  "name" | "url" | "authMode" | "bearerToken" | "headers" | "redactSensitiveInfo" | "timeoutMs">>;
 
 export interface ToolSnapshotSummary {
   id: string;
@@ -219,6 +222,7 @@ function decodeConnection(value: unknown, projectId: string): ConnectionSummary 
     url: rawUrl,
     transport,
     authMode,
+    bearerToken,
     headers,
     redactSensitiveInfo,
     authorizationStatus,
@@ -240,7 +244,9 @@ function decodeConnection(value: unknown, projectId: string): ConnectionSummary 
     typeof lastError.code === "string" &&
     typeof lastError.message === "string"
   );
-  const normalizedHeaders = normalizeCustomHeaders(headers, authMode === "oauth" ? "oauth" : "none");
+  const normalizedHeaders = authMode === "none" || authMode === "bearer" || authMode === "oauth"
+    ? normalizeCustomHeaders(headers, authMode)
+    : null;
   if (
     typeof id !== "string" || !uuidPattern.test(id) ||
     typeof recordProjectId !== "string" || !uuidPattern.test(recordProjectId) ||
@@ -248,11 +254,13 @@ function decodeConnection(value: unknown, projectId: string): ConnectionSummary 
     typeof name !== "string" || name.trim() !== name || name.length < 1 || name.length > 120 ||
     (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") ||
     parsedUrl.hostname.length === 0 || parsedUrl.username.length > 0 || parsedUrl.password.length > 0 ||
-    transport !== "streamable-http" || (authMode !== "none" && authMode !== "oauth") || !isConnectionStatus(status) ||
+    transport !== "streamable-http" || (authMode !== "none" && authMode !== "bearer" && authMode !== "oauth") ||
+    !((authMode === "bearer" && isValidBearerToken(bearerToken)) ||
+      (authMode !== "bearer" && bearerToken === null)) || !isConnectionStatus(status) ||
     typeof timeoutMs !== "number" || !Number.isInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 600_000 ||
     !(lastProtocolVersion === null || typeof lastProtocolVersion === "string") ||
     !isNullableObject(lastServerInfo) || !validError || normalizedHeaders === null || typeof redactSensitiveInfo !== "boolean" ||
-    !((authMode === "none" && authorizationStatus === "not-required") ||
+    !(((authMode === "none" || authMode === "bearer") && authorizationStatus === "not-required") ||
       (authMode === "oauth" && (authorizationStatus === "required" || authorizationStatus === "authorizing" || authorizationStatus === "authorized")))
   ) {
     throw new Error("Invalid connection response");
@@ -264,6 +272,7 @@ function decodeConnection(value: unknown, projectId: string): ConnectionSummary 
     url: rawUrl,
     transport,
     authMode,
+    bearerToken,
     headers: normalizedHeaders,
     redactSensitiveInfo,
     authorizationStatus,

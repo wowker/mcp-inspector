@@ -19,6 +19,7 @@ import type {
   McpSessionFactory,
   WireObservation,
 } from "./connection-runtime.js";
+import { isValidBearerToken } from "../../shared/connection-auth.js";
 
 type Observer = (event: WireObservation) => void;
 
@@ -60,6 +61,9 @@ export function createStreamableMcpSessionFactory(options: {
   ));
 
   return async (connection, connectionObserver) => {
+    if (connection.authMode === "bearer" && !isValidBearerToken(connection.bearerToken)) {
+      throw new Error("Bearer authentication configuration is invalid");
+    }
     const dispatch: Observer = (event) => {
       (observerContext.getStore() ?? connectionObserver)(event);
     };
@@ -77,7 +81,11 @@ export function createStreamableMcpSessionFactory(options: {
       ?? (oauthTransport = new StreamableHTTPClientTransport(new URL(connection.url), {
         fetch: observedFetch,
         authProvider,
-        requestInit: { headers: connection.headers },
+        requestInit: {
+          headers: connection.authMode === "bearer"
+            ? { ...connection.headers, Authorization: `Bearer ${connection.bearerToken}` }
+            : connection.headers,
+        },
       }));
     const client = createClient();
     try {

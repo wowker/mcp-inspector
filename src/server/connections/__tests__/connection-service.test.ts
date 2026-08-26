@@ -157,6 +157,45 @@ describe("ConnectionService", () => {
     })).toThrow(/invalid/i);
   });
 
+  it("persists Bearer authentication, requires a token, and clears it when authentication changes", async () => {
+    const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-connections-"));
+    dataRoots.push(dataRoot);
+    projects = createProjectService({ dataRoot });
+    const project = projects.create("Bearer authenticated Tools");
+    const service = createConnectionService(projects, {
+      createId: () => "00000000-0000-4000-8000-000000000223",
+    });
+
+    expect(() => service.create(project.id, {
+      name: "Missing token", url: "https://mcp.example.test/mcp", transport: "streamable-http",
+      authMode: "bearer", timeoutMs: 10_000,
+    })).toThrow(/invalid/i);
+    expect(() => service.create(project.id, {
+      name: "Conflicting token", url: "https://mcp.example.test/mcp", transport: "streamable-http",
+      authMode: "bearer", bearerToken: "secret-token", timeoutMs: 10_000,
+      headers: { Authorization: "Bearer conflicting", "X-Tenant": "supplier-eu" },
+    })).toThrow(/invalid/i);
+
+    const created = service.create(project.id, {
+      name: "Bearer MCP", url: "https://mcp.example.test/mcp", transport: "streamable-http",
+      authMode: "bearer", bearerToken: "secret-token", timeoutMs: 10_000,
+      headers: { "X-Tenant": "supplier-eu" },
+    });
+    expect(created).toEqual(expect.objectContaining({
+      authMode: "bearer", bearerToken: "secret-token", authorizationStatus: "not-required",
+      headers: { "X-Tenant": "supplier-eu" },
+    }));
+
+    projects.close();
+    projects = createProjectService({ dataRoot });
+    const reloadedService = createConnectionService(projects);
+    expect(reloadedService.list(project.id)[0]).toEqual(expect.objectContaining({
+      authMode: "bearer", bearerToken: "secret-token",
+    }));
+    await expect(reloadedService.update(project.id, created.id, { authMode: "none" }))
+      .resolves.toEqual(expect.objectContaining({ authMode: "none", bearerToken: null }));
+  });
+
   it("normalizes bounded configuration input and rejects unsupported or secret-bearing values", () => {
     const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-connections-"));
     dataRoots.push(dataRoot);

@@ -15,6 +15,7 @@ const connection = {
   url: "https://mcp.example.test/mcp",
   transport: "streamable-http" as const,
   authMode: "none" as const,
+  bearerToken: null,
   headers: {},
   redactSensitiveInfo: true,
   authorizationStatus: "not-required" as const,
@@ -322,6 +323,42 @@ describe("ConnectionPanel", () => {
     expect(await screen.findByText("OAuth")).toBeVisible();
   });
 
+  it("saves Bearer Token authentication, toggles visibility, and preserves custom headers", async () => {
+    const bearerConnection = {
+      ...connection,
+      authMode: "bearer" as const,
+      bearerToken: "opaque.test-token_123",
+      headers: { "X-Tenant": "supplier-eu" },
+    };
+    const createConnection = vi.fn().mockResolvedValue(bearerConnection);
+    const user = userEvent.setup();
+    render(<ConnectionPanel api={api({
+      listConnections: vi.fn().mockResolvedValue([]), createConnection,
+    })} projectId={projectId} />);
+
+    await screen.findByRole("heading", { name: "连接管理" });
+    await user.click(screen.getByRole("button", { name: "添加连接" }));
+    await user.type(screen.getByLabelText("连接名称"), "Bearer MCP");
+    await user.type(screen.getByLabelText("MCP URL"), "https://mcp.example.test/mcp");
+    await user.selectOptions(screen.getByLabelText("认证方式"), "bearer");
+    const tokenInput = screen.getByLabelText("Bearer Token");
+    await user.type(tokenInput, "opaque.test-token_123");
+    expect(tokenInput).toHaveAttribute("type", "password");
+    await user.click(screen.getByRole("button", { name: "显示 Bearer Token" }));
+    expect(tokenInput).toHaveAttribute("type", "text");
+    await user.click(screen.getByRole("button", { name: "添加 Header" }));
+    await user.type(screen.getByLabelText("Header 名称 1"), "X-Tenant");
+    await user.type(screen.getByLabelText("Header 值 1"), "supplier-eu");
+    await user.click(screen.getByRole("button", { name: "保存连接" }));
+
+    expect(createConnection).toHaveBeenCalledWith(projectId, expect.objectContaining({
+      authMode: "bearer",
+      bearerToken: "opaque.test-token_123",
+      headers: { "X-Tenant": "supplier-eu" },
+    }));
+    expect(await screen.findByText("Bearer Token")).toBeVisible();
+  });
+
   it("adds, removes, and edits custom authentication headers in the connection dialog", async () => {
     const withHeaders = {
       ...connection,
@@ -336,6 +373,10 @@ describe("ConnectionPanel", () => {
     await user.click(await screen.findByRole("button", { name: "编辑 Catalog MCP" }));
     expect(screen.getByLabelText("Header 名称 1")).toHaveValue("Authorization");
     expect(screen.getByLabelText("Header 值 1")).toHaveValue("Bearer local-secret");
+    expect(screen.getByLabelText("Header 值 1")).toHaveAttribute("type", "password");
+    await user.click(screen.getByRole("button", { name: "显示 Header Authorization" }));
+    expect(screen.getByLabelText("Header 值 1")).toHaveAttribute("type", "text");
+    await user.click(screen.getByRole("button", { name: "隐藏 Header Authorization" }));
     expect(screen.getByLabelText("Header 值 1")).toHaveAttribute("type", "password");
     await user.click(screen.getByRole("button", { name: "删除 Header Authorization" }));
     await user.click(screen.getByRole("button", { name: "添加 Header" }));

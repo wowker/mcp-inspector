@@ -1,3 +1,5 @@
+import type { ConnectionAuthMode } from "../../shared/connection-auth.js";
+
 export type ConnectionStatus = "disconnected" | "connecting" | "connected" | "failed";
 export type AuthorizationStatus = "not-required" | "required" | "authorizing" | "authorized";
 
@@ -12,7 +14,8 @@ export interface ConnectionRecord {
   name: string;
   url: string;
   transport: "streamable-http";
-  authMode: "none" | "oauth";
+  authMode: ConnectionAuthMode;
+  bearerToken: string | null;
   headers: Record<string, string>;
   redactSensitiveInfo: boolean;
   authorizationStatus?: AuthorizationStatus;
@@ -27,11 +30,12 @@ export interface CreateConnectionInput {
   name: string;
   url: string;
   transport: "streamable-http";
-  authMode: "none" | "oauth";
+  authMode: ConnectionAuthMode;
+  bearerToken?: string | null;
   headers?: Record<string, string>;
   redactSensitiveInfo?: boolean;
   timeoutMs: number;
 }
 
 export type UpdateConnectionInput = Partial<Pick<CreateConnectionInput,
-  "name" | "url" | "authMode" | "headers" | "redactSensitiveInfo" | "timeoutMs">>;
+  "name" | "url" | "authMode" | "bearerToken" | "headers" | "redactSensitiveInfo" | "timeoutMs">>;

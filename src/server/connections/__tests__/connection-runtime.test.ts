@@ -18,6 +18,7 @@ const connection: ConnectionRecord = {
   url: "http://127.0.0.1:1/mcp",
   transport: "streamable-http",
   authMode: "none",
+  bearerToken: null,
   headers: {},
   redactSensitiveInfo: true,
   timeoutMs: 20,

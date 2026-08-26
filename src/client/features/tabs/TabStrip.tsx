@@ -4,13 +4,14 @@ import type { DebugTabSummary } from "../../api/api-client.js";
 
 interface Props {
   tabs: DebugTabSummary[]; activeId: string | null; onSelect: (id: string) => void;
+  onCopyName: (toolName: string) => void;
   onClose: (id: string) => void; onDuplicate: (id: string) => void; onPin: (id: string, pinned: boolean) => void;
   onCloseOthers: (id: string) => void; onCloseRight: (id: string) => void;
   onMove: (id: string, offset: -1 | 1) => void;
   dirtyIds?: ReadonlySet<string>; runningIds?: ReadonlySet<string>;
 }
 
-export function TabStrip({ tabs, activeId, onSelect, onClose, onDuplicate, onPin, onCloseOthers, onCloseRight, onMove,
+export function TabStrip({ tabs, activeId, onSelect, onCopyName, onClose, onDuplicate, onPin, onCloseOthers, onCloseRight, onMove,
   dirtyIds = new Set(), runningIds = new Set() }: Props) {
   const strip = useRef<HTMLDivElement>(null);
   const previousActive = useRef<string | null>(activeId);
@@ -76,6 +77,7 @@ export function TabStrip({ tabs, activeId, onSelect, onClose, onDuplicate, onPin
         event.preventDefault(); const details = event.currentTarget.parentElement;
         if (details instanceof HTMLDetailsElement) { details.open = !details.open; if (details.open) positionMenu(details); }
       }}><DotsThree size={18} weight="bold" aria-hidden="true" /></summary><div aria-label={`${tab.title} Tab 操作菜单`}>
+        <button type="button" onClick={(event) => finishMenuAction(event, () => onCopyName(tab.toolName))}>复制名称</button>
         <button type="button" onClick={(event) => finishMenuAction(event, () => onDuplicate(tab.id))}>复制 Tab</button>
         <button type="button" onClick={(event) => finishMenuAction(event, () => onPin(tab.id, !tab.pinned))}>{tab.pinned ? "取消固定" : "固定"}</button>
         <button type="button" disabled={tab.position === 0} onClick={(event) => finishMenuAction(event, () => onMove(tab.id, -1))}>左移</button>

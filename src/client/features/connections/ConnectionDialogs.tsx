@@ -1,6 +1,7 @@
-import { useEffect, useRef, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
-import { Plus, Trash, X } from "@phosphor-icons/react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { Eye, EyeSlash, Plus, Trash, X } from "@phosphor-icons/react";
 import type { ConnectionHeaderDraft } from "./ConnectionPanel.js";
+import type { ConnectionAuthMode } from "../../../shared/connection-auth.js";
 
 interface DialogSurfaceProps {
   children: ReactNode;
@@ -70,7 +71,8 @@ interface ConnectionFormDialogProps {
   name: string;
   url: string;
   timeoutMs: string;
-  authMode: "none" | "oauth";
+  authMode: ConnectionAuthMode;
+  bearerToken: string;
   headers: ConnectionHeaderDraft[];
   redactSensitiveInfo: boolean;
   submitting: boolean;
@@ -78,7 +80,8 @@ interface ConnectionFormDialogProps {
   onNameChange: (value: string) => void;
   onUrlChange: (value: string) => void;
   onTimeoutChange: (value: string) => void;
-  onAuthModeChange: (value: "none" | "oauth") => void;
+  onAuthModeChange: (value: ConnectionAuthMode) => void;
+  onBearerTokenChange: (value: string) => void;
   onRedactSensitiveInfoChange: (value: boolean) => void;
   onAddHeader: () => void;
   onHeaderChange: (id: number, field: "name" | "value", value: string) => void;
@@ -88,11 +91,13 @@ interface ConnectionFormDialogProps {
 }
 
 export function ConnectionFormDialog({
-  mode, name, url, timeoutMs, authMode, headers, redactSensitiveInfo, submitting, error,
-  onNameChange, onUrlChange, onTimeoutChange, onAuthModeChange,
+  mode, name, url, timeoutMs, authMode, bearerToken, headers, redactSensitiveInfo, submitting, error,
+  onNameChange, onUrlChange, onTimeoutChange, onAuthModeChange, onBearerTokenChange,
   onRedactSensitiveInfoChange, onAddHeader, onHeaderChange, onRemoveHeader, onSubmit, onClose,
 }: ConnectionFormDialogProps) {
   const nameInput = useRef<HTMLInputElement>(null);
+  const [visibleHeaderIds, setVisibleHeaderIds] = useState<ReadonlySet<number>>(() => new Set());
+  const [bearerTokenVisible, setBearerTokenVisible] = useState(false);
   const title = mode === "create" ? "添加连接" : "编辑连接";
   const description = mode === "create"
     ? "保存连接配置后，可从列表中手动发起连接。"
@@ -158,12 +163,40 @@ export function ConnectionFormDialog({
           </label>
           <label>
             <span>认证方式</span>
-            <select value={authMode} onChange={(event) => onAuthModeChange(event.target.value as "none" | "oauth")}>
+            <select value={authMode} onChange={(event) => onAuthModeChange(event.target.value as ConnectionAuthMode)}>
               <option value="none">无认证</option>
+              <option value="bearer">Bearer Token</option>
               <option value="oauth">OAuth 自动授权</option>
             </select>
             {authMode === "oauth" && <small>首次连接会打开浏览器完成授权。</small>}
           </label>
+          {authMode === "bearer" && (
+            <div className="connection-bearer-token">
+              <label htmlFor="connection-bearer-token">Bearer Token</label>
+              <span className="connection-secret-input">
+                <input
+                  id="connection-bearer-token"
+                  value={bearerToken}
+                  onChange={(event) => onBearerTokenChange(event.target.value)}
+                  type={bearerTokenVisible ? "text" : "password"}
+                  autoComplete="off"
+                  maxLength={8192}
+                  placeholder="请输入 Bearer Token"
+                  required
+                />
+                <button
+                  type="button"
+                  aria-label={bearerTokenVisible ? "隐藏 Bearer Token" : "显示 Bearer Token"}
+                  aria-pressed={bearerTokenVisible}
+                  title={bearerTokenVisible ? "隐藏 Bearer Token" : "显示 Bearer Token"}
+                  onClick={() => setBearerTokenVisible((visible) => !visible)}
+                >{bearerTokenVisible
+                    ? <EyeSlash size={17} aria-hidden="true" />
+                    : <Eye size={17} aria-hidden="true" />}</button>
+              </span>
+              <small>连接、刷新 Tool 和调用 Tool 时自动发送 Authorization Header。</small>
+            </div>
+          )}
         </div>
         <section className="connection-headers" aria-labelledby="connection-headers-title">
           <div className="connection-headers__heading">
@@ -198,12 +231,30 @@ export function ConnectionFormDialog({
                       aria-label={`Header 值 ${index + 1}`}
                       value={header.value}
                       onChange={(event) => onHeaderChange(header.id, "value", event.target.value)}
-                      type="password"
+                      type={visibleHeaderIds.has(header.id) ? "text" : "password"}
                       autoComplete="off"
                       placeholder="输入 Header 值"
                       maxLength={8192}
                     />
                   </label>
+                  <button
+                    type="button"
+                    className="connection-header-row__visibility"
+                    aria-label={`${visibleHeaderIds.has(header.id) ? "隐藏" : "显示"} Header ${header.name || index + 1}`}
+                    title={visibleHeaderIds.has(header.id) ? "隐藏 Header 值" : "显示 Header 值"}
+                    aria-pressed={visibleHeaderIds.has(header.id)}
+                    disabled={submitting}
+                    onClick={() => setVisibleHeaderIds((current) => {
+                      const next = new Set(current);
+                      if (next.has(header.id)) next.delete(header.id);
+                      else next.add(header.id);
+                      return next;
+                    })}
+                  >
+                    {visibleHeaderIds.has(header.id)
+                      ? <EyeSlash size={17} aria-hidden="true" />
+                      : <Eye size={17} aria-hidden="true" />}
+                  </button>
                   <button
                     type="button"
                     className="connection-header-row__remove"
@@ -217,8 +268,10 @@ export function ConnectionFormDialog({
               ))}
             </div>
           )}
-          {authMode === "oauth" && (
-            <p className="connection-headers__notice">OAuth 模式下 Authorization 由授权流程自动管理。</p>
+          {authMode !== "none" && (
+            <p className="connection-headers__notice">
+              {authMode === "oauth" ? "OAuth" : "Bearer Token"} 模式下 Authorization 由认证方式自动管理。
+            </p>
           )}
         </section>
         <label className="connection-redaction-option">

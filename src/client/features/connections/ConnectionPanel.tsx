@@ -8,6 +8,7 @@ import type {
 } from "../../api/api-client.js";
 import { ToolTree } from "../tools/ToolTree.js";
 import { ConnectionFormDialog, DeleteConnectionDialog } from "./ConnectionDialogs.js";
+import type { ConnectionAuthMode } from "../../../shared/connection-auth.js";
 
 interface ConnectionPanelProps {
   api: InspectorApiClient;
@@ -78,7 +79,8 @@ function ProjectScopedConnectionPanel({
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [timeoutMs, setTimeoutMs] = useState("10000");
-  const [authMode, setAuthMode] = useState<"none" | "oauth">("none");
+  const [authMode, setAuthMode] = useState<ConnectionAuthMode>("none");
+  const [bearerToken, setBearerToken] = useState("");
   const [headers, setHeaders] = useState<ConnectionHeaderDraft[]>([]);
   const [redactSensitiveInfo, setRedactSensitiveInfo] = useState(true);
   const [formMode, setFormMode] = useState<"create" | "edit" | null>(null);
@@ -222,6 +224,7 @@ function ProjectScopedConnectionPanel({
     setUrl("");
     setTimeoutMs("10000");
     setAuthMode("none");
+    setBearerToken("");
     setHeaders([]);
     setRedactSensitiveInfo(true);
     setError(null);
@@ -236,6 +239,7 @@ function ProjectScopedConnectionPanel({
     setUrl("");
     setTimeoutMs("10000");
     setAuthMode("none");
+    setBearerToken("");
     setHeaders([]);
     setRedactSensitiveInfo(true);
     setFormMode("create");
@@ -250,6 +254,7 @@ function ProjectScopedConnectionPanel({
     setUrl(connection.url);
     setTimeoutMs(String(connection.timeoutMs));
     setAuthMode(connection.authMode);
+    setBearerToken(connection.bearerToken ?? "");
     setRedactSensitiveInfo(connection.redactSensitiveInfo);
     setHeaders(Object.entries(connection.headers).map(([headerName, value]) => ({
       id: nextHeaderId.current++,
@@ -268,8 +273,8 @@ function ProjectScopedConnectionPanel({
       if (headerName === "") throw new Error("Header 名称不能为空");
       const normalizedName = headerName.toLowerCase();
       if (seen.has(normalizedName)) throw new Error(`Header 名称重复：${headerName}`);
-      if (authMode === "oauth" && normalizedName === "authorization") {
-        throw new Error("OAuth 连接的 Authorization Header 由授权流程管理");
+      if (authMode !== "none" && normalizedName === "authorization") {
+        throw new Error(`${authMode === "oauth" ? "OAuth" : "Bearer Token"} 连接的 Authorization Header 由认证方式管理`);
       }
       seen.add(normalizedName);
       result[headerName] = header.value;
@@ -434,6 +439,7 @@ function ProjectScopedConnectionPanel({
           url: url.trim(),
           transport: "streamable-http",
           authMode,
+          ...(authMode === "bearer" ? { bearerToken } : {}),
           redactSensitiveInfo,
           timeoutMs: Number(timeoutMs),
           ...(Object.keys(customHeaders).length === 0 ? {} : { headers: customHeaders }),
@@ -449,6 +455,7 @@ function ProjectScopedConnectionPanel({
           name: name.trim(),
           url: url.trim(),
           authMode,
+          ...(authMode === "bearer" ? { bearerToken } : {}),
           redactSensitiveInfo,
           timeoutMs: Number(timeoutMs),
           headers: customHeaders,
@@ -590,7 +597,10 @@ function ProjectScopedConnectionPanel({
                   <td data-label="连接名称">
                     <strong>{connection.name}</strong>
                     <span className="connection-meta">
-                      <span>Streamable HTTP</span><span aria-hidden="true"> · </span><span>{connection.authMode === "oauth" ? "OAuth" : "无认证"}</span>
+                      <span>Streamable HTTP</span><span aria-hidden="true"> · </span><span>{
+                        connection.authMode === "oauth" ? "OAuth" :
+                          connection.authMode === "bearer" ? "Bearer Token" : "无认证"
+                      }</span>
                     </span>
                   </td>
                   <td data-label="MCP URL"><span className="connection-url" title={connection.url}>{connection.url}</span></td>
@@ -701,6 +711,7 @@ function ProjectScopedConnectionPanel({
           url={url}
           timeoutMs={timeoutMs}
           authMode={authMode}
+          bearerToken={bearerToken}
           headers={headers}
           redactSensitiveInfo={redactSensitiveInfo}
           submitting={submitting}
@@ -709,6 +720,7 @@ function ProjectScopedConnectionPanel({
           onUrlChange={setUrl}
           onTimeoutChange={setTimeoutMs}
           onAuthModeChange={setAuthMode}
+          onBearerTokenChange={setBearerToken}
           onRedactSensitiveInfoChange={setRedactSensitiveInfo}
           onAddHeader={() => setHeaders((current) => [...current, {
             id: nextHeaderId.current++, name: "", value: "",

@@ -11,6 +11,7 @@ const projectId = "00000000-0000-4000-8000-000000000541";
 const first: ConnectionSummary = {
   id: "00000000-0000-4000-8000-000000000542", projectId, name: "Catalog MCP",
   url: "https://example.test/mcp", transport: "streamable-http", authMode: "none",
+  bearerToken: null,
   headers: {},
   redactSensitiveInfo: true,
   authorizationStatus: "not-required",

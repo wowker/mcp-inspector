@@ -21,6 +21,7 @@ const connection = {
   url: "https://mcp.example.test/mcp",
   transport: "streamable-http" as const,
   authMode: "oauth" as const,
+  bearerToken: null,
   headers: {},
   redactSensitiveInfo: true,
   authorizationStatus: "required" as const,

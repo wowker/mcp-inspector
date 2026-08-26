@@ -10,10 +10,12 @@ export interface ServerExportBundle {
   security: {
     containsSensitiveToolData: true;
     oauthCredentialsIncluded: false;
+    bearerTokenIncluded: false;
     customHeaderValuesIncluded: false;
   };
   project: { id: string; name: string };
-  server: Omit<ConnectionRecord, "headers" | "status"> & {
+  server: Omit<ConnectionRecord, "headers" | "bearerToken" | "status"> & {
+    bearerToken: null;
     headers: Array<{ name: string; value: null; redacted: true }>;
   };
   data: {
@@ -67,7 +69,7 @@ export function createServerExport(
   const project = store.getProject();
   const connectionId = connection.id;
   const projectId = connection.projectId;
-  const { headers, status: _status, ...configuration } = connection;
+  const { headers, bearerToken: _bearerToken, status: _status, ...configuration } = connection;
 
   return {
     format: "mcp-inspector-server-export",
@@ -76,11 +78,13 @@ export function createServerExport(
     security: {
       containsSensitiveToolData: true,
       oauthCredentialsIncluded: false,
+      bearerTokenIncluded: false,
       customHeaderValuesIncluded: false,
     },
     project: { id: project.id, name: project.name },
     server: {
       ...configuration,
+      bearerToken: null,
       headers: Object.keys(headers).sort((left, right) => left.localeCompare(right))
         .map((name) => ({ name, value: null, redacted: true as const })),
     },

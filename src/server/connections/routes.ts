@@ -15,7 +15,8 @@ const createConnectionBodySchema = z.object({
   name: z.string(),
   url: z.string(),
   transport: z.literal("streamable-http"),
-  authMode: z.enum(["none", "oauth"]),
+  authMode: z.enum(["none", "bearer", "oauth"]),
+  bearerToken: z.string().nullable().optional(),
   headers: z.record(z.string(), z.string()).optional(),
   redactSensitiveInfo: z.boolean().optional(),
   timeoutMs: z.number(),
@@ -23,7 +24,8 @@ const createConnectionBodySchema = z.object({
 const updateConnectionBodySchema = z.object({
   name: z.string().optional(),
   url: z.string().optional(),
-  authMode: z.enum(["none", "oauth"]).optional(),
+  authMode: z.enum(["none", "bearer", "oauth"]).optional(),
+  bearerToken: z.string().nullable().optional(),
   headers: z.record(z.string(), z.string()).optional(),
   redactSensitiveInfo: z.boolean().optional(),
   timeoutMs: z.number().optional(),
@@ -65,6 +67,11 @@ function projectError(context: Context, error: unknown) {
 
 export function createConnectionRoutes(connections: ConnectionService): Hono {
   const routes = new Hono();
+
+  routes.use("*", async (context, next) => {
+    await next();
+    context.header("Cache-Control", "no-store");
+  });
 
   routes.get("/:projectId/connections", (context) => {
     try {

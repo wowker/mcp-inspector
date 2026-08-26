@@ -1185,6 +1185,15 @@ h1 {
   font-weight: 650;
 }
 
+.connection-bearer-token {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  color: #344054;
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+
 .connection-fields input {
   width: 100%;
   min-height: 42px;
@@ -1195,6 +1204,30 @@ h1 {
   background: #fff;
   font-weight: 400;
 }
+
+.connection-secret-input {
+  position: relative;
+  display: block;
+}
+
+.connection-secret-input input { padding-right: 44px; }
+
+.connection-secret-input button {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  display: grid;
+  width: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  place-items: center;
+  transform: translateY(-50%);
+  color: #475467;
+  background: transparent;
+}
+
+.connection-secret-input button:hover { background: #f2f4f7; }
 
 .connection-headers {
   display: grid;
@@ -1230,12 +1263,13 @@ h1 {
 .connection-headers__list { display: grid; gap: 8px; }
 .connection-header-row {
   display: grid;
-  grid-template-columns: minmax(150px, 0.8fr) minmax(220px, 1.2fr) 34px;
+  grid-template-columns: minmax(150px, 0.8fr) minmax(220px, 1.2fr) 34px 34px;
   gap: 8px;
   align-items: end;
 }
 .connection-header-row label { display: grid; gap: 4px; color: #667085; font-size: 0.72rem; font-weight: 650; }
 .connection-header-row input { width: 100%; min-height: 36px; }
+.connection-header-row__visibility,
 .connection-header-row__remove {
   display: grid;
   width: 34px;
@@ -1247,6 +1281,8 @@ h1 {
   color: #b42318;
   background: #fff;
 }
+.connection-header-row__visibility { color: #475467; }
+.connection-header-row__visibility:hover:not(:disabled) { background: #f2f4f7; }
 .connection-header-row__remove:hover:not(:disabled) { background: #fef3f2; }
 .connection-headers__notice { color: #9a6700; }
 
@@ -1268,9 +1304,10 @@ h1 {
 
 @media (max-width: 640px) {
   .connection-headers__heading { align-items: stretch; flex-direction: column; }
-  .connection-header-row { grid-template-columns: minmax(0, 1fr) 34px; }
+  .connection-header-row { grid-template-columns: minmax(0, 1fr) 34px 34px; }
   .connection-header-row label { grid-column: 1; }
-  .connection-header-row__remove { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+  .connection-header-row__visibility { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+  .connection-header-row__remove { grid-column: 3; grid-row: 1 / span 2; align-self: center; }
 }
 
 .connection-fixed-options {

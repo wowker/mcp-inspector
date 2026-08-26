@@ -114,6 +114,17 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActi
     } catch { /* The workspace remains usable when browser storage is unavailable. */ }
   }
 
+  async function copyToolName(toolName: string): Promise<void> {
+    try {
+      if (navigator.clipboard === undefined) throw new Error("Clipboard is unavailable");
+      await navigator.clipboard.writeText(toolName);
+      setMessage(null);
+      setSaveNotice((current) => ({ sequence: (current?.sequence ?? 0) + 1, message: "Tool 名称已复制" }));
+    } catch {
+      setMessage("无法复制 Tool 名称，请检查浏览器剪贴板权限。");
+    }
+  }
+
   const flush = useCallback(async (tabId?: string): Promise<boolean> => {
     async function drain(id: string): Promise<boolean> {
       const activeQueue = queues.current.get(id);
@@ -380,6 +391,7 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActi
     <div className="workspace-tabbar">
       <TabStrip tabs={tabs} activeId={activeReadOnlyId === null ? activeId : null} dirtyIds={new Set([...pending.current.keys(), ...queues.current.keys()])}
         runningIds={startingIds} onSelect={(id) => void select(id)} onClose={(id) => void close(id)}
+        onCopyName={(toolName) => void copyToolName(toolName)}
         onDuplicate={(id) => void duplicate(id)} onPin={(id, pinned) => schedule(id, { pinned })}
         onMove={(id, offset) => void move(id, offset)}
         onCloseOthers={(id) => void bulk(id, "others")} onCloseRight={(id) => void bulk(id, "right")} />

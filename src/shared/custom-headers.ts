@@ -1,3 +1,5 @@
+import type { ConnectionAuthMode } from "./connection-auth.js";
+
 export const MAX_CUSTOM_HEADERS = 32;
 export const MAX_CUSTOM_HEADER_VALUE_LENGTH = 8_192;
 export const MAX_CUSTOM_HEADERS_BYTES = 32 * 1_024;
@@ -20,7 +22,7 @@ const managedHeaders = new Set([
 
 export function normalizeCustomHeaders(
   value: unknown,
-  authMode: "none" | "oauth",
+  authMode: ConnectionAuthMode,
 ): Record<string, string> | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const entries = Object.entries(value);
@@ -32,7 +34,7 @@ export function normalizeCustomHeaders(
     if (
       !headerNamePattern.test(name) || name.length > 256 ||
       managedHeaders.has(lowerName) ||
-      (authMode === "oauth" && lowerName === "authorization") ||
+      (authMode !== "none" && lowerName === "authorization") ||
       seen.has(lowerName) ||
       typeof headerValue !== "string" ||
       headerValue.length > MAX_CUSTOM_HEADER_VALUE_LENGTH ||

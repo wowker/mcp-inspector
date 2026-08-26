@@ -18,6 +18,7 @@ describe("Streamable HTTP MCP session", () => {
       url: fixture.url,
       transport: "streamable-http",
       authMode: "none",
+      bearerToken: null,
       headers: { "X-API-Key": "local-secret", "X-Tenant": "supplier-eu" },
       redactSensitiveInfo: true,
       timeoutMs: 2_000,
@@ -42,6 +43,41 @@ describe("Streamable HTTP MCP session", () => {
         .toBe(true);
       expect(observations.filter((event) => event.kind === "http-request").every((event) =>
         event.headers["x-api-key"] === "[REDACTED]" && event.headers["x-tenant"] === "supplier-eu"))
+        .toBe(true);
+    } finally {
+      await session.close();
+    }
+  });
+
+  it("sends a configured Bearer token together with custom headers", async () => {
+    const fixture = await startStreamableMcpServer();
+    stop = fixture.stop;
+    const observations: WireObservation[] = [];
+    const session = await createStreamableMcpSessionFactory()({
+      id: "00000000-0000-4000-8000-000000000403",
+      projectId: "00000000-0000-4000-8000-000000000001",
+      name: "Bearer fixture",
+      url: fixture.url,
+      transport: "streamable-http",
+      authMode: "bearer",
+      bearerToken: "opaque.test-token_123",
+      headers: { "X-Tenant": "supplier-eu" },
+      redactSensitiveInfo: true,
+      timeoutMs: 2_000,
+      status: "disconnected",
+      lastProtocolVersion: null,
+      lastServerInfo: null,
+      lastError: null,
+    }, (event) => observations.push(event));
+
+    try {
+      await session.listTools();
+      expect(fixture.receivedRequestHeaders.length).toBeGreaterThan(0);
+      expect(fixture.receivedRequestHeaders.every((headers) =>
+        headers.authorization === "Bearer opaque.test-token_123" && headers["x-tenant"] === "supplier-eu"))
+        .toBe(true);
+      expect(observations.filter((event) => event.kind === "http-request").every((event) =>
+        event.headers.authorization === "[REDACTED]" && event.headers["x-tenant"] === "supplier-eu"))
         .toBe(true);
     } finally {
       await session.close();

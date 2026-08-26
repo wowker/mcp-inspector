@@ -11,6 +11,7 @@ function validConnection(overrides: Record<string, unknown> = {}) {
     url: "https://mcp.example.test/mcp?region=eu",
     transport: "streamable-http",
     authMode: "none",
+    bearerToken: null,
     headers: {},
     redactSensitiveInfo: true,
     authorizationStatus: "not-required",
@@ -59,7 +60,7 @@ describe("connection API response decoding", () => {
     ["non-HTTP URL", { connections: [validConnection({ url: "file:///tmp/server" })] }],
     ["credential URL", { connections: [validConnection({ url: "https://user:secret@mcp.example.test/mcp" })] }],
     ["unsupported transport", { connections: [validConnection({ transport: "sse" })] }],
-    ["unsupported auth", { connections: [validConnection({ authMode: "bearer" })] }],
+    ["unsupported auth", { connections: [validConnection({ authMode: "basic" })] }],
     ["unknown runtime state", { connections: [validConnection({ status: "ready" })] }],
     ["invalid timeout", { connections: [validConnection({ timeoutMs: 99 })] }],
     ["invalid headers", { connections: [validConnection({ headers: { "Bad Header": "value" } })] }],
@@ -91,6 +92,24 @@ describe("connection API response decoding", () => {
       ]);
     },
   );
+
+  it("accepts Bearer authentication only with a non-empty token", async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      connections: [validConnection({
+        authMode: "bearer", bearerToken: "opaque.test-token_123", authorizationStatus: "not-required",
+      })],
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    await expect(createApiClient("session").listConnections(projectId)).resolves.toEqual([
+      validConnection({ authMode: "bearer", bearerToken: "opaque.test-token_123", authorizationStatus: "not-required" }),
+    ]);
+
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      connections: [validConnection({ authMode: "bearer", bearerToken: null })],
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    await expect(createApiClient("session").listConnections(projectId))
+      .rejects.toThrow("Invalid connection response");
+  });
 
   it("validates the create envelope against the requested project", async () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({

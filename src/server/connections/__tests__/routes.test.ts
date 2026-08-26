@@ -68,6 +68,7 @@ describe("connection routes", () => {
       }),
     });
     const listResponse = await app().request(`/api/projects/${project.id}/connections`, { headers });
+    expect(listResponse.headers.get("Cache-Control")).toBe("no-store");
     expect(await listResponse.json()).toEqual({
       connections: [expect.objectContaining({ status: "disconnected", headers: { "X-API-Key": "local-secret" } })],
     });
@@ -81,7 +82,7 @@ describe("connection routes", () => {
     await inspector.request(`/api/projects/${project.id}/connections`, {
       method: "POST", headers,
       body: JSON.stringify({ name: "Catalog MCP", url: "https://mcp.example.test/mcp",
-        transport: "streamable-http", authMode: "none", timeoutMs: 10_000,
+        transport: "streamable-http", authMode: "bearer", bearerToken: "export-secret-token", timeoutMs: 10_000,
         headers: { "X-API-Key": "local-secret" } }),
     });
     const store = projects.open(project.id);
@@ -134,7 +135,9 @@ describe("connection routes", () => {
       format: "mcp-inspector-server-export", version: 1,
       project: { id: project.id, name: "Supplier Tools" },
       server: { id: connectionId, name: "Catalog MCP",
+        authMode: "bearer", bearerToken: null,
         headers: [{ name: "X-API-Key", value: null, redacted: true }] },
+      security: { bearerTokenIncluded: false, customHeaderValuesIncluded: false },
       data: {
         toolSnapshots: [{ id: snapshotId, toolName: "sum" }], tools: [{ name: "sum" }],
         folders: [{ id: folderId, name: "Smoke tests" }],
@@ -147,6 +150,7 @@ describe("connection routes", () => {
       },
     });
     expect(JSON.stringify(bundle)).not.toContain("local-secret");
+    expect(JSON.stringify(bundle)).not.toContain("export-secret-token");
   });
 
   it("inherits API authentication and returns stable validation errors", async () => {

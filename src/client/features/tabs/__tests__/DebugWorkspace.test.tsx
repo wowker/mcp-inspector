@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
@@ -527,6 +527,24 @@ describe("DebugWorkspace", () => {
     await waitFor(() => expect(openTab).toHaveBeenCalledTimes(1)); expect(api.replaceTabTool).not.toHaveBeenCalled();
   });
 
+  it("copies the Tool name from the first Tab menu action", async () => {
+    const current = { ...tab("00000000-0000-4000-8000-000000000677", "sum (3)", {}), toolName: "sum" };
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const api = { listTabs: vi.fn(async () => [current]), getTool: vi.fn(async () => tool), updateTab: vi.fn() } as unknown as InspectorApiClient;
+    const user = userEvent.setup();
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    render(<DebugWorkspace api={api} projectId={projectId} />);
+
+    await user.click(await screen.findByLabelText("sum (3) 操作"));
+    const menu = screen.getByLabelText("sum (3) Tab 操作菜单");
+    const actions = within(menu).getAllByRole("button");
+    expect(actions[0]).toHaveAccessibleName("复制名称");
+    await user.click(actions[0]!);
+
+    expect(writeText).toHaveBeenCalledWith("sum");
+    expect(await screen.findByText("Tool 名称已复制")).toHaveClass("copy-toast");
+  });
+
   it("links Tabs to their panel, supports roving keys, and focuses fallback after close", async () => {
     const tabs = [tab("00000000-0000-4000-8000-000000000633", "sum", {}),
       { ...tab("00000000-0000-4000-8000-000000000634", "sum (2)", {}), position: 1 }];
@@ -806,13 +824,13 @@ describe("DebugWorkspace", () => {
   });
 
   it("invokes every Tab menu action from the keyboard", async () => {
-    const callbacks = { onSelect: vi.fn(), onClose: vi.fn(), onDuplicate: vi.fn(), onPin: vi.fn(),
+    const callbacks = { onSelect: vi.fn(), onCopyName: vi.fn(), onClose: vi.fn(), onDuplicate: vi.fn(), onPin: vi.fn(),
       onCloseOthers: vi.fn(), onCloseRight: vi.fn(), onMove: vi.fn() };
     const tabs = [tab("00000000-0000-4000-8000-000000000644", "sum", {}),
       { ...tab("00000000-0000-4000-8000-000000000645", "sum (2)", {}), position: 1 }];
     render(<TabStrip tabs={tabs} activeId={tabs[0].id} {...callbacks} />); const user = userEvent.setup();
     const actions: Array<[string, ReturnType<typeof vi.fn>]> = [
-      ["复制 Tab", callbacks.onDuplicate], ["固定", callbacks.onPin],
+      ["复制名称", callbacks.onCopyName], ["复制 Tab", callbacks.onDuplicate], ["固定", callbacks.onPin],
       ["右移", callbacks.onMove], ["关闭其他", callbacks.onCloseOthers], ["关闭右侧", callbacks.onCloseRight],
     ];
     const summary = screen.getByLabelText("sum 操作");
@@ -833,7 +851,7 @@ describe("DebugWorkspace", () => {
   });
 
   it("dismisses an open Tab menu when clicking elsewhere or pressing Escape", async () => {
-    const callbacks = { onSelect: vi.fn(), onClose: vi.fn(), onDuplicate: vi.fn(), onPin: vi.fn(),
+    const callbacks = { onSelect: vi.fn(), onCopyName: vi.fn(), onClose: vi.fn(), onDuplicate: vi.fn(), onPin: vi.fn(),
       onCloseOthers: vi.fn(), onCloseRight: vi.fn(), onMove: vi.fn() };
     const saved = tab("00000000-0000-4000-8000-000000000646", "sum", {});
     const user = userEvent.setup();

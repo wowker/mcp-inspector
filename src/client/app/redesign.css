@@ -494,16 +494,24 @@ textarea::placeholder { color: var(--ui-text-subtle); opacity: 1; }
   padding: 0;
 }
 
-.connection-fields label { color: var(--ui-text-muted); }
+.connection-fields label,
+.connection-bearer-token { color: var(--ui-text-muted); }
 .connection-fields input,
-.connection-fields select { min-height: 36px; background: var(--ui-surface); }
+.connection-fields select { min-height: 36px; color: var(--ui-text); background: var(--ui-surface); }
 .connection-fields small { color: var(--ui-text-muted); }
+.connection-secret-input button { color: var(--ui-text-muted); }
+.connection-secret-input button:hover,
+.connection-secret-input button[aria-pressed="true"] { color: var(--ui-accent); background: var(--ui-accent-muted); }
+.connection-secret-input button:active:not(:disabled) { transform: translateY(-50%); }
 .connection-headers__heading h4 { color: var(--ui-text); }
 .connection-headers__heading p,
 .connection-headers__empty { color: var(--ui-text-muted); }
 .connection-headers__empty { border-color: var(--ui-border); }
 .connection-header-row label { color: var(--ui-text-muted); }
-.connection-header-row input { background: var(--ui-surface); }
+.connection-header-row input { color: var(--ui-text); background: var(--ui-surface); }
+.connection-header-row__visibility { border-color: var(--ui-border); color: var(--ui-text-muted); background: var(--ui-surface); }
+.connection-header-row__visibility:hover:not(:disabled),
+.connection-header-row__visibility[aria-pressed="true"] { color: var(--ui-accent); background: var(--ui-accent-muted); }
 .connection-header-row__remove { border-color: var(--ui-border); color: var(--ui-danger); background: var(--ui-surface); }
 .connection-header-row__remove:hover:not(:disabled) { background: var(--ui-danger-muted); }
 .connection-headers__notice { color: var(--ui-warning); }
@@ -515,6 +523,7 @@ textarea::placeholder { color: var(--ui-text-subtle); opacity: 1; }
 .connection-fixed-options dt { color: var(--ui-text-muted); }
 .connection-fixed-options dd { color: var(--ui-text); }
 .dialog-actions { border-top-color: var(--ui-border); }
+.connection-dialog-form .dialog-actions { background: var(--ui-surface-muted); }
 
 .project-picker,
 .active-project {
