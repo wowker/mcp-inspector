@@ -12,6 +12,19 @@ function json(value: unknown): string {
   try { return JSON.stringify(value, null, 2) ?? "null"; } catch { return "[无法序列化]"; }
 }
 
+function canonicalJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (typeof value !== "object" || value === null) return value;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, item]) => [key, canonicalJson(item)]));
+}
+
+function canonicalJsonText(value: unknown): string | null {
+  try { return JSON.stringify(canonicalJson(value)) ?? null; }
+  catch { return null; }
+}
+
 function CopyButton({ value, label = "复制", className }: { value: unknown; label?: string; className?: string }) {
   const [error, setError] = useState(false);
   async function copy(): Promise<void> {
@@ -125,6 +138,16 @@ export function RunResultPanel({ run, onSaveResponse }: { run: RunDetail; onSave
   const result = run.response?.result;
   const resultRecord = typeof result === "object" && result !== null && !Array.isArray(result) ? result as Record<string, unknown> : null;
   const content = Array.isArray(resultRecord?.content) ? resultRecord.content : [];
+  const structuredContent = resultRecord !== null && "structuredContent" in resultRecord ? resultRecord.structuredContent : undefined;
+  const structuredFingerprint = useMemo(() => structuredContent === undefined ? null : canonicalJsonText(structuredContent), [structuredContent]);
+  const visibleContent = content.map((block, index) => ({ block, index })).filter(({ block }) => {
+    if (structuredFingerprint === null) return true;
+    if (typeof block !== "object" || block === null || Array.isArray(block)) return true;
+    const record = block as Record<string, unknown>;
+    if (record.type !== "text" || typeof record.text !== "string") return true;
+    const parsed = parseJsonDocument(record.text);
+    return parsed === null || canonicalJsonText(parsed) !== structuredFingerprint;
+  });
   const requestHttp = typeof run.request.http === "object" && run.request.http !== null && !Array.isArray(run.request.http)
     ? run.request.http as Record<string, unknown> : null;
   const safeRequestHttp = requestHttp === null ? null : { ...requestHttp, headers: redactHeaders(requestHttp.headers) };
@@ -154,8 +177,8 @@ export function RunResultPanel({ run, onSaveResponse }: { run: RunDetail; onSave
           <div className="section-toolbar"><h2 id={`response-title-${run.id}`}>请求结果</h2></div>
           {run.response === null ? <p role="status">等待运行结果…</p> : <div className="result-content-flow">
             {run.response.error !== null && <JsonValue value={run.response.error} label="错误" defaultExpanded="all" />}
-            {resultRecord !== null && "structuredContent" in resultRecord && <JsonValue value={resultRecord.structuredContent} label="结构化响应" hideLabel defaultExpanded="all" />}
-            {content.map((block, index) => <ContentBlock key={index} value={block} index={index} />)}
+            {structuredContent !== undefined && <JsonValue value={structuredContent} label="结构化响应" hideLabel defaultExpanded="all" />}
+            {visibleContent.map(({ block, index }) => <ContentBlock key={index} value={block} index={index} />)}
             {result !== null && resultRecord === null && <JsonValue value={result} label="结果" defaultExpanded="all" />}
           </div>}
         </section>

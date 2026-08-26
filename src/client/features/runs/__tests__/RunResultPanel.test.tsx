@@ -69,6 +69,20 @@ describe("RunResultPanel", () => {
     expect(screen.getAllByRole("button", { name: "收起 JSON" }).length).toBeGreaterThan(0);
   });
 
+  it("shows duplicated structured and text JSON only once while preserving it in the raw disclosure", () => {
+    const duplicate = { profile: { id: "acct-1", plan: "pro" } };
+    render(<RunResultPanel run={{ ...run, response: { ...run.response!, result: {
+      structuredContent: duplicate,
+      content: [{ type: "text", text: JSON.stringify(duplicate) }],
+    } } }} />);
+
+    expect(screen.getAllByText(/acct-1/)).toHaveLength(1);
+    const disclosure = screen.getByText("原始请求与响应").closest("details")!;
+    disclosure.open = true;
+    fireEvent(disclosure, new Event("toggle"));
+    expect(screen.getByText("完整响应")).toBeVisible();
+  });
+
   it("keeps immutable raw request material collapsed until requested", () => {
     const writeText = vi.fn().mockRejectedValue(new Error("denied"));
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
