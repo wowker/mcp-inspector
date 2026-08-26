@@ -51,8 +51,8 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     await page.getByRole("button", { name: "连接 Loopback MCP" }).click();
     await expect(page.getByRole("tab", { name: "Loopback MCP" })).toHaveAttribute("aria-selected", "true");
     await expect(page.getByRole("heading", { name: "Tools", level: 1 })).toBeVisible();
-    await expect(page.getByRole("treeitem", { name: "echo，当前" })).toBeVisible();
-    const sumTool = page.getByRole("treeitem", { name: "sum，当前" });
+    await expect(page.getByRole("treeitem", { name: "echo" })).toBeVisible();
+    const sumTool = page.getByRole("treeitem", { name: "sum" });
     await expect(sumTool).toBeVisible();
 
     const titles = ["sum", ...Array.from({ length: 7 }, (_, index) => `sum (${index + 2})`)];
