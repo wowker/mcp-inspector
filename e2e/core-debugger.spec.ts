@@ -15,7 +15,7 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
   let inspector: InspectorRuntime | undefined;
   let primaryFailure: unknown;
   try {
-    mcp = await startStreamableMcpServer({ controlCalls: true });
+    mcp = await startStreamableMcpServer({ controlCalls: true, includeChoiceTool: true });
     inspector = await startInspector({
       host: "127.0.0.1",
       port: 0,
@@ -64,6 +64,28 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     await toolSearch.focus();
     await expect(toolSearch).toHaveCSS("outline-style", "none");
     await expect(toolSearch.locator("xpath=..")).not.toHaveCSS("box-shadow", "none");
+
+    const choiceTool = page.getByRole("treeitem", { name: "choose_mode" });
+    await choiceTool.dblclick();
+    await expect(page.getByRole("tab", { name: "choose_mode", exact: true })).toBeVisible();
+    const workbenchContent = page.locator(".workbench-content");
+    await expect(workbenchContent).toHaveCSS("overflow-y", "hidden");
+    const workbenchBounds = await workbenchContent.evaluate((element) => ({
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+    }));
+    expect(workbenchBounds.scrollHeight).toBeLessThanOrEqual(workbenchBounds.clientHeight);
+    const choiceRequestPane = page.locator(".request-pane");
+    const filteredOption = page.locator(".schema-radio-option").filter({ hasText: "filtered" });
+    await filteredOption.evaluate((element) => element.scrollIntoView({ block: "center" }));
+    const choiceScrollTop = await choiceRequestPane.evaluate((element) => element.scrollTop);
+    expect(choiceScrollTop).toBeGreaterThan(0);
+    const filteredBox = await filteredOption.boundingBox();
+    expect(filteredBox).not.toBeNull();
+    await page.mouse.click(filteredBox!.x + filteredBox!.width / 2, filteredBox!.y + filteredBox!.height / 2);
+    await expect(page.getByRole("radio", { name: "filtered" })).toBeChecked();
+    await expect.poll(() => choiceRequestPane.evaluate((element) => element.scrollTop)).toBe(choiceScrollTop);
+    await page.getByRole("button", { name: "关闭 choose_mode" }).click();
 
     await page.getByRole("button", { name: "创建文件夹" }).click();
     await page.getByRole("textbox", { name: "文件夹名称" }).fill("Commerce");

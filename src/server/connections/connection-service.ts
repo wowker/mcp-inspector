@@ -104,7 +104,9 @@ export function createConnectionService(projects: ProjectService, options: {
   const createId = options.createId ?? randomUUID;
   const now = options.now ?? (() => new Date());
   const oauth = new OAuthFlowCoordinator({
-    redirectUrl: options.oauthRedirectUrl ?? (() => "http://127.0.0.1:3000/oauth/callback"),
+    redirectUrl: options.oauthRedirectUrl ?? (() => {
+      throw new Error("OAuth redirect URL is unavailable");
+    }),
     openAuthorizationUrl: options.openAuthorizationUrl ?? (() => { throw new Error("OAuth browser opener is unavailable"); }),
   });
   const sessionFactory = options.sessionFactory ?? createStreamableMcpSessionFactory({ oauth });

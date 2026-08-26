@@ -176,6 +176,10 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
 
 const invokedPath = process.argv[1];
 if (invokedPath !== undefined && fileURLToPath(import.meta.url) === resolve(invokedPath)) {
-  void runInspectorCli({ start: () => startInspector({ clientOrigin: "http://127.0.0.1:5173" }) })
+  const configuredPort = process.env.MCP_INSPECTOR_PORT;
+  void runInspectorCli({ start: () => startInspector({
+    clientOrigin: "http://127.0.0.1:5173",
+    port: configuredPort === undefined ? undefined : Number(configuredPort),
+  }) })
     .then((exitCode) => { process.exitCode = exitCode; });
 }

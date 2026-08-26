@@ -322,6 +322,7 @@ textarea::placeholder { color: var(--ui-text-subtle); opacity: 1; }
 .topbar-action--primary:hover:not(:disabled) { color: var(--ui-action-text); border-color: var(--ui-action-hover); background: var(--ui-action-hover); }
 
 .workbench-content { background: var(--ui-canvas); }
+.workbench-content--tools { overflow: hidden; }
 .servers-page { width: min(100%, 1180px); padding: 36px 40px 56px; }
 
 .page-heading {
@@ -1080,6 +1081,7 @@ textarea::placeholder { color: var(--ui-text-subtle); opacity: 1; }
 .schema-field--json textarea,
 .schema-field--whole textarea { width: 100%; max-width: none; }
 .schema-switch {
+  position: relative;
   display: inline-flex;
   width: max-content;
   min-height: 38px;
@@ -1092,8 +1094,12 @@ textarea::placeholder { color: var(--ui-text-subtle); opacity: 1; }
 .schema-switch__input,
 .schema-radio-option input {
   position: absolute;
+  top: 50%;
+  left: 50%;
   width: 1px;
   height: 1px;
+  margin: 0;
+  transform: translate(-50%, -50%);
   opacity: 0;
   pointer-events: none;
 }
@@ -1131,6 +1137,7 @@ textarea::placeholder { color: var(--ui-text-subtle); opacity: 1; }
   padding-top: 3px;
 }
 .schema-radio-option {
+  position: relative;
   display: inline-flex;
   min-height: 38px;
   align-items: center;

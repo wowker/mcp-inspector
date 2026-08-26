@@ -157,11 +157,11 @@ describe("createRuntimeConfig", () => {
     expect(config.version).toBe(APP_VERSION);
   });
 
-  test("uses separate loopback origins for the API and Vite client", () => {
+  test("uses an OS-assigned port and a separate loopback origin for the Vite client", () => {
     const config = createRuntimeConfig({ sessionToken: "fixed" });
 
     expect(config.host).toBe("127.0.0.1");
-    expect(config.port).toBe(3000);
+    expect(config.port).toBe(0);
     expect(config.allowedOrigin).toBe("http://127.0.0.1:5173");
   });
 

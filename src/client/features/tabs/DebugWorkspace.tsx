@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { X } from "@phosphor-icons/react";
 import type { CatalogToolSummary, DebugTabSummary, InspectorApiClient, RunDetail, RunSummary, ToolDetailSummary } from "../../api/api-client.js";
 import { formatRawArguments, parseRawArguments } from "../../../shared/json.js";
@@ -83,6 +83,8 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActi
   const starts = useRef(new Set<string>());
   const activeRuns = useRef(new Map<string, string>());
   const settledLastRuns = useRef(new Map<string, string>());
+  const requestPaneRef = useRef<HTMLDivElement>(null);
+  const resultPaneRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (saveNotice === null) return;
@@ -372,6 +374,15 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActi
     !schemaHasEditableArguments(detail.tool.currentSnapshot.definition.inputSchema, active.arguments);
   const parametersExpanded = active === null ? true : parameterExpansion[active.id] ?? true;
 
+  useLayoutEffect(() => {
+    if (view !== "debug" || detail === null) return;
+    const tabId = activeRef.current;
+    const tab = tabId === null ? undefined : tabsRef.current.find(({ id }) => id === tabId);
+    if (tab === undefined) return;
+    if (requestPaneRef.current !== null) requestPaneRef.current.scrollTop = tab.viewState.editorScrollTop;
+    if (resultPaneRef.current !== null) resultPaneRef.current.scrollTop = tab.viewState.resultScrollTop;
+  }, [activeId, detail, view]);
+
   function resizeSplit(event: ReactPointerEvent<HTMLLabelElement>): void {
     if (active === null) return;
     const split = event.currentTarget.parentElement;
@@ -420,7 +431,7 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActi
       {view === "debug" && detail !== null && <div className={`request-result-split${selectedRunId === null ? " request-result-split--empty" : ""}${noEditableParameters ? " request-result-split--no-parameters" : ""}`}
         style={{ gridTemplateRows: noEditableParameters || !parametersExpanded
           ? "auto 10px minmax(0, 1fr)" : `${active.viewState.splitRatio * 100}% 10px 1fr` }}>
-        <div className="request-pane" ref={(node) => { if (node !== null && node.scrollTop !== active.viewState.editorScrollTop) node.scrollTop = active.viewState.editorScrollTop; }}
+        <div className="request-pane" ref={requestPaneRef}
           onScroll={(event) => schedule(active.id, { viewState: { ...active.viewState, editorScrollTop: event.currentTarget.scrollTop } })}>
           <ParameterEditor tab={active} schema={detail.tool.currentSnapshot.definition.inputSchema} executing={startingIds.has(active.id)}
             expanded={parametersExpanded} onExpandedChange={(expanded) => setParameterExpansion((current) => ({ ...current, [active.id]: expanded }))}
@@ -437,7 +448,7 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActi
           <input aria-label="请求区高度" type="range" min="20" max="80" value={active.viewState.splitRatio * 100}
             onChange={(event) => schedule(active.id, { viewState: { ...active.viewState, splitRatio: Number(event.target.value) / 100 } })} />
         </label>
-        <div className="result-placeholder" ref={(node) => { if (node !== null && node.scrollTop !== active.viewState.resultScrollTop) node.scrollTop = active.viewState.resultScrollTop; }}
+        <div className="result-placeholder" ref={resultPaneRef}
           onScroll={(event) => schedule(active.id, { viewState: { ...active.viewState, resultScrollTop: event.currentTarget.scrollTop } })}>
           {observed.error !== null && <p role="alert">{observed.error}</p>}
           {selectedRunId === null ? <EmptyRunResultPanel />

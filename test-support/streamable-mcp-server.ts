@@ -12,7 +12,7 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
   return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
 }
 
-export async function startStreamableMcpServer(options: { controlCalls?: boolean } = {}): Promise<{
+export async function startStreamableMcpServer(options: { controlCalls?: boolean; includeChoiceTool?: boolean } = {}): Promise<{
   url: string;
   receivedRequestHeaders: Array<Record<string, string | string[] | undefined>>;
   enteredTotals: number[];
@@ -33,6 +33,20 @@ export async function startStreamableMcpServer(options: { controlCalls?: boolean
     description: "Echo a message",
     inputSchema: { message: z.string() },
   }, async ({ message }) => ({ content: [{ type: "text", text: message }] }));
+  if (options.includeChoiceTool === true) {
+    mcp.registerTool("choose_mode", {
+      description: "Choose an order selection mode",
+      inputSchema: {
+        field_01: z.string().optional(), field_02: z.string().optional(),
+        field_03: z.string().optional(), field_04: z.string().optional(),
+        field_05: z.string().optional(), field_06: z.string().optional(),
+        field_07: z.string().optional(), field_08: z.string().optional(),
+        field_09: z.string().optional(), field_10: z.string().optional(),
+        field_11: z.string().optional(), field_12: z.string().optional(),
+        selection_mode: z.enum(["selected", "filtered"]),
+      },
+    }, async ({ selection_mode }) => ({ content: [{ type: "text", text: selection_mode }] }));
+  }
   mcp.registerTool("sum", {
     description: "Add two numbers",
     inputSchema: { a: z.number(), b: z.number() },

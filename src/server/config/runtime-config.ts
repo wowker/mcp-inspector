@@ -17,7 +17,9 @@ export function createRuntimeConfig(
   overrides: RuntimeConfigOverrides = {},
 ): RuntimeConfig {
   const host = overrides.host ?? "127.0.0.1";
-  const port = overrides.port ?? 3000;
+  // Port 0 asks the operating system to atomically select an available
+  // ephemeral port when the listener is created.
+  const port = overrides.port ?? 0;
 
   if (host !== "127.0.0.1") {
     throw new Error("MCP Inspector must bind to the IPv4 loopback address");

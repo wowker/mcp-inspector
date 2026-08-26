@@ -14,7 +14,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\"",
+    "dev": "node scripts/start-dev.mjs",
     "dev:server": "tsx watch src/server/main.ts",
     "dev:client": "vite",
     "start": "node bin/mcp-inspector.mjs",

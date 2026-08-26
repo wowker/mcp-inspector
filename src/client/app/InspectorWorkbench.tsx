@@ -228,7 +228,7 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
           </div>
         </header>
 
-        <main id="workbench-content" className="workbench-content" tabIndex={-1}>
+        <main id="workbench-content" className={`workbench-content workbench-content--${page}`} tabIndex={-1}>
           {page === "servers" ? (
             <section className="servers-page" aria-labelledby="servers-page-title">
               <header className="page-heading">

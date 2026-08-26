@@ -14,6 +14,24 @@ function fixture() {
 }
 
 describe("startInspector", () => {
+  test("asks the operating system for an available port by default", async () => {
+    const { dataRoot, staticRoot } = fixture();
+    let browserUrl = "";
+    const runtime = await startInspector({
+      dataRoot,
+      staticRoot,
+      installSignalHandlers: false,
+      openBrowser: async (url) => { browserUrl = url; },
+    });
+    try {
+      expect(runtime.address.port).toBeGreaterThan(0);
+      expect(runtime.address.origin).toBe(`http://127.0.0.1:${runtime.address.port}`);
+      expect(new URL(browserUrl).origin).toBe(runtime.address.origin);
+    } finally {
+      await runtime.close();
+    }
+  });
+
   test("listens on IPv4 loopback, opens only after listening, and generates a strong token", async () => {
     const { dataRoot, staticRoot } = fixture();
     const opened: string[] = [];
