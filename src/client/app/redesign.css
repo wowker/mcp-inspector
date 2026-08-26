@@ -898,6 +898,7 @@ textarea::placeholder { color: var(--ui-text-subtle); opacity: 1; }
 .optional-chip { color: var(--ui-text-muted); background: var(--ui-surface-muted); }
 .annotation-chip--warning,
 .required-chip { color: var(--ui-danger); background: var(--ui-danger-muted); }
+.required-marker { color: var(--ui-danger); }
 .type-chip { color: var(--ui-accent); background: var(--ui-accent-muted); }
 .definition-empty { color: var(--ui-text-muted); border-color: var(--ui-border); background: var(--ui-surface-muted); }
 .definition-schema-table-wrap,

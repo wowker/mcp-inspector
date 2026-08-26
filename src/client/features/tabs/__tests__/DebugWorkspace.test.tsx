@@ -117,6 +117,20 @@ describe("DebugWorkspace", () => {
     expect(onChange).toHaveBeenCalledWith({ inputMode: "form" });
   });
 
+  it("marks required Form fields with an asterisk and uses the input placeholder for missing values", () => {
+    render(<ParameterEditor tab={tab("00000000-0000-4000-8000-000000000615", "sum", {})}
+      schema={{ type: "object", properties: { task_id: { type: "string" } }, required: ["task_id"] }} onChange={vi.fn()} />);
+
+    const input = screen.getByRole("textbox", { name: /task_id/ });
+    expect(screen.getByText("*", { selector: ".required-marker" })).toBeVisible();
+    expect(screen.queryByText("task_id（必填）")).not.toBeInTheDocument();
+    expect(input).toHaveAttribute("placeholder", "请输入必填参数");
+    expect(input).toBeRequired();
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(screen.queryByRole("alert", { name: "请输入必填参数" })).not.toBeInTheDocument();
+    expect(screen.queryByText("请输入必填参数")).not.toBeInTheDocument();
+  });
+
   it("debounces draft persistence for 300ms", async () => {
     vi.useFakeTimers();
     const saved = tab("00000000-0000-4000-8000-000000000620", "sum", { a: 1 });

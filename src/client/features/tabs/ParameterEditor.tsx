@@ -32,16 +32,17 @@ function rawErrorMessage(message: string): string {
     : "JSON 语法错误，请检查括号、引号和逗号";
 }
 
-function JsonSubtreeEditor({ id, value, describedBy, draft, objectOnly = false, onDraftChange, onCommit }: {
+function JsonSubtreeEditor({ id, value, describedBy, draft, objectOnly = false, required = false, onDraftChange, onCommit }: {
   id: string; value: unknown; describedBy?: string; draft?: { text: string; base: string };
-  objectOnly?: boolean; onDraftChange?: (text: string, base: string) => void; onCommit: (value: unknown) => void;
+  objectOnly?: boolean; required?: boolean; onDraftChange?: (text: string, base: string) => void; onCommit: (value: unknown) => void;
 }) {
   const formatted = value === undefined ? "" : JSON.stringify(value, null, 2);
   const [localText, setLocalText] = useState(formatted);
   const [invalid, setInvalid] = useState(false);
   const text = draft?.base === formatted ? draft.text : draft === undefined ? localText : formatted;
   useEffect(() => { if (draft === undefined) setLocalText(formatted); }, [draft, formatted]);
-  return <><textarea id={id} value={text} aria-describedby={describedBy} aria-invalid={invalid}
+  return <><textarea id={id} value={text} required={required} placeholder={required ? "请输入必填参数" : undefined}
+    aria-describedby={describedBy} aria-invalid={invalid}
     onChange={(event) => { onDraftChange?.(event.target.value, formatted); if (draft === undefined) setLocalText(event.target.value); setInvalid(false); }}
     onBlur={() => { try { const parsed: unknown = JSON.parse(text);
       if (objectOnly && (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))) throw new Error("object required");
@@ -128,30 +129,35 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveReques
       </div>}
       {!wholeFallback && fields.map((field) => {
         const errors = issuesAt(field.path); const inputId = `${tab.id}-${field.name}`;
-        const describedBy = errors.length > 0 ? `${inputId}-error` : undefined;
+        const visibleErrors = errors.filter(({ keyword }) => keyword !== "required");
+        const describedBy = visibleErrors.length > 0 ? `${inputId}-error` : undefined;
         return <div className={`schema-field schema-field--${field.kind}`} key={field.name}>
-          <label htmlFor={inputId}>{field.name}{field.required ? "（必填）" : ""}{field.additional ? "（附加参数）" : ""}</label>
+          <label htmlFor={inputId}>{field.name}{field.required && <><span className="required-marker" aria-hidden="true">*</span><span className="sr-only">必填</span></>}
+            {field.additional ? "（附加参数）" : ""}</label>
           {field.description && <p>{field.description}</p>}
           {field.defaultValue !== undefined && field.value === undefined && <p>默认值：{JSON.stringify(field.defaultValue)}</p>}
           {Object.keys(field.constraints).length > 0 && <p>约束：{Object.entries(field.constraints)
             .map(([name, value]) => `${name}=${String(value)}`).join("，")}</p>}
-          {field.kind === "boolean" ? <input id={inputId} type="checkbox" checked={Boolean(field.value)} aria-describedby={describedBy}
+          {field.kind === "boolean" ? <input id={inputId} type="checkbox" checked={Boolean(field.value)}
+            aria-invalid={errors.length > 0} aria-describedby={describedBy}
             onChange={(event) => edit(field.name, event.target.checked)} />
           : field.kind === "enum" ? <select id={inputId} value={String(field.enumValues?.findIndex((item) => Object.is(item, field.value)) ?? "")}
-              aria-describedby={describedBy} onChange={(event) => { const next = valueFromInput(field, event.target.value); if (next.ok) edit(field.name, next.value); }}>
-              <option value="">请选择</option>{field.enumValues?.map((item, index) => <option value={index} key={index}>{String(item)}</option>)}</select>
+              required={field.required} aria-invalid={errors.length > 0} aria-describedby={describedBy}
+              onChange={(event) => { const next = valueFromInput(field, event.target.value); if (next.ok) edit(field.name, next.value); }}>
+              <option value="">{field.required ? "请选择必填参数" : "请选择"}</option>{field.enumValues?.map((item, index) => <option value={index} key={index}>{String(item)}</option>)}</select>
           : field.kind === "json" ? <JsonSubtreeEditor id={inputId} value={field.value} describedBy={describedBy}
-              draft={subtreeDrafts[field.path]} onDraftChange={(text, base) => onSubtreeDraftChange?.(field.path, text, base)}
+              required={field.required} draft={subtreeDrafts[field.path]} onDraftChange={(text, base) => onSubtreeDraftChange?.(field.path, text, base)}
               onCommit={(value) => edit(field.name, value)} />
           : <input id={inputId} type={field.kind === "string" ? "text" : "number"} value={field.value === undefined ? "" : String(field.value)}
-              step={field.kind === "integer" ? 1 : "any"} aria-describedby={describedBy}
+              step={field.kind === "integer" ? 1 : "any"} required={field.required} placeholder={field.required ? "请输入必填参数" : undefined}
+              aria-invalid={errors.length > 0} aria-describedby={describedBy}
               min={typeof field.constraints.minimum === "number" ? field.constraints.minimum : undefined}
               max={typeof field.constraints.maximum === "number" ? field.constraints.maximum : undefined}
               minLength={typeof field.constraints.minLength === "number" ? field.constraints.minLength : undefined}
               maxLength={typeof field.constraints.maxLength === "number" ? field.constraints.maxLength : undefined}
               pattern={typeof field.constraints.pattern === "string" ? field.constraints.pattern : undefined}
               onChange={(event) => { const next = valueFromInput(field, event.target.value); if (next.ok) edit(field.name, next.value); }} />}
-          {errors.length > 0 && <p id={`${inputId}-error`} role="alert">{errors.map(issueMessage).join("；")}</p>}
+          {visibleErrors.length > 0 && <p id={`${inputId}-error`} role="alert">{visibleErrors.map(issueMessage).join("；")}</p>}
         </div>;
       })}
     </div>}

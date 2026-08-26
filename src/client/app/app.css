@@ -712,6 +712,7 @@ summary:focus-visible {
 .optional-chip { display: inline-flex; width: fit-content; padding: 4px 8px; border-radius: 6px; color: #344054; background: #f2f4f7; font-size: 0.76rem; font-weight: 700; }
 .annotation-chip--warning { color: #b42318; background: #fef3f2; }
 .required-chip { color: #b42318; background: #fef3f2; }
+.required-marker { margin-inline-start: 4px; color: #d92d20; }
 .optional-chip { color: #475467; background: #f2f4f7; }
 .type-chip { color: #175cd3; background: #eff8ff; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .definition-empty { margin: 0; padding: 14px; color: #667085; border: 1px dashed #d0d5dd; background: #fcfcfd; }

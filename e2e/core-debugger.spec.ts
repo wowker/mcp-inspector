@@ -68,7 +68,7 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     await page.getByLabel("完整 arguments JSON").fill("{}");
     await page.getByRole("tab", { name: "Form" }).click();
     await expect(page.getByRole("tab", { name: "Form" })).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByLabel(/^a（必填）$/)).toBeVisible();
+    await expect(page.getByLabel(/^a(?:\s|\*)*必填$/)).toBeVisible();
     await page.getByRole("button", { name: "Tool 定义" }).click();
     const definition = page.locator("article.tool-definition");
     await expect(definition.getByText("Add two numbers")).toBeVisible();
@@ -85,8 +85,8 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
       await tab.click();
       await expect(tab).toHaveAttribute("aria-selected", "true");
       if (index % 2 === 0) {
-        await page.getByLabel(/^a（必填）$/).fill(String(inputs[index].a));
-        await page.getByLabel(/^b（必填）$/).fill(String(inputs[index].b));
+        await page.getByLabel(/^a(?:\s|\*)*必填$/).fill(String(inputs[index].a));
+        await page.getByLabel(/^b(?:\s|\*)*必填$/).fill(String(inputs[index].b));
       } else {
         await page.getByRole("tab", { name: "Raw JSON" }).click();
         await page.getByLabel("完整 arguments JSON").fill(JSON.stringify(inputs[index], ["a", "b"]));
@@ -186,8 +186,8 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
       await expect(tab).toHaveAttribute("aria-selected", "true");
       await expect(page.getByRole("tab", { name: index % 2 === 0 ? "Form" : "Raw JSON" })).toHaveAttribute("aria-selected", "true");
       if (index % 2 === 0) {
-        await expect(page.getByLabel(/^a（必填）$/)).toHaveValue(String(inputs[index].a));
-        await expect(page.getByLabel(/^b（必填）$/)).toHaveValue(String(inputs[index].b));
+        await expect(page.getByLabel(/^a(?:\s|\*)*必填$/)).toHaveValue(String(inputs[index].a));
+        await expect(page.getByLabel(/^b(?:\s|\*)*必填$/)).toHaveValue(String(inputs[index].b));
       } else {
         const raw = await page.getByLabel("完整 arguments JSON").inputValue();
         expect(JSON.parse(raw)).toEqual({ a: inputs[index].a, b: inputs[index].b });
