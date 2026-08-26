@@ -58,13 +58,15 @@ describe("Run workspace", () => {
   it("restores a nonterminal lastRunId as the active execution gate after reload", async () => {
     const running = { ...detail(), status: "running" as const, completedAt: null, durationMs: null, response: null };
     let streamSignal: AbortSignal | undefined;
-    const client = api({ listTabs: vi.fn(async () => [{ ...tab, lastRunId: runId }]), getRun: vi.fn(async () => running),
+    const client = api({ listTabs: vi.fn(async () => [{ ...tab, lastRunId: runId }]), getRun: vi.fn(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 25)); return running;
+    }),
       openRunEventStream: vi.fn((_project, _run, _after, signal) => {
         streamSignal = signal; return new Promise<Response>((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }));
-      }) });
+    }) });
     const view = render(<DebugWorkspace api={client} projectId={projectId} />);
     await waitFor(() => expect(screen.getByRole("button", { name: "执行中…" })).toBeDisabled());
-    expect(client.openRunEventStream).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(client.openRunEventStream).toHaveBeenCalledTimes(1));
     fireEvent.keyDown(screen.getByLabelText("a"), { key: "Enter", ctrlKey: true }); expect(client.startRun).not.toHaveBeenCalled();
     view.unmount(); expect(streamSignal?.aborted).toBe(true);
   });
