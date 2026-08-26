@@ -370,7 +370,8 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
       {view === "definition" && detail !== null && <ToolDefinitionView detail={detail} />}
       {view === "saved" && <SavedItemsView api={api} projectId={projectId} connectionId={active.connectionId} toolName={active.toolName}
         refreshKey={savedRevision} onLoadRequest={(payload) => { schedule(active.id, { arguments: payload, rawText: formatRawArguments(payload) }); setView("debug"); }} />}
-      {view === "history" && <RunHistory api={api} projectId={projectId} tabId={active.id} onOpen={(run) => void openHistory(run)} />}
+      {view === "history" && <RunHistory api={api} projectId={projectId} tabId={active.id} connectionId={active.connectionId}
+        toolName={active.toolName} onOpen={(run) => void openHistory(run)} />}
     </div>}
     {saveIntent !== null && <SavedItemDialog api={api} projectId={projectId} connectionId={saveIntent.connectionId}
       toolName={saveIntent.toolName} kind={saveIntent.kind} payload={saveIntent.payload} sourceRunId={saveIntent.sourceRunId}

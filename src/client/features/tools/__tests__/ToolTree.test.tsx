@@ -74,6 +74,26 @@ describe("ToolTree", () => {
     expect(screen.queryByRole("treeitem", { name: /cancel_supplier_order/ })).not.toBeInTheDocument();
   });
 
+  it("ranks an exact Tool name ahead of partial name and description matches", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<ToolTree
+      connections={[first]}
+      catalogs={{ [first.id]: [
+        catalog(first.id, "price_helper", "Calls update_pre_publish_product_price after validation", "current"),
+        catalog(first.id, "update_pre_publish_product_prices_preview", "Preview product prices", "current"),
+        catalog(first.id, "update_pre_publish_product_price", "Update one product price", "current"),
+      ] }}
+      onRefresh={vi.fn()} onSelectTool={vi.fn()} onOpenTool={vi.fn()}
+    />);
+
+    await user.type(screen.getByRole("searchbox", { name: "搜索 Tool" }), "update_pre_publish_product_price");
+    expect([...container.querySelectorAll(".tool-item strong")].map((node) => node.textContent)).toEqual([
+      "update_pre_publish_product_price",
+      "update_pre_publish_product_prices_preview",
+      "price_helper",
+    ]);
+  });
+
   it("shows a clean catalog summary instead of raw description markup", () => {
     render(<ToolTree
       connections={[first]}

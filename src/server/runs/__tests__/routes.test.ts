@@ -50,8 +50,12 @@ describe("run routes", () => {
 
   it("passes a validated Tab filter to the project-scoped history service", async () => {
     const list = vi.fn(() => ({ runs: [summary], nextCursor: null }));
-    const response = await createRunRoutes(fake({ list })).request(`/${projectId}/runs?tabId=${tabId}&cursor=opaque`);
-    expect(response.status).toBe(200); expect(list).toHaveBeenCalledWith(projectId, "opaque", tabId);
+    const response = await createRunRoutes(fake({ list })).request(
+      `/${projectId}/runs?tabId=${tabId}&connectionId=${summary.connectionId}&toolName=sum&cursor=opaque`);
+    expect(response.status).toBe(200);
+    expect(list).toHaveBeenCalledWith(projectId, "opaque", { tabId, connectionId: summary.connectionId, toolName: "sum" });
+    expect((await createRunRoutes(fake()).request(`/${projectId}/runs?connectionId=bad`)).status).toBe(400);
+    expect((await createRunRoutes(fake()).request(`/${projectId}/runs?toolName=%20sum`)).status).toBe(400);
   });
 
   it("returns only the lightweight project-scoped Run summary for status observation", async () => {

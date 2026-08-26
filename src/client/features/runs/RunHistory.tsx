@@ -1,23 +1,26 @@
 import { useEffect, useRef, useState } from "react";
 import type { InspectorApiClient, RunSummary } from "../../api/api-client.js";
 
-interface Props { api: InspectorApiClient; projectId: string; tabId?: string; onOpen: (run: RunSummary) => void; hideHeading?: boolean; compactId?: boolean }
+interface Props { api: InspectorApiClient; projectId: string; tabId?: string; connectionId?: string; toolName?: string;
+  onOpen: (run: RunSummary) => void; hideHeading?: boolean; compactId?: boolean }
 const statusLabel: Record<string, string> = { queued: "排队中", connecting: "连接中", authorizing: "授权中", running: "运行中",
   succeeded: "成功", failed: "失败", cancelled: "已取消", interrupted: "已中断" };
 
-export function RunHistory({ api, projectId, tabId, onOpen, hideHeading = false, compactId = false }: Props) {
+export function RunHistory({ api, projectId, tabId, connectionId, toolName, onOpen, hideHeading = false, compactId = false }: Props) {
   const [runs, setRuns] = useState<RunSummary[]>([]); const [cursor, setCursor] = useState<string | null | undefined>(undefined);
   const [loading, setLoading] = useState(true); const [error, setError] = useState<string | null>(null); const generation = useRef(0);
+  const filter = tabId === undefined ? undefined : { tabId, ...(connectionId === undefined ? {} : { connectionId }),
+    ...(toolName === undefined ? {} : { toolName }) };
   useEffect(() => {
     const current = ++generation.current; setRuns([]); setCursor(undefined); setLoading(true); setError(null);
-    void api.listRuns(projectId, undefined, tabId).then((page) => { if (generation.current !== current) return;
+    void api.listRuns(projectId, undefined, filter).then((page) => { if (generation.current !== current) return;
       setRuns(page.runs); setCursor(page.nextCursor); setLoading(false);
     }).catch((cause: unknown) => { if (generation.current === current) { setError(cause instanceof Error ? cause.message : "加载运行历史失败"); setLoading(false); } });
     return () => { generation.current += 1; };
-  }, [api, projectId, tabId]);
+  }, [api, projectId, tabId, connectionId, toolName]);
   async function more(): Promise<void> {
     if (cursor === null || cursor === undefined || loading) return; const current = generation.current; const requested = cursor; setLoading(true);
-    try { const page = await api.listRuns(projectId, requested, tabId); if (generation.current !== current) return;
+    try { const page = await api.listRuns(projectId, requested, filter); if (generation.current !== current) return;
       setRuns((items) => [...items, ...page.runs.filter((candidate) => !items.some(({ id }) => id === candidate.id))]); setCursor(page.nextCursor);
     } catch (cause) { if (generation.current === current) setError(cause instanceof Error ? cause.message : "加载运行历史失败"); }
     finally { if (generation.current === current) setLoading(false); }

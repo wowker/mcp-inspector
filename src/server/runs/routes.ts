@@ -10,6 +10,7 @@ import {
 import type { RunEvent } from "./run-types.js";
 
 const uuid = z.string().uuid();
+const toolName = z.string().min(1).max(512).refine((value) => value.trim() === value);
 const startBody = z.object({ tabId: uuid, idempotencyKey: z.string().min(1).max(200),
   arguments: z.record(z.string(), z.unknown()) }).strict();
 const errors = {
@@ -56,8 +57,16 @@ export function createRunRoutes(runs: RunServiceWithEvents): Hono {
   });
   routes.get("/:projectId/runs", (c) => {
     const tabId = c.req.query("tabId");
-    if (tabId !== undefined && !uuid.safeParse(tabId).success) return c.json(errors.invalid, 400);
-    try { return c.json(runs.list(c.req.param("projectId"), c.req.query("cursor"), tabId)); }
+    const connectionId = c.req.query("connectionId");
+    const requestedToolName = c.req.query("toolName");
+    if ((tabId !== undefined && !uuid.safeParse(tabId).success) ||
+        (connectionId !== undefined && !uuid.safeParse(connectionId).success) ||
+        (requestedToolName !== undefined && !toolName.safeParse(requestedToolName).success)) return c.json(errors.invalid, 400);
+    try { return c.json(runs.list(c.req.param("projectId"), c.req.query("cursor"), {
+      ...(tabId === undefined ? {} : { tabId }),
+      ...(connectionId === undefined ? {} : { connectionId }),
+      ...(requestedToolName === undefined ? {} : { toolName: requestedToolName }),
+    })); }
     catch (error) { return errorResponse(c, error); }
   });
   routes.get("/:projectId/runs/:runId/status", (c) => {

@@ -485,15 +485,21 @@ describe("RunService", () => {
         const run = service.start({ projectId, tabId: tab.id, idempotencyKey: `tab-page-${index}`, arguments: { a: index } });
         service.cancel(projectId, run.id);
       }
-      const first = service.list(projectId, undefined, tabA.id);
+      const first = service.list(projectId, undefined, { tabId: tabA.id });
       expect(first.runs).toHaveLength(26); expect(first.runs.every(({ tabId }) => tabId === tabA.id)).toBe(true);
       expect(first.nextCursor).toBeNull();
-      expect(() => service.list(projectId, undefined, "00000000-0000-4000-8000-000000000799")).toThrow(/Tab not found/i);
+      projects.open(projectId).database.prepare(`UPDATE runs SET tool_name = 'previous_sum'
+        WHERE id = (SELECT id FROM runs WHERE tab_id = ? ORDER BY created_at DESC, id DESC LIMIT 1)`).run(tabA.id);
+      const currentTool = service.list(projectId, undefined, { tabId: tabA.id, connectionId, toolName: "sum" });
+      expect(currentTool.runs).toHaveLength(25);
+      expect(currentTool.runs.every((run) => run.tabId === tabA.id && run.connectionId === connectionId && run.toolName === "sum")).toBe(true);
+      expect(() => service.list(projectId, undefined, { tabId: "00000000-0000-4000-8000-000000000799" })).toThrow(/Tab not found/i);
       const repository = new RunRepository(projects.open(projectId), service.eventBus);
-      const small = repository.list(projectId, undefined, 10, tabA.id);
+      const small = repository.list(projectId, undefined, 10, { tabId: tabA.id, connectionId, toolName: "sum" });
       expect(small.runs).toHaveLength(10); expect(small.nextCursor).not.toBeNull();
-      expect(repository.list(projectId, small.nextCursor!, 10, tabA.id).runs).toHaveLength(10);
-      expect(() => repository.list(projectId, small.nextCursor!, 10, tabB.id)).toThrow(/cursor/i);
+      expect(repository.list(projectId, small.nextCursor!, 10, { tabId: tabA.id, connectionId, toolName: "sum" }).runs).toHaveLength(10);
+      expect(() => repository.list(projectId, small.nextCursor!, 10, { tabId: tabA.id, connectionId, toolName: "previous_sum" })).toThrow(/cursor/i);
+      expect(() => repository.list(projectId, small.nextCursor!, 10, { tabId: tabB.id, connectionId, toolName: "sum" })).toThrow(/cursor/i);
     } finally { projects.close(); }
   });
 });

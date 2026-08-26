@@ -94,6 +94,7 @@ export interface RunDetail extends RunSummary {
   events: RunEvent[];
 }
 export interface RunPage { runs: RunSummary[]; nextCursor: string | null }
+export interface RunListFilter { tabId?: string; connectionId?: string; toolName?: string }
 
 export type SavedItemKind = "request" | "response";
 export interface SavedItemSummary {
@@ -134,7 +135,7 @@ export interface InspectorApiClient {
   startRun(projectId: string, tabId: string, idempotencyKey: string, args: Record<string, unknown>): Promise<RunSummary>;
   getRunSummary(projectId: string, runId: string, signal?: AbortSignal): Promise<RunSummary>;
   getRun(projectId: string, runId: string, signal?: AbortSignal): Promise<RunDetail>;
-  listRuns(projectId: string, cursor?: string, tabId?: string): Promise<RunPage>;
+  listRuns(projectId: string, cursor?: string, filter?: RunListFilter): Promise<RunPage>;
   openRunEventStream(projectId: string, runId: string, after: number, signal: AbortSignal): Promise<Response>;
   listSavedItems(projectId: string, connectionId: string, toolName: string, cursor?: string): Promise<SavedItemPage>;
   getSavedItem(projectId: string, connectionId: string, toolName: string, itemId: string): Promise<SavedItemDetail>;
@@ -446,13 +447,15 @@ function decodeRunDetail(value: unknown, projectId: string): RunDetail {
     request: { arguments: raw.request.arguments, jsonrpc: raw.request.jsonrpc, http: raw.request.http ?? null }, response, events };
 }
 
-function decodeRunPage(value: unknown, projectId: string, tabId?: string): RunPage {
+function decodeRunPage(value: unknown, projectId: string, filter: RunListFilter = {}): RunPage {
   if (!isObject(value) || !Array.isArray(value.runs) || !(value.nextCursor === null ||
       (typeof value.nextCursor === "string" && value.nextCursor.length > 0 && value.nextCursor.length <= 4096 && /^[A-Za-z0-9_-]+$/.test(value.nextCursor)))) {
     throw new Error("Invalid Run response");
   }
   const runs = value.runs.map((run) => decodeRunSummary(run, projectId));
-  if (tabId !== undefined && runs.some((run) => run.tabId !== tabId)) throw new Error("Invalid Run response");
+  if (filter.tabId !== undefined && runs.some((run) => run.tabId !== filter.tabId)) throw new Error("Invalid Run response");
+  if (filter.connectionId !== undefined && runs.some((run) => run.connectionId !== filter.connectionId)) throw new Error("Invalid Run response");
+  if (filter.toolName !== undefined && runs.some((run) => run.toolName !== filter.toolName)) throw new Error("Invalid Run response");
   if (new Set(runs.map(({ id }) => id)).size !== runs.length) throw new Error("Invalid Run response");
   if (runs.some((run, index) => index > 0 && (run.createdAt > runs[index - 1]!.createdAt ||
       (run.createdAt === runs[index - 1]!.createdAt && run.id >= runs[index - 1]!.id)))) throw new Error("Invalid Run response");
@@ -639,11 +642,14 @@ export function createApiClient(sessionToken: string): InspectorApiClient {
       if (run.id !== runId) throw new Error("Invalid Run response");
       return run;
     },
-    async listRuns(projectId, cursor, tabId) {
-      const search = new URLSearchParams(); if (cursor !== undefined) search.set("cursor", cursor); if (tabId !== undefined) search.set("tabId", tabId);
+    async listRuns(projectId, cursor, filter = {}) {
+      const search = new URLSearchParams(); if (cursor !== undefined) search.set("cursor", cursor);
+      if (filter.tabId !== undefined) search.set("tabId", filter.tabId);
+      if (filter.connectionId !== undefined) search.set("connectionId", filter.connectionId);
+      if (filter.toolName !== undefined) search.set("toolName", filter.toolName);
       const query = search.size === 0 ? "" : `?${search.toString()}`;
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/runs${query}`, { headers });
-      return decodeRunPage(await decodeResponse<unknown>(response), projectId, tabId);
+      return decodeRunPage(await decodeResponse<unknown>(response), projectId, filter);
     },
     async openRunEventStream(projectId, runId, after, signal) {
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/runs/${encodeURIComponent(runId)}/events?after=${after}`, {

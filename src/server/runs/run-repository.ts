@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { ProjectStore } from "../projects/project-store.js";
 import { RunEventBus } from "./run-event-bus.js";
-import type { RunDetail, RunError, RunEvent, RunPage, RunStatus, RunSummary } from "./run-types.js";
+import type { RunDetail, RunError, RunEvent, RunListFilter, RunPage, RunStatus, RunSummary } from "./run-types.js";
 
 interface RunRow {
   id: string; project_id: string; connection_id: string; tab_id: string | null; tool_name: string;
@@ -257,29 +257,39 @@ export class RunRepository {
       .all(...(limit === undefined ? [runId, after] : [runId, after, limit])) as EventRow[]).map(event);
   }
 
-  list(projectId: string, cursor?: string, limit = 50, tabId?: string): RunPage {
+  list(projectId: string, cursor?: string, limit = 50, filter: RunListFilter = {}): RunPage {
+    const { tabId, connectionId, toolName } = filter;
     const cursorTabId = tabId ?? null;
-    let boundary: { projectId: string; tabId: string | null; createdAt: string; id: string } | undefined;
+    const cursorConnectionId = connectionId ?? null;
+    const cursorToolName = toolName ?? null;
+    let boundary: { projectId: string; tabId: string | null; connectionId: string | null; toolName: string | null; createdAt: string; id: string } | undefined;
     if (cursor !== undefined) {
       try {
         const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as unknown;
         if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error();
         const value = parsed as Record<string, unknown>;
-        if (value.projectId !== projectId || value.tabId !== cursorTabId || typeof value.createdAt !== "string" || Number.isNaN(Date.parse(value.createdAt)) ||
+        if (value.projectId !== projectId || value.tabId !== cursorTabId || value.connectionId !== cursorConnectionId || value.toolName !== cursorToolName ||
+            typeof value.createdAt !== "string" || Number.isNaN(Date.parse(value.createdAt)) ||
             new Date(value.createdAt).toISOString() !== value.createdAt ||
             typeof value.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.id)) throw new Error();
-        boundary = { projectId, tabId: cursorTabId, createdAt: value.createdAt, id: value.id };
+        boundary = { projectId, tabId: cursorTabId, connectionId: cursorConnectionId, toolName: cursorToolName,
+          createdAt: value.createdAt, id: value.id };
       } catch { throw new Error("Run cursor is invalid"); }
     }
     const rows = this.store.database.prepare(`SELECT ${columns} FROM runs WHERE project_id = ?
       ${tabId === undefined ? "" : "AND tab_id = ?"}
+      ${connectionId === undefined ? "" : "AND connection_id = ?"}
+      ${toolName === undefined ? "" : "AND tool_name = ?"}
       ${boundary === undefined ? "" : "AND (created_at < ? OR (created_at = ? AND id < ?))"}
       ORDER BY created_at DESC, id DESC LIMIT ?`).all(...(boundary === undefined
-        ? [projectId, ...(tabId === undefined ? [] : [tabId]), limit + 1]
-        : [projectId, ...(tabId === undefined ? [] : [tabId]), boundary.createdAt, boundary.createdAt, boundary.id, limit + 1])) as RunRow[];
+        ? [projectId, ...(tabId === undefined ? [] : [tabId]), ...(connectionId === undefined ? [] : [connectionId]),
+          ...(toolName === undefined ? [] : [toolName]), limit + 1]
+        : [projectId, ...(tabId === undefined ? [] : [tabId]), ...(connectionId === undefined ? [] : [connectionId]),
+          ...(toolName === undefined ? [] : [toolName]), boundary.createdAt, boundary.createdAt, boundary.id, limit + 1])) as RunRow[];
     const page = rows.slice(0, limit).map(summary);
     const last = page.at(-1);
     return { runs: page, nextCursor: rows.length > limit && last !== undefined
-      ? Buffer.from(JSON.stringify({ projectId, tabId: cursorTabId, createdAt: last.createdAt, id: last.id })).toString("base64url") : null };
+      ? Buffer.from(JSON.stringify({ projectId, tabId: cursorTabId, connectionId: cursorConnectionId,
+        toolName: cursorToolName, createdAt: last.createdAt, id: last.id })).toString("base64url") : null };
   }
 }

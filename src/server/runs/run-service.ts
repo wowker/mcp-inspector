@@ -250,10 +250,10 @@ export function createRunService(projects: ProjectService, connections: Connecti
       }
       return true;
     },
-    list(projectId, cursor, tabId) {
+    list(projectId, cursor, filter = {}) {
       projects.open(projectId);
-      if (tabId !== undefined) tabs.get(projectId, tabId);
-      try { return repository(projectId).list(projectId, cursor, 50, tabId); }
+      if (filter.tabId !== undefined) tabs.get(projectId, filter.tabId);
+      try { return repository(projectId).list(projectId, cursor, 50, filter); }
       catch (error) {
         if (error instanceof Error && error.message === "Run cursor is invalid") throw new InvalidRunCursorError();
         throw error;

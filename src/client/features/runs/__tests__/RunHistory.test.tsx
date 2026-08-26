@@ -25,7 +25,7 @@ describe("RunHistory", () => {
     render(<RunHistory api={{ listRuns } as unknown as InspectorApiClient} projectId={projectId} tabId={tabId} onOpen={vi.fn()} />);
     expect(await screen.findByText(newest.id)).toBeVisible();
     expect(screen.queryByText(other.id)).not.toBeInTheDocument();
-    expect(listRuns).toHaveBeenCalledWith(projectId, undefined, tabId);
+    expect(listRuns).toHaveBeenCalledWith(projectId, undefined, { tabId });
     fireEvent.click(screen.getByRole("button", { name: "加载更多" }));
     expect(await screen.findByText(older.id)).toBeVisible();
     expect(screen.getAllByRole("button", { name: /打开运行/ }).map((button) => button.getAttribute("aria-label"))).toEqual([
@@ -41,5 +41,24 @@ describe("RunHistory", () => {
     view.rerender(<RunHistory api={api} projectId="00000000-0000-4000-8000-000000000899" onOpen={vi.fn()} />);
     resolve({ runs: [item("00000000-0000-4000-8000-000000000818", "2026-08-17T00:00:00.000Z", null)], nextCursor: null });
     await waitFor(() => expect(screen.queryByText("00000000-0000-4000-8000-000000000818")).not.toBeInTheDocument());
+  });
+
+  it("reloads the same Tab history when its Tool identity changes", async () => {
+    const tabId = "00000000-0000-4000-8000-000000000814";
+    const connectionId = "00000000-0000-4000-8000-000000000812";
+    let resolveOld!: (value: { runs: RunSummary[]; nextCursor: null }) => void;
+    const oldPage = new Promise<{ runs: RunSummary[]; nextCursor: null }>((resolve) => { resolveOld = resolve; });
+    const current = { ...item("00000000-0000-4000-8000-000000000819", "2026-08-17T00:00:03.000Z", tabId), toolName: "current_tool" };
+    const stale = { ...item("00000000-0000-4000-8000-000000000820", "2026-08-17T00:00:02.000Z", tabId), toolName: "previous_tool" };
+    const listRuns = vi.fn((_project: string, _cursor?: string, filter?: { toolName?: string }) =>
+      filter?.toolName === "current_tool" ? Promise.resolve({ runs: [current], nextCursor: null }) : oldPage);
+    const api = { listRuns } as unknown as InspectorApiClient;
+    const view = render(<RunHistory api={api} projectId={projectId} tabId={tabId} connectionId={connectionId} toolName="previous_tool" onOpen={vi.fn()} />);
+
+    view.rerender(<RunHistory api={api} projectId={projectId} tabId={tabId} connectionId={connectionId} toolName="current_tool" onOpen={vi.fn()} />);
+    expect(await screen.findByText(current.id)).toBeVisible();
+    resolveOld({ runs: [stale], nextCursor: null });
+    await waitFor(() => expect(screen.queryByText(stale.id)).not.toBeInTheDocument());
+    expect(listRuns).toHaveBeenLastCalledWith(projectId, undefined, { tabId, connectionId, toolName: "current_tool" });
   });
 });

@@ -43,6 +43,27 @@ function fuzzyMatches(query: string, value: string): boolean {
   );
 }
 
+function canonicalIdentifier(value: string): string {
+  return value.normalize("NFKC").toLocaleLowerCase().trim();
+}
+
+function searchRank(query: string, tool: CatalogToolSummary): number | null {
+  const rawQuery = canonicalIdentifier(query);
+  const rawName = canonicalIdentifier(tool.name);
+  const normalizedQuery = normalizeSearch(query);
+  const normalizedName = normalizeSearch(tool.name);
+  const description = tool.currentSnapshot.definition.description;
+  const summary = typeof description === "string" ? summarizeToolDescription(description) : "";
+  const normalizedDescription = normalizeSearch(summary);
+  if (rawName === rawQuery) return 0;
+  if (normalizedName.startsWith(normalizedQuery)) return 1;
+  if (normalizedName.includes(normalizedQuery)) return 2;
+  if (fuzzyMatches(normalizedQuery, normalizedName)) return 3;
+  if (normalizedDescription.includes(normalizedQuery)) return 4;
+  if (fuzzyMatches(normalizedQuery, normalizedDescription)) return 5;
+  return null;
+}
+
 export function ToolTree({
   connections,
   catalogs,
@@ -60,14 +81,14 @@ export function ToolTree({
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const normalizedQuery = normalizeSearch(query);
-  const filtered = useMemo(() => Object.fromEntries(connections.map((connection) => [
-    connection.id,
-    (catalogs[connection.id] ?? []).filter((tool) => {
-      const description = tool.currentSnapshot.definition.description;
-      const summary = typeof description === "string" ? summarizeToolDescription(description) : "";
-      return normalizedQuery.length === 0 || fuzzyMatches(normalizedQuery, `${tool.name} ${summary}`);
-    }),
-  ])), [catalogs, connections, normalizedQuery]);
+  const filtered = useMemo(() => Object.fromEntries(connections.map((connection) => {
+    const tools = catalogs[connection.id] ?? [];
+    if (normalizedQuery.length === 0) return [connection.id, tools];
+    return [connection.id, tools.map((tool, index) => ({ tool, index, rank: searchRank(query, tool) }))
+      .filter((candidate): candidate is { tool: CatalogToolSummary; index: number; rank: number } => candidate.rank !== null)
+      .sort((left, right) => left.rank - right.rank || left.index - right.index)
+      .map(({ tool }) => tool)];
+  })), [catalogs, connections, normalizedQuery, query]);
 
   useEffect(() => () => {
     if (pendingSelection.current !== null) clearTimeout(pendingSelection.current.timer);
