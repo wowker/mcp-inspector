@@ -108,8 +108,12 @@ if [ "$1" = "tag" ] && [ "$2" = "--points-at" ]; then printf 'v${version}\\n'; f
     chmodSync(npm, 0o755);
     chmodSync(git, 0o755);
     const args = [`NPM=${npm}`, `GIT=${git}`, `NODE=${process.execPath}`];
-    const options = { cwd: resolve("."), encoding: "utf8" as const,
-      env: { ...process.env, FAKE_NPM_LOG: npmLog } };
+    const env: NodeJS.ProcessEnv = { ...process.env, FAKE_NPM_LOG: npmLog };
+    delete env.CONFIRM;
+    delete env.MAKEFLAGS;
+    delete env.MFLAGS;
+    delete env.MAKELEVEL;
+    const options = { cwd: resolve("."), encoding: "utf8" as const, env };
 
     try {
       const unconfirmed = spawnSync("make", ["publish", ...args], options);
