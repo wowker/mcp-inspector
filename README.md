@@ -9,10 +9,8 @@ MCP Inspector 是一款运行在测试人员电脑上的 MCP Tool 调试工作�
 发布到 npm 后可直接运行：
 
 ```bash
-npx --yes mcp-inspector@latest
+npx --yes @wuwei0215/mcp-inspector@latest
 ```
-
-执行前请确认 npm 上的 `mcp-inspector` 包由本项目维护；如果不拥有该名称，请改用组织 scope 下的包名。
 
 也可以从源码安装并启动：
 
