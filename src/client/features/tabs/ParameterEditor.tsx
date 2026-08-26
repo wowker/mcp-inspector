@@ -4,6 +4,7 @@ import type { DebugTabSummary } from "../../api/api-client.js";
 import { formatRawArguments, parseRawArguments } from "../../../shared/json.js";
 import { validateJsonSchema, type SchemaIssue } from "../../../shared/json-schema.js";
 import { fieldsFromSchema, requiresWholeArgumentsFallback, valueFromInput } from "./schema-form.js";
+import { BooleanSwitch, EnumControl } from "./ParameterControls.js";
 
 interface Props {
   tab: DebugTabSummary; schema: Record<string, unknown>;
@@ -189,22 +190,22 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveReques
       )}
       {!wholeFallback && fields.map((field) => {
         const errors = issuesAt(field.path); const inputId = `${tab.id}-${field.name}`;
+        const labelId = `${inputId}-label`;
         const visibleErrors = errors.filter(({ keyword }) => keyword !== "required");
         const describedBy = visibleErrors.length > 0 ? `${inputId}-error` : undefined;
         return <div className={`schema-field schema-field--${field.kind}`} key={field.name}>
-          <label htmlFor={inputId}>{field.name}{field.required && <><span className="required-marker" aria-hidden="true">*</span><span className="sr-only">必填</span></>}
+          <label id={labelId} htmlFor={field.kind === "enum" ? undefined : inputId}>{field.name}{field.required && <><span className="required-marker" aria-hidden="true">*</span><span className="sr-only">必填</span></>}
             {field.additional ? "（附加参数）" : ""}</label>
           {field.description && <p>{field.description}</p>}
           {field.defaultValue !== undefined && field.value === undefined && <p>默认值：{JSON.stringify(field.defaultValue)}</p>}
           {Object.keys(field.constraints).length > 0 && <p>约束：{Object.entries(field.constraints)
             .map(([name, value]) => `${name}=${String(value)}`).join("，")}</p>}
-          {field.kind === "boolean" ? <input id={inputId} type="checkbox" checked={Boolean(field.value)}
-            aria-invalid={errors.length > 0} aria-describedby={describedBy}
-            onChange={(event) => edit(field.name, event.target.checked)} />
-          : field.kind === "enum" ? <select id={inputId} value={String(field.enumValues?.findIndex((item) => Object.is(item, field.value)) ?? "")}
-              required={field.required} aria-invalid={errors.length > 0} aria-describedby={describedBy}
-              onChange={(event) => { const next = valueFromInput(field, event.target.value); if (next.ok) edit(field.name, next.value); }}>
-              <option value="">{field.required ? "请选择必填参数" : "请选择"}</option>{field.enumValues?.map((item, index) => <option value={index} key={index}>{String(item)}</option>)}</select>
+          {field.kind === "boolean" ? <BooleanSwitch id={inputId} labelId={labelId} checked={Boolean(field.value)}
+            invalid={errors.length > 0} describedBy={describedBy} onChange={(checked) => edit(field.name, checked)} />
+          : field.kind === "enum" ? <EnumControl id={inputId} labelId={labelId} value={field.value}
+              options={field.enumValues ?? []} required={field.required} invalid={errors.length > 0}
+              describedBy={describedBy} onSelect={(index) => edit(field.name, field.enumValues?.[index])}
+              onClear={() => edit(field.name, undefined)} />
           : field.kind === "json" ? <JsonSubtreeEditor id={inputId} value={field.value} describedBy={describedBy}
               required={field.required} draft={subtreeDrafts[field.path]} onDraftChange={(text, base) => onSubtreeDraftChange?.(field.path, text, base)}
               onCommit={(value) => edit(field.name, value)} />

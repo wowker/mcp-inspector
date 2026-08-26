@@ -299,6 +299,42 @@ describe("DebugWorkspace", () => {
     expect(screen.queryByText("请输入必填参数")).not.toBeInTheDocument();
   });
 
+  it("uses aligned switch, radio, and custom dropdown controls for boolean and enum parameters", () => {
+    const onChange = vi.fn();
+    render(<ParameterEditor
+      tab={tab("00000000-0000-4000-8000-000000000676", "publish", { taxable: false, mode: "both", image_strategy: "all" })}
+      schema={{ type: "object", properties: {
+        taxable: { type: "boolean", description: "Whether products are taxable." },
+        mode: { type: "string", enum: ["both", "specifications_only", "overview_only"] },
+        image_strategy: { type: "string", enum: ["selected_only", "all", "primary", "none"] },
+      }, required: ["mode"] }} onChange={onChange} />);
+
+    const taxable = screen.getByRole("checkbox", { name: "taxable" });
+    expect(taxable.closest(".schema-switch")).not.toBeNull();
+    fireEvent.click(taxable);
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ arguments: expect.objectContaining({ taxable: true }) }));
+
+    const modes = screen.getByRole("radiogroup", { name: /mode/ });
+    expect(modes).toHaveClass("schema-radio-group");
+    expect(screen.getByRole("radio", { name: "both" })).toBeChecked();
+    fireEvent.click(screen.getByRole("radio", { name: "overview_only" }));
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ arguments: expect.objectContaining({ mode: "overview_only" }) }));
+
+    const strategy = screen.getByRole("combobox", { name: "image_strategy" });
+    expect(strategy).toHaveAttribute("aria-haspopup", "listbox");
+    fireEvent.click(strategy);
+    expect(screen.getByRole("listbox", { name: "image_strategy" })).toBeVisible();
+    expect(screen.getByRole("option", { name: "请选择" })).toBeVisible();
+    expect(screen.getByRole("option", { name: "all" })).toHaveClass("schema-enum-select__option--selected");
+    fireEvent.click(screen.getByRole("option", { name: "primary" }));
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ arguments: expect.objectContaining({ image_strategy: "primary" }) }));
+
+    fireEvent.click(strategy);
+    expect(screen.getByRole("listbox", { name: "image_strategy" })).toBeVisible();
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole("listbox", { name: "image_strategy" })).not.toBeInTheDocument();
+  });
+
   it("debounces draft persistence for 300ms", async () => {
     vi.useFakeTimers();
     const saved = tab("00000000-0000-4000-8000-000000000620", "sum", { a: 1 });
