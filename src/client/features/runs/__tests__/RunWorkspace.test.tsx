@@ -130,13 +130,13 @@ describe("Run workspace", () => {
     expect(startRun.mock.calls[0]?.slice(0, 2)).toEqual(startRun.mock.calls[1]?.slice(0, 2));
   });
 
-  it("opens existing-Tab history without replacing its parameter draft", async () => {
+  it("restores the selected history request and response in its existing Tab", async () => {
     const client = api({ listRuns: vi.fn(async () => ({ runs: [summary], nextCursor: null })) });
     render(<DebugWorkspace api={client} projectId={projectId} />); const editor = await screen.findByLabelText("a");
     fireEvent.change(editor, { target: { value: "9" } }); fireEvent.click(screen.getByRole("button", { name: "当前 Tab 历史" }));
     fireEvent.click(await screen.findByRole("button", { name: `打开运行 ${runId}` }));
     expect(await screen.findByText(/^answer/)).toBeVisible();
-    expect(screen.getByLabelText("a")).toHaveValue(9); expect(client.startRun).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("a")).toHaveValue(2); expect(client.startRun).not.toHaveBeenCalled();
   });
 
   it("keeps the launched Run gate when inspecting an older terminal Run while another Tab remains executable", async () => {

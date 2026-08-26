@@ -248,7 +248,24 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
   async function openHistory(run: RunSummary): Promise<void> {
     if (!(await flush(activeRef.current ?? undefined))) return;
     const origin = tabsRef.current.find(({ id }) => id === run.tabId);
-    if (origin !== undefined) { setSelectedRuns((current) => ({ ...current, [origin.id]: run.id })); activate(origin.id); setView("debug"); return; }
+    if (origin !== undefined) {
+      const scope = workspaceGeneration.current;
+      try {
+        const detail = await api.getRun(projectId, run.id);
+        if (workspaceGeneration.current !== scope) return;
+        const currentOrigin = tabsRef.current.find(({ id }) => id === origin.id);
+        if (currentOrigin === undefined || detail.tabId !== currentOrigin.id || detail.connectionId !== currentOrigin.connectionId
+          || detail.toolName !== currentOrigin.toolName) {
+          setMessage("历史记录与当前 Tool 不匹配"); return;
+        }
+        schedule(currentOrigin.id, { arguments: detail.request.arguments, rawText: formatRawArguments(detail.request.arguments) });
+        setSelectedRuns((current) => ({ ...current, [currentOrigin.id]: detail.id }));
+        activate(currentOrigin.id); setView("debug");
+      } catch (error) {
+        if (workspaceGeneration.current === scope) setMessage(error instanceof Error ? error.message : "加载运行历史失败");
+      }
+      return;
+    }
     setReadOnlyTabs((current) => current.some(({ id }) => id === run.id) ? current : [...current, run]);
     activeRef.current = null; setActiveId(null); setActiveReadOnlyId(run.id); setView("debug");
   }
@@ -371,7 +388,7 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute }: Prop
       {view === "saved" && <SavedItemsView api={api} projectId={projectId} connectionId={active.connectionId} toolName={active.toolName}
         refreshKey={savedRevision} onLoadRequest={(payload) => { schedule(active.id, { arguments: payload, rawText: formatRawArguments(payload) }); setView("debug"); }} />}
       {view === "history" && <RunHistory api={api} projectId={projectId} tabId={active.id} connectionId={active.connectionId}
-        toolName={active.toolName} onOpen={(run) => void openHistory(run)} />}
+        toolName={active.toolName} hideHeading onOpen={(run) => void openHistory(run)} />}
     </div>}
     {saveIntent !== null && <SavedItemDialog api={api} projectId={projectId} connectionId={saveIntent.connectionId}
       toolName={saveIntent.toolName} kind={saveIntent.kind} payload={saveIntent.payload} sourceRunId={saveIntent.sourceRunId}

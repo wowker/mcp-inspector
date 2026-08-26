@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import type { DebugTabSummary, InspectorApiClient, ToolDetailSummary } from "../../../api/api-client.js";
+import type { DebugTabSummary, InspectorApiClient, RunDetail, ToolDetailSummary } from "../../../api/api-client.js";
 import { DebugWorkspace } from "../DebugWorkspace.js";
 import { ParameterEditor } from "../ParameterEditor.js";
 import { TabStrip } from "../TabStrip.js";
@@ -458,6 +458,50 @@ describe("DebugWorkspace", () => {
     });
     await waitFor(() => expect(dialog).not.toBeInTheDocument());
     expect(await screen.findByRole("heading", { name: "已保存" })).toBeVisible();
+  });
+
+  it("shows current Tab history records without repeating the view title", async () => {
+    const current = tab("00000000-0000-4000-8000-000000000660", "sum", { a: 1, b: 2 });
+    const api = { listTabs: vi.fn(async () => [current]), getTool: vi.fn(async () => tool), updateTab: vi.fn(),
+      listRuns: vi.fn(async () => ({ runs: [], nextCursor: null })) } as unknown as InspectorApiClient;
+    const user = userEvent.setup(); render(<DebugWorkspace api={api} projectId={projectId} />);
+
+    await user.click(await screen.findByRole("button", { name: "当前 Tab 历史" }));
+
+    expect(await screen.findByText("暂无运行记录")).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "当前 Tab 历史" })).not.toBeInTheDocument();
+  });
+
+  it("loads a selected history request and response back into the current debug view", async () => {
+    const current = tab("00000000-0000-4000-8000-000000000661", "sum", { a: 1, b: 2 });
+    const run: RunDetail = {
+      id: "00000000-0000-4000-8000-000000000662", projectId, connectionId, tabId: current.id,
+      toolName: "sum", toolSnapshotId: tool.tool.currentSnapshot.id, toolSnapshotHash: "a".repeat(64),
+      idempotencyKey: "history-42", status: "succeeded", createdAt: "2026-08-25T01:00:00.000Z",
+      startedAt: "2026-08-25T01:00:00.010Z", completedAt: "2026-08-25T01:00:00.020Z",
+      durationMs: 10, networkDurationMs: 8, protocolVersion: "2025-06-18", serverInfo: null,
+      clientInfo: { name: "dsers-mcp-inspector", version: "0.1.0" },
+      request: { arguments: { a: 40, b: 2 }, jsonrpc: { jsonrpc: "2.0", method: "tools/call" }, http: null },
+      response: { result: { structuredContent: { answer: 42 } }, error: null, truncated: false, originalBytes: 64 },
+      events: [],
+    };
+    const updateTab = vi.fn(async (_project: string, _id: string, patch: Partial<DebugTabSummary>) => ({ ...current, ...patch }));
+    const api = { listTabs: vi.fn(async () => [current]), getTool: vi.fn(async () => tool), updateTab,
+      listRuns: vi.fn(async () => ({ runs: [run], nextCursor: null })), getRun: vi.fn(async () => run),
+      startRun: vi.fn() } as unknown as InspectorApiClient;
+    const user = userEvent.setup(); render(<DebugWorkspace api={api} projectId={projectId} />);
+    await user.click(await screen.findByRole("button", { name: "当前 Tab 历史" }));
+
+    await user.click(await screen.findByRole("button", { name: `打开运行 ${run.id}` }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "调试" })).toHaveAttribute("aria-current", "page"));
+    expect(await screen.findByLabelText("a")).toHaveValue(40);
+    expect(screen.getByLabelText("b")).toHaveValue(2);
+    expect(await screen.findByText("42")).toBeVisible();
+    expect(api.startRun).not.toHaveBeenCalled();
+    await waitFor(() => expect(updateTab).toHaveBeenCalledWith(projectId, current.id, expect.objectContaining({
+      arguments: { a: 40, b: 2 }, rawText: '{\n  "a": 40,\n  "b": 2\n}',
+    })));
   });
 
   it("keeps a save dialog bound to the Tool that opened it when the active Tab changes", async () => {
