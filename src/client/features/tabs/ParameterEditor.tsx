@@ -3,7 +3,7 @@ import { CaretRight, Play } from "@phosphor-icons/react";
 import type { DebugTabSummary } from "../../api/api-client.js";
 import { formatRawArguments, parseRawArguments } from "../../../shared/json.js";
 import { validateJsonSchema, type SchemaIssue } from "../../../shared/json-schema.js";
-import { fieldsFromSchema, requiresWholeArgumentsFallback, valueFromInput } from "./schema-form.js";
+import { fieldsFromSchema, requiresWholeArgumentsFallback, valueFromInput, type SchemaField } from "./schema-form.js";
 import { BooleanSwitch, EnumControl } from "./ParameterControls.js";
 
 interface Props {
@@ -36,15 +36,24 @@ function rawErrorMessage(message: string): string {
     : "JSON 语法错误，请检查括号、引号和逗号";
 }
 
-function JsonSubtreeEditor({ id, value, describedBy, draft, objectOnly = false, required = false, onDraftChange, onCommit }: {
+function initialOptionalValue(field: SchemaField): unknown {
+  if (field.defaultValue !== undefined) return field.defaultValue;
+  if (field.kind === "string") return "";
+  if (field.kind === "boolean") return false;
+  return null;
+}
+
+function JsonSubtreeEditor({ id, value, describedBy, draft, objectOnly = false, required = false, disabled = false, onDraftChange, onCommit }: {
   id: string; value: unknown; describedBy?: string; draft?: { text: string; base: string };
-  objectOnly?: boolean; required?: boolean; onDraftChange?: (text: string, base: string) => void; onCommit: (value: unknown) => void;
+  objectOnly?: boolean; required?: boolean; disabled?: boolean;
+  onDraftChange?: (text: string, base: string) => void; onCommit: (value: unknown) => void;
 }) {
   const formatted = value === undefined ? "" : JSON.stringify(value, null, 2);
   const [localText, setLocalText] = useState(formatted);
   const [invalid, setInvalid] = useState(false);
   const text = draft?.base === formatted ? draft.text : draft === undefined ? localText : formatted;
   useEffect(() => { if (draft === undefined) setLocalText(formatted); }, [draft, formatted]);
+  useEffect(() => { if (disabled) setInvalid(false); }, [disabled]);
   function parse(textValue: string): { ok: true; value: unknown } | { ok: false } {
     if (textValue.trim() === "") {
       return !required && !objectOnly ? { ok: true, value: undefined } : { ok: false };
@@ -60,8 +69,8 @@ function JsonSubtreeEditor({ id, value, describedBy, draft, objectOnly = false, 
     const nextCanonical = next === undefined ? "" : JSON.stringify(next);
     if (currentCanonical !== nextCanonical) onCommit(next);
   }
-  return <><textarea id={id} value={text} required={required} placeholder={required ? "请输入必填参数" : undefined}
-    aria-describedby={describedBy} aria-invalid={invalid}
+  return <><textarea id={id} value={text} required={required} disabled={disabled} placeholder={required ? "请输入必填参数" : undefined}
+    aria-describedby={describedBy} aria-invalid={!disabled && invalid}
     onChange={(event) => {
       const nextText = event.target.value;
       onDraftChange?.(nextText, formatted);
@@ -75,7 +84,7 @@ function JsonSubtreeEditor({ id, value, describedBy, draft, objectOnly = false, 
       if (parsed.ok) { commitIfChanged(parsed.value); setInvalid(false); }
       else setInvalid(true);
     }} />
-    {invalid && <p role="alert">{objectOnly ? "必须是 JSON 对象" : "请输入有效 JSON"}</p>}</>;
+    {!disabled && invalid && <p role="alert">{objectOnly ? "必须是 JSON 对象" : "请输入有效 JSON"}</p>}</>;
 }
 
 export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveRequest, executing = false,
@@ -189,28 +198,38 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveReques
         </div>
       )}
       {!wholeFallback && fields.map((field) => {
-        const errors = issuesAt(field.path); const inputId = `${tab.id}-${field.name}`;
+        const included = field.required || Object.hasOwn(tab.arguments, field.name);
+        const skipped = !included;
+        const errors = included ? issuesAt(field.path) : []; const inputId = `${tab.id}-${field.name}`;
         const labelId = `${inputId}-label`;
         const visibleErrors = errors.filter(({ keyword }) => keyword !== "required");
         const describedBy = visibleErrors.length > 0 ? `${inputId}-error` : undefined;
         return <div className={`schema-field schema-field--${field.kind}`} key={field.name}>
-          <label id={labelId} htmlFor={field.kind === "enum" ? undefined : inputId}>{field.name}{field.required && <><span className="required-marker" aria-hidden="true">*</span><span className="sr-only">必填</span></>}
-            {field.additional ? "（附加参数）" : ""}</label>
+          <div className="schema-field__heading">
+            <label id={labelId} htmlFor={field.kind === "enum" ? undefined : inputId}>{field.name}{field.required && <><span className="required-marker" aria-hidden="true">*</span><span className="sr-only">必填</span></>}
+              {field.additional ? "（附加参数）" : ""}</label>
+            {!field.required && !field.additional && <label className="schema-field__skip" title="Skip this field in request arguments">
+              <input type="checkbox" checked={skipped} aria-label={`Skip parameter ${field.name}`}
+                onChange={(event) => edit(field.name, event.target.checked ? undefined : initialOptionalValue(field))} />
+              <span>Skip</span>
+            </label>}
+          </div>
           {field.description && <p>{field.description}</p>}
           {field.defaultValue !== undefined && field.value === undefined && <p>默认值：{JSON.stringify(field.defaultValue)}</p>}
           {Object.keys(field.constraints).length > 0 && <p>约束：{Object.entries(field.constraints)
             .map(([name, value]) => `${name}=${String(value)}`).join("，")}</p>}
           {field.kind === "boolean" ? <BooleanSwitch id={inputId} labelId={labelId} checked={Boolean(field.value)}
-            invalid={errors.length > 0} describedBy={describedBy} onChange={(checked) => edit(field.name, checked)} />
+            disabled={!included} invalid={errors.length > 0} describedBy={describedBy} onChange={(checked) => edit(field.name, checked)} />
           : field.kind === "enum" ? <EnumControl id={inputId} labelId={labelId} value={field.value}
               options={field.enumValues ?? []} required={field.required} invalid={errors.length > 0}
-              describedBy={describedBy} onSelect={(index) => edit(field.name, field.enumValues?.[index])}
+              disabled={!included} describedBy={describedBy} onSelect={(index) => edit(field.name, field.enumValues?.[index])}
               onClear={() => edit(field.name, undefined)} />
           : field.kind === "json" ? <JsonSubtreeEditor id={inputId} value={field.value} describedBy={describedBy}
-              required={field.required} draft={subtreeDrafts[field.path]} onDraftChange={(text, base) => onSubtreeDraftChange?.(field.path, text, base)}
+              required={field.required} disabled={!included} draft={subtreeDrafts[field.path]} onDraftChange={(text, base) => onSubtreeDraftChange?.(field.path, text, base)}
               onCommit={(value) => edit(field.name, value)} />
           : <input id={inputId} type={field.kind === "string" ? "text" : "number"} value={field.value === undefined ? "" : String(field.value)}
               step={field.kind === "integer" ? 1 : "any"} required={field.required} placeholder={field.required ? "请输入必填参数" : undefined}
+              disabled={!included}
               aria-invalid={errors.length > 0} aria-describedby={describedBy}
               min={typeof field.constraints.minimum === "number" ? field.constraints.minimum : undefined}
               max={typeof field.constraints.maximum === "number" ? field.constraints.maximum : undefined}

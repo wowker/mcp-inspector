@@ -295,8 +295,125 @@ describe("DebugWorkspace", () => {
     expect(input).toHaveAttribute("placeholder", "请输入必填参数");
     expect(input).toBeRequired();
     expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(screen.queryByRole("checkbox", { name: "Skip parameter task_id" })).not.toBeInTheDocument();
     expect(screen.queryByRole("alert", { name: "请输入必填参数" })).not.toBeInTheDocument();
     expect(screen.queryByText("请输入必填参数")).not.toBeInTheDocument();
+  });
+
+  it("checks Skip for a missing optional parameter", () => {
+    const onChange = vi.fn();
+    render(<ParameterEditor tab={tab("00000000-0000-4000-8000-000000000677", "search", {})}
+      schema={{ type: "object", properties: { query: { type: "string", pattern: "^item-" } } }} onChange={onChange} />);
+
+    const skip = screen.getByRole("checkbox", { name: "Skip parameter query" });
+    expect(skip).toBeChecked();
+    expect(skip.closest("label")).toHaveAttribute("title", "Skip this field in request arguments");
+    expect(screen.getByText("Skip")).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "query" })).toBeDisabled();
+    expect(screen.queryByText("参数内容不符合格式约束")).not.toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("adds an optional string when the user unchecks Skip and validates its empty value", () => {
+    const schema = { type: "object", properties: { query: { type: "string", pattern: "^item-" } } };
+    function LinkedEditor() {
+      const [current, setCurrent] = useState(tab("00000000-0000-4000-8000-000000000678", "search", {}));
+      return <>
+        <ParameterEditor tab={current} schema={schema}
+          onChange={(patch) => setCurrent((value) => ({ ...value, ...patch }))} />
+        <output aria-label="当前 arguments">{JSON.stringify(current.arguments)}</output>
+      </>;
+    }
+    render(<LinkedEditor />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Skip parameter query" }));
+
+    expect(screen.getByRole("checkbox", { name: "Skip parameter query" })).not.toBeChecked();
+    expect(screen.getByRole("textbox", { name: "query" })).toBeEnabled();
+    expect(screen.getByLabelText("当前 arguments")).toHaveTextContent('{"query":""}');
+    expect(screen.getByRole("alert")).toHaveTextContent("参数内容不符合格式约束");
+    expect(screen.getByRole("button", { name: "执行" })).toBeDisabled();
+  });
+
+  it("disables every optional control kind while its parameter is not included", () => {
+    render(<ParameterEditor tab={tab("00000000-0000-4000-8000-000000000679", "configure", {})}
+      schema={{ type: "object", properties: {
+        enabled: { type: "boolean" },
+        mode: { type: "string", enum: ["one", "two", "three", "four"] },
+        payload: { type: "object" },
+        limit: { type: "number" },
+      } }} onChange={vi.fn()} />);
+
+    expect(screen.getByRole("checkbox", { name: "enabled" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "mode" })).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: "payload" })).toBeDisabled();
+    expect(screen.getByRole("spinbutton", { name: "limit" })).toBeDisabled();
+  });
+
+  it("restores a saved optional value and deletes it when the user opts out", () => {
+    const schema = { type: "object", properties: { query: { type: "string", pattern: "^item-" } } };
+    function LinkedEditor() {
+      const [current, setCurrent] = useState(tab(
+        "00000000-0000-4000-8000-000000000680", "search", { query: "item-42" },
+      ));
+      return <>
+        <ParameterEditor tab={current} schema={schema}
+          onChange={(patch) => setCurrent((value) => ({ ...value, ...patch }))} />
+        <output aria-label="当前 arguments">{JSON.stringify(current.arguments)}</output>
+        <output aria-label="当前 Raw JSON">{current.rawText}</output>
+      </>;
+    }
+    render(<LinkedEditor />);
+
+    expect(screen.getByRole("checkbox", { name: "Skip parameter query" })).not.toBeChecked();
+    expect(screen.getByRole("textbox", { name: "query" })).toHaveValue("item-42");
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Skip parameter query" }));
+
+    expect(screen.getByRole("checkbox", { name: "Skip parameter query" })).toBeChecked();
+    expect(screen.getByRole("textbox", { name: "query" })).toBeDisabled();
+    expect(screen.getByLabelText("当前 arguments")).toHaveTextContent("{}");
+    expect(screen.getByLabelText("当前 Raw JSON")).toHaveTextContent("{}");
+  });
+
+  it("keeps an included optional value canonical across Form and Raw JSON", () => {
+    const schema = { type: "object", properties: { query: { type: "string" } } };
+    function LinkedEditor() {
+      const [current, setCurrent] = useState(tab(
+        "00000000-0000-4000-8000-000000000681", "search", { query: "item-42" },
+      ));
+      return <ParameterEditor tab={current} schema={schema}
+        onChange={(patch) => setCurrent((value) => ({ ...value, ...patch }))} />;
+    }
+    render(<LinkedEditor />);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Raw JSON" }));
+    expect(screen.getByLabelText("完整 arguments JSON")).toHaveValue('{\n  "query": "item-42"\n}');
+    fireEvent.click(screen.getByRole("tab", { name: "Form" }));
+    expect(screen.getByRole("checkbox", { name: "Skip parameter query" })).not.toBeChecked();
+    expect(screen.getByRole("textbox", { name: "query" })).toHaveValue("item-42");
+  });
+
+  it("hides a local JSON draft error after the optional parameter is removed", () => {
+    const schema = { type: "object", properties: { payload: { type: "object" } } };
+    function LinkedEditor() {
+      const [current, setCurrent] = useState(tab(
+        "00000000-0000-4000-8000-000000000682", "configure", { payload: {} },
+      ));
+      return <ParameterEditor tab={current} schema={schema}
+        onChange={(patch) => setCurrent((value) => ({ ...value, ...patch }))} />;
+    }
+    render(<LinkedEditor />);
+
+    const payload = screen.getByRole("textbox", { name: "payload" });
+    fireEvent.change(payload, { target: { value: "{" } });
+    fireEvent.blur(payload);
+    expect(screen.getByRole("alert")).toHaveTextContent("请输入有效 JSON");
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Skip parameter payload" }));
+
+    expect(payload).toBeDisabled();
+    expect(screen.queryByText("请输入有效 JSON")).not.toBeInTheDocument();
   });
 
   it("uses aligned switch, radio, and custom dropdown controls for boolean and enum parameters", () => {

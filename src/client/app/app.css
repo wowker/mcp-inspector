@@ -555,8 +555,31 @@ summary:focus-visible {
   background: #fff;
 }
 
-.schema-field > label {
+.schema-field__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.schema-field__heading > label:first-child {
   font-weight: 700;
+}
+
+.schema-field__skip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.76rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.schema-field__skip input { margin: 0; }
+
+.schema-field__skip input:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
 }
 
 .schema-field input:not([type="checkbox"]),

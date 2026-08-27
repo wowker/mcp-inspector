@@ -1067,10 +1067,13 @@ textarea::placeholder { color: var(--ui-text-subtle); opacity: 1; }
 }
 .schema-field--json,
 .schema-field--whole { grid-column: 1 / -1; }
-.schema-field > label { color: var(--ui-text); }
+.schema-field__heading > label:first-child { color: var(--ui-text); }
 .schema-field > p { max-width: 90ch; margin: 0; color: var(--ui-text-muted); font-size: 0.78rem; line-height: 1.45; }
-.schema-field > label,
+.schema-field__heading > label:first-child,
 .raw-arguments-heading label { font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; }
+.schema-field__skip { color: var(--ui-text-muted); }
+.schema-field__skip:hover { color: var(--ui-text); }
+.schema-field__skip input { accent-color: var(--ui-accent); }
 .schema-field input:not([type="checkbox"]),
 .schema-field select,
 .schema-field textarea {
@@ -1191,6 +1194,11 @@ textarea::placeholder { color: var(--ui-text-subtle); opacity: 1; }
   cursor: pointer;
 }
 .schema-enum-select__trigger:hover { border-color: var(--ui-border-strong); background: var(--ui-surface-muted); }
+.schema-enum-select__trigger:disabled,
+.schema-switch:has(input:disabled),
+.schema-radio-option:has(input:disabled),
+.schema-field input:not([type="checkbox"]):disabled,
+.schema-field textarea:disabled { opacity: 0.58; cursor: not-allowed; }
 .schema-enum-select__trigger:focus-visible,
 .schema-enum-select__trigger[aria-expanded="true"] { border-color: var(--ui-accent); outline: 2px solid var(--ui-accent-muted); outline-offset: 0; }
 .schema-enum-select__trigger[aria-expanded="true"] svg { transform: rotate(180deg); }

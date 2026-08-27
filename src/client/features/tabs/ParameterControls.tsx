@@ -7,6 +7,7 @@ interface CommonControlProps {
   labelId: string;
   describedBy?: string;
   invalid: boolean;
+  disabled?: boolean;
 }
 
 interface BooleanSwitchProps extends CommonControlProps {
@@ -14,10 +15,10 @@ interface BooleanSwitchProps extends CommonControlProps {
   onChange: (checked: boolean) => void;
 }
 
-export function BooleanSwitch({ id, labelId, describedBy, invalid, checked, onChange }: BooleanSwitchProps) {
+export function BooleanSwitch({ id, labelId, describedBy, invalid, disabled, checked, onChange }: BooleanSwitchProps) {
   return <label className="schema-switch">
     <input id={id} className="schema-switch__input" type="checkbox" checked={checked}
-      aria-labelledby={labelId} aria-describedby={describedBy} aria-invalid={invalid}
+      disabled={disabled} aria-labelledby={labelId} aria-describedby={describedBy} aria-invalid={invalid}
       onChange={(event) => onChange(event.target.checked)} />
     <span className="schema-switch__track" aria-hidden="true"><span className="schema-switch__thumb" /></span>
     <span className="schema-switch__state" aria-hidden="true">{checked ? "已开启" : "已关闭"}</span>
@@ -41,11 +42,11 @@ function isPrimitive(value: unknown): boolean {
   return value === null || ["string", "number", "boolean"].includes(typeof value);
 }
 
-function RadioEnum({ id, labelId, describedBy, invalid, value, options, onSelect }: EnumControlProps) {
+function RadioEnum({ id, labelId, describedBy, invalid, disabled, value, options, onSelect }: EnumControlProps) {
   return <div className="schema-radio-group" role="radiogroup" aria-labelledby={labelId} aria-required="true"
     aria-describedby={describedBy} aria-invalid={invalid}>
     {options.map((option, index) => <label className="schema-radio-option" key={`${optionLabel(option)}-${index}`}>
-      <input type="radio" name={id} checked={Object.is(option, value)} onChange={() => onSelect(index)} />
+      <input type="radio" name={id} checked={Object.is(option, value)} disabled={disabled} onChange={() => onSelect(index)} />
       <span className="schema-radio-indicator" aria-hidden="true" />
       <span>{optionLabel(option)}</span>
     </label>)}
@@ -55,7 +56,7 @@ function RadioEnum({ id, labelId, describedBy, invalid, value, options, onSelect
 interface PopupPosition { top: number; left: number; width: number; maxHeight: number }
 
 function DropdownEnum(props: EnumControlProps) {
-  const { id, labelId, describedBy, invalid, required, value, options, onSelect, onClear } = props;
+  const { id, labelId, describedBy, invalid, disabled, required, value, options, onSelect, onClear } = props;
   const [open, setOpen] = useState(false);
   const selectedIndex = options.findIndex((option) => Object.is(option, value));
   const [activeIndex, setActiveIndex] = useState(selectedIndex);
@@ -124,6 +125,7 @@ function DropdownEnum(props: EnumControlProps) {
   const selectedLabel = selectedIndex >= 0 ? optionLabel(options[selectedIndex]) : null;
   return <div className="schema-enum-select">
     <button ref={triggerRef} id={id} type="button" className="schema-enum-select__trigger" role="combobox"
+      disabled={disabled}
       aria-haspopup="listbox" aria-expanded={open} aria-controls={listboxId}
       aria-labelledby={labelId} aria-describedby={describedBy} aria-invalid={invalid} aria-required={required}
       onClick={() => open ? close() : openDropdown()}
