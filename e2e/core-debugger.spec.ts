@@ -326,6 +326,62 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
       expect(terminalEvents).toHaveLength(1);
       expect(payload.run.events.filter(({ kind }) => kind === "run-error")).toHaveLength(0);
     }
+
+    const connectionsResponse = await request.get(`${inspector.address.origin}/api/projects/${projectId}/connections`, { headers: apiHeaders });
+    const connectionPayload = await connectionsResponse.json() as { connections: Array<{ id: string }> };
+    const connectionId = connectionPayload.connections[0]!.id;
+    const workflowResponse = await request.get(
+      `${inspector.address.origin}/api/projects/${projectId}/connections/${connectionId}/tools/sum/workflow`,
+      { headers: apiHeaders },
+    );
+    const workflowPayload = await workflowResponse.json() as { workflow: { revision: number; timeoutMs: number } };
+    const configuredWorkflow = await request.put(
+      `${inspector.address.origin}/api/projects/${projectId}/connections/${connectionId}/tools/sum/workflow`, {
+        headers: { ...apiHeaders, "Content-Type": "application/json" },
+        data: {
+          revision: workflowPayload.workflow.revision,
+          before: { enabled: true, source: `export default function before(ctx) {
+            ctx.arguments.set("a", 12);
+            ctx.log.info("browser before", { a: ctx.arguments.get("a") });
+          }` },
+          after: { enabled: true, source: `export default function after(ctx) {
+            ctx.env.set("lastBrowserTotal", ctx.json.get(ctx.response, "$.structuredContent.total"), { scope: "server" });
+            ctx.log.info("browser after");
+          }` },
+          timeoutMs: workflowPayload.workflow.timeoutMs,
+        },
+      },
+    );
+    expect(configuredWorkflow.status()).toBe(200);
+
+    await page.getByRole("button", { name: "Tools", exact: true }).click();
+    await page.getByRole("tab", { name: "Loopback MCP" }).click();
+    await page.getByRole("tab", { name: "sum", exact: true }).click();
+    await expect(page.getByRole("button", { name: "执行流水线" })).toBeVisible();
+    let workflowExecutionId = "";
+    page.on("response", async (response) => {
+      if (response.request().method() !== "POST" || !/\/workflow-executions$/.test(response.url()) || response.status() !== 202) return;
+      const payload = await response.json() as { execution: { id: string } };
+      workflowExecutionId = payload.execution.id;
+    });
+    await page.getByRole("button", { name: "执行流水线" }).click();
+    await expect.poll(() => mcp!.enteredTotals.length).toBe(9);
+    expect(mcp.completedTotals).toHaveLength(8);
+    mcp.release(1_012);
+    await expect(page.getByText("脚本流水线 · succeeded")).toBeVisible();
+    await expect.poll(() => workflowExecutionId).not.toBe("");
+    const workflowDetailResponse = await request.get(
+      `${inspector.address.origin}/api/projects/${projectId}/workflow-executions/${workflowExecutionId}`,
+      { headers: apiHeaders },
+    );
+    const workflowDetail = await workflowDetailResponse.json() as { execution: {
+      status: string; finalArguments: Record<string, unknown>; runs: Array<{ phase: string }>;
+      events: Array<{ kind: string; payload: unknown }>;
+    } };
+    expect(workflowDetail.execution.status).toBe("succeeded");
+    expect(workflowDetail.execution.finalArguments).toMatchObject({ a: 12, b: 1_000 });
+    expect(workflowDetail.execution.runs.map(({ phase }) => phase)).toEqual(["main"]);
+    expect(workflowDetail.execution.events.filter(({ kind }) => kind === "script-log")).toHaveLength(2);
   } catch (error) {
     primaryFailure = error;
   } finally {

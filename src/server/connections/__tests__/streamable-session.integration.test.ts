@@ -83,4 +83,39 @@ describe("Streamable HTTP MCP session", () => {
       await session.close();
     }
   });
+
+  it("resolves literal and templated authentication values from the current Server environment", async () => {
+    const fixture = await startStreamableMcpServer();
+    stop = fixture.stop;
+    const session = await createStreamableMcpSessionFactory({
+      resolveEnvironment: () => ({
+        project: { TOKEN: "project-token", REGION: "global" },
+        server: { TOKEN: "server-token", TENANT: "supplier-eu" },
+      }),
+    })({
+      id: "00000000-0000-4000-8000-000000000404",
+      projectId: "00000000-0000-4000-8000-000000000001",
+      name: "Environment fixture",
+      url: fixture.url,
+      transport: "streamable-http",
+      authMode: "bearer",
+      bearerToken: "{{TOKEN}}",
+      headers: { "X-Tenant": "{{TENANT}}", "X-Region": "region-{{REGION}}", "X-Literal": "kept" },
+      redactSensitiveInfo: true,
+      timeoutMs: 2_000,
+      status: "disconnected",
+      lastProtocolVersion: null,
+      lastServerInfo: null,
+      lastError: null,
+    }, () => {});
+
+    try {
+      await session.listTools();
+      expect(fixture.receivedRequestHeaders.every((headers) =>
+        headers.authorization === "Bearer server-token" && headers["x-tenant"] === "supplier-eu" &&
+        headers["x-region"] === "region-global" && headers["x-literal"] === "kept")).toBe(true);
+    } finally {
+      await session.close();
+    }
+  });
 });

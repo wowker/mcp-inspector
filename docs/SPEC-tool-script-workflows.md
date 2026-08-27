@@ -141,7 +141,7 @@ All foreign keys are project-scoped where the existing schema permits, deletion 
 - `GET /projects/:projectId/workflow-executions/:executionId`
 - `POST /projects/:projectId/workflow-executions/:executionId/cancel`
 - `GET /projects/:projectId/workflow-executions/:executionId/events`
-- `POST /projects/:projectId/workflow-debug-sessions`
+- `POST /projects/:projectId/connections/:connectionId/tools/:toolName/workflow/debug`
 
 Every route uses the existing Inspector session/Origin boundary, strict request schemas, project/connection/Tool ownership checks, bounded payloads, stable error codes, and defensive client decoding. Workflow update uses a revision precondition and returns `409 WORKFLOW_REVISION_CONFLICT` on stale edits.
 
@@ -212,4 +212,3 @@ This double boundary is required because QuickJS offers runtime limits but the u
 
 - QuickJS Emscripten exposes no host capabilities by default and supports host functions and deferred Promise bridging: <https://github.com/justjake/quickjs-emscripten/blob/main/README.md>
 - QuickJS runtime CPU, memory, and stack limits: <https://github.com/justjake/quickjs-emscripten/blob/main/doc/quickjs-emscripten/classes/QuickJSRuntime.md>
-

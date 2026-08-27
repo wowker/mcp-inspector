@@ -4,7 +4,15 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import type { DebugTabSummary, InspectorApiClient, RunDetail, ToolDetailSummary } from "../../../api/api-client.js";
+import type {
+  DebugTabSummary,
+  InspectorApiClient,
+  RunDetail,
+  ToolDetailSummary,
+  ToolWorkflow,
+  WorkflowExecutionDetail,
+} from "../../../api/api-client.js";
+import { AppToaster } from "../../../app/AppToaster.js";
 import { DebugWorkspace } from "../DebugWorkspace.js";
 import { ParameterEditor } from "../ParameterEditor.js";
 import { TabStrip } from "../TabStrip.js";
@@ -32,6 +40,28 @@ function tab(id: string, title: string, args: Record<string, unknown>): DebugTab
   return { id, projectId, connectionId, toolName: "sum", title, position: title === "sum" ? 0 : 1,
     pinned: false, inputMode: "form", arguments: args, rawText: JSON.stringify(args, null, 2),
     viewState: { editorScrollTop: 0, resultScrollTop: 0, splitRatio: 0.5 }, lastRunId: null };
+}
+
+const workflow: ToolWorkflow = {
+  projectId, connectionId, toolName: "sum", revision: 1,
+  before: { enabled: true, source: "export default async function before(ctx) {}" },
+  after: { enabled: false, source: "" }, timeoutMs: 5_000,
+  createdAt: "2026-08-27T00:00:00.000Z", updatedAt: "2026-08-27T00:00:00.000Z",
+};
+
+function workflowExecution(tabId: string, status: WorkflowExecutionDetail["status"]): WorkflowExecutionDetail {
+  return {
+    id: "00000000-0000-4000-8000-000000000680", projectId, connectionId, tabId, toolName: "sum",
+    status, createdAt: "2026-08-27T00:00:00.000Z",
+    startedAt: status === "queued" ? null : "2026-08-27T00:00:00.001Z",
+    completedAt: ["succeeded", "failed", "cancelled", "interrupted"].includes(status)
+      ? "2026-08-27T00:00:00.010Z" : null,
+    durationMs: ["succeeded", "failed", "cancelled", "interrupted"].includes(status) ? 9 : null,
+    toolSnapshotId: tool.tool.currentSnapshot.id, idempotencyKey: "workflow-test",
+    initialArguments: { a: 1 }, finalArguments: status === "succeeded" ? { a: 1 } : null,
+    workflowSnapshot: workflow, response: status === "succeeded" ? { answer: 1 } : null,
+    error: null, runs: [], events: [],
+  };
 }
 
 describe("DebugWorkspace", () => {
@@ -116,6 +146,39 @@ describe("DebugWorkspace", () => {
     expect(onExecute).toHaveBeenCalledTimes(1);
   });
 
+  it("defers missing required fields when an enabled before script will run", () => {
+    const onExecute = vi.fn();
+    const requiredSchema = { type: "object", properties: { required_value: { type: "string" } }, required: ["required_value"] };
+    render(<ParameterEditor tab={tab("00000000-0000-4000-8000-000000000681", "sum", {})}
+      schema={requiredSchema} onChange={vi.fn()} onExecute={onExecute}
+      workflowEnabled deferRequiredValidation />);
+
+    expect(screen.getByText("前置脚本已启用，必填参数将在脚本执行后校验。")).toBeVisible();
+    const execute = screen.getByRole("button", { name: "执行流水线" });
+    expect(execute).toBeEnabled();
+    fireEvent.click(execute);
+    expect(onExecute).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps missing required fields blocking when only an after script is enabled", () => {
+    const requiredSchema = { type: "object", properties: { required_value: { type: "string" } }, required: ["required_value"] };
+    render(<ParameterEditor tab={tab("00000000-0000-4000-8000-000000000682", "sum", {})}
+      schema={requiredSchema} onChange={vi.fn()} onExecute={vi.fn()} workflowEnabled />);
+
+    expect(screen.getByRole("button", { name: "执行流水线" })).toBeDisabled();
+    expect(screen.queryByText("前置脚本已启用，必填参数将在脚本执行后校验。")).not.toBeInTheDocument();
+  });
+
+  it("keeps non-required schema errors blocking when a before script is enabled", () => {
+    const typedSchema = { type: "object", properties: { optional_count: { type: "integer" } } };
+    render(<ParameterEditor tab={tab("00000000-0000-4000-8000-000000000684", "sum", { optional_count: "invalid" })}
+      schema={typedSchema} onChange={vi.fn()} onExecute={vi.fn()}
+      workflowEnabled deferRequiredValidation />);
+
+    expect(screen.getByRole("button", { name: "执行流水线" })).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent("参数类型不符合 Tool Schema");
+  });
+
   it("places the primary Execute action beside the parameter mode controls", () => {
     render(<ParameterEditor tab={tab("00000000-0000-4000-8000-000000000620", "sum", { a: 1 })}
       schema={tool.tool.currentSnapshot.definition.inputSchema} onChange={vi.fn()} onExecute={vi.fn()}
@@ -192,6 +255,25 @@ describe("DebugWorkspace", () => {
     expect(split.style.gridTemplateRows).toBe("auto 10px minmax(0, 1fr)");
     fireEvent.click(screen.getByRole("button", { name: "展开参数" }));
     expect(split.style.gridTemplateRows).toBe("50% 10px 1fr");
+  });
+
+  it("collapses the response pane from its left summary control and restores the saved split", async () => {
+    const saved = tab("00000000-0000-4000-8000-000000000618", "sum", { a: 1 });
+    const api = { listTabs: vi.fn(async () => [saved]), getTool: vi.fn(async () => tool), updateTab: vi.fn() } as unknown as InspectorApiClient;
+    render(<DebugWorkspace api={api} projectId={projectId} />);
+
+    const collapse = await screen.findByRole("button", { name: "收起响应" });
+    const split = collapse.closest(".request-result-split") as HTMLElement;
+    expect(collapse.querySelector("svg")).not.toBeNull();
+    expect(split.style.gridTemplateRows).toBe("50% 10px 1fr");
+
+    fireEvent.click(collapse);
+    expect(split.style.gridTemplateRows).toBe("minmax(0, 1fr) 10px auto");
+    expect(screen.queryByRole("tab", { name: "请求与结果" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "展开响应" }));
+    expect(split.style.gridTemplateRows).toBe("50% 10px 1fr");
+    expect(screen.getByRole("tab", { name: "请求与结果" })).toBeVisible();
   });
 
   it("resizes request and response panes by vertical pointer movement", async () => {
@@ -567,6 +649,172 @@ describe("DebugWorkspace", () => {
     expect(onExecute).toHaveBeenCalledWith(expect.objectContaining({ arguments: { a: 8 } }));
   });
 
+  it("uses the workflow parent execution when a script is enabled", async () => {
+    const current = tab("00000000-0000-4000-8000-000000000679", "sum", { a: 1 });
+    const queued = workflowExecution(current.id, "queued");
+    const succeeded = { ...workflowExecution(current.id, "succeeded"), events: [
+      { executionId: "00000000-0000-4000-8000-000000000680", sequence: 1, kind: "script-log",
+        occurredAt: "2026-08-27T00:00:00.004Z",
+        payload: { phase: "before", level: "info", message: "已补齐参数", data: { field: "a" } } },
+      { executionId: "00000000-0000-4000-8000-000000000680", sequence: 2, kind: "script-log",
+        occurredAt: "2026-08-27T00:00:00.006Z",
+        payload: { phase: "after", level: "warn", message: "已检查响应", data: { checked: true } } },
+    ] };
+    const api = {
+      listTabs: vi.fn(async () => [current]), getTool: vi.fn(async () => tool), updateTab: vi.fn(async () => current),
+      getToolWorkflow: vi.fn(async () => workflow), getActiveWorkflowExecution: vi.fn(async () => null),
+      startWorkflowExecution: vi.fn(async () => queued), getWorkflowExecution: vi.fn(async () => succeeded),
+      startRun: vi.fn(),
+    } as unknown as InspectorApiClient;
+    render(<DebugWorkspace api={api} projectId={projectId} connectionId={current.connectionId} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "执行流水线" }));
+
+    await waitFor(() => expect(api.startWorkflowExecution).toHaveBeenCalledWith(
+      projectId, current.connectionId, current.id, expect.any(String), { a: 1 }, false,
+    ));
+    expect(api.startRun).not.toHaveBeenCalled();
+    expect(await screen.findByText("脚本流水线 · succeeded")).toBeVisible();
+    const resultTabs = screen.getByRole("tablist", { name: "运行结果视图" });
+    expect(within(resultTabs).getAllByRole("tab").slice(0, 2).map((item) => item.textContent))
+      .toEqual(["脚本流水线", "请求与结果"]);
+    expect(within(resultTabs).getByRole("tab", { name: "脚本流水线" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("已补齐参数")).toBeVisible();
+    expect(screen.getByLabelText("日志 1 数据")).toHaveTextContent("field");
+    expect(screen.getByLabelText("日志 1 数据")).toHaveTextContent('"a"');
+    const logRegion = screen.getByRole("region", { name: "脚本执行日志" });
+    expect(within(logRegion).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(logRegion).getAllByRole("button", { name: "复制" })).toHaveLength(2);
+    expect(within(logRegion).getAllByRole("button", { name: "放大查看" })).toHaveLength(2);
+
+    fireEvent.click(within(logRegion).getAllByRole("button", { name: "放大查看" })[0]!);
+    expect(screen.getByRole("dialog", { name: "脚本日志 #1" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "关闭 JSON 查看器" }));
+
+    fireEvent.click(within(resultTabs).getByRole("tab", { name: "请求与结果" }));
+    expect(screen.queryByText("已补齐参数")).not.toBeInTheDocument();
+  });
+
+  it("keeps observing and displays the main Run when a workflow fails", async () => {
+    const current = tab("00000000-0000-4000-8000-000000000685", "sum", { a: 1 });
+    const mainRunId = "00000000-0000-4000-8000-000000000686";
+    const queued = workflowExecution(current.id, "queued");
+    const failedExecution: WorkflowExecutionDetail = {
+      ...workflowExecution(current.id, "failed"),
+      error: { code: "WORKFLOW_FAILED", message: "Workflow execution failed" },
+      runs: [{ runId: mainRunId, phase: "main", ordinal: 0, sourceLine: null }],
+    };
+    const failedRun: RunDetail = {
+      id: mainRunId, projectId, connectionId, tabId: current.id, toolName: "sum",
+      toolSnapshotId: tool.tool.currentSnapshot.id, toolSnapshotHash: "a".repeat(64),
+      idempotencyKey: "workflow-main", status: "failed", createdAt: "2026-08-27T00:00:00.002Z",
+      startedAt: "2026-08-27T00:00:00.003Z", completedAt: "2026-08-27T00:00:00.008Z",
+      durationMs: 5, networkDurationMs: 3, protocolVersion: "2025-06-18", serverInfo: null,
+      clientInfo: { name: "mcp-inspector", version: "0.1.0" },
+      request: { arguments: { a: 1 }, jsonrpc: { jsonrpc: "2.0", method: "tools/call" }, http: null },
+      response: { result: null, error: { code: "TOOL_FAILED", message: "Tool 调用失败" },
+        truncated: false, originalBytes: 24 },
+      events: [],
+    };
+    const mainRunDetail = deferred<RunDetail>();
+    const api = {
+      listTabs: vi.fn(async () => [current]), getTool: vi.fn(async () => tool), updateTab: vi.fn(async () => current),
+      getToolWorkflow: vi.fn(async () => workflow), getActiveWorkflowExecution: vi.fn(async () => null),
+      startWorkflowExecution: vi.fn(async () => queued), getWorkflowExecution: vi.fn(async () => failedExecution),
+      getRun: vi.fn(() => mainRunDetail.promise), openRunEventStream: vi.fn(),
+    } as unknown as InspectorApiClient;
+    render(<DebugWorkspace api={api} projectId={projectId} connectionId={connectionId} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "执行流水线" }));
+
+    expect(await screen.findByText("脚本流水线 · failed")).toBeVisible();
+    expect(screen.queryByText("正在加载运行详情…")).not.toBeInTheDocument();
+    await act(async () => { mainRunDetail.resolve(failedRun); await Promise.resolve(); });
+    fireEvent.click(screen.getByRole("tab", { name: "请求与结果" }));
+    const result = await screen.findByLabelText(`运行 ${mainRunId} 详情`);
+    expect(result).toBeVisible();
+    expect(result).toHaveTextContent("Tool 调用失败");
+    expect(screen.queryByText("正在加载运行详情…")).not.toBeInTheDocument();
+    expect(screen.queryByText("Workflow execution failed")).not.toBeInTheDocument();
+  });
+
+  it("confirms destructive workflow helpers with the shared actionable toast", async () => {
+    const current = tab("00000000-0000-4000-8000-000000000684", "sum", { a: 1 });
+    const helperWorkflow = {
+      ...workflow,
+      before: { enabled: true, source: "export default async function before(ctx) { await ctx.tools.call({ server: 'current', name: 'lookup', arguments: {} }); }" },
+    };
+    const queued = workflowExecution(current.id, "queued");
+    const succeeded = workflowExecution(current.id, "succeeded");
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const api = {
+      listTabs: vi.fn(async () => [current]), getTool: vi.fn(async () => tool), updateTab: vi.fn(async () => current),
+      getToolWorkflow: vi.fn(async () => helperWorkflow), getActiveWorkflowExecution: vi.fn(async () => null),
+      startWorkflowExecution: vi.fn(async () => queued), getWorkflowExecution: vi.fn(async () => succeeded),
+      startRun: vi.fn(),
+    } as unknown as InspectorApiClient;
+    render(<><AppToaster /><DebugWorkspace api={api} projectId={projectId} connectionId={current.connectionId} /></>);
+
+    fireEvent.click(await screen.findByRole("button", { name: "执行流水线" }));
+
+    expect(await screen.findByText("流水线脚本会调用辅助 Tool，其中可能包含有副作用的操作。")).toBeVisible();
+    expect(screen.getByText("是否允许本次执行调用破坏性辅助 Tool？")).toBeVisible();
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(api.startWorkflowExecution).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "允许执行" }));
+    await waitFor(() => expect(api.startWorkflowExecution).toHaveBeenCalledWith(
+      projectId, current.connectionId, current.id, expect.any(String), { a: 1 }, true,
+    ));
+    expect(api.getToolWorkflow).toHaveBeenCalledTimes(2);
+  });
+
+  it("starts a before workflow with missing required arguments for post-script validation", async () => {
+    const requiredTool = structuredClone(tool);
+    requiredTool.tool.currentSnapshot.definition.inputSchema.required = ["a"];
+    const current = tab("00000000-0000-4000-8000-000000000683", "sum", {});
+    const queued = workflowExecution(current.id, "queued");
+    const succeeded = { ...workflowExecution(current.id, "succeeded"), initialArguments: {}, finalArguments: { a: 1 } };
+    const api = {
+      listTabs: vi.fn(async () => [current]), getTool: vi.fn(async () => requiredTool), updateTab: vi.fn(async () => current),
+      getToolWorkflow: vi.fn(async () => workflow), getActiveWorkflowExecution: vi.fn(async () => null),
+      startWorkflowExecution: vi.fn(async () => queued), getWorkflowExecution: vi.fn(async () => succeeded), startRun: vi.fn(),
+    } as unknown as InspectorApiClient;
+    render(<DebugWorkspace api={api} projectId={projectId} connectionId={connectionId} />);
+
+    const execute = await screen.findByRole("button", { name: "执行流水线" });
+    await waitFor(() => expect(execute).toBeEnabled());
+    fireEvent.click(execute);
+
+    await waitFor(() => expect(api.startWorkflowExecution).toHaveBeenCalledWith(
+      projectId, connectionId, current.id, expect.any(String), {}, false,
+    ));
+    expect(api.startRun).not.toHaveBeenCalled();
+  });
+
+  it("restores an active workflow after reload and keeps the execution gate until it is terminal", async () => {
+    const current = tab("00000000-0000-4000-8000-000000000678", "sum", { a: 1 });
+    const running = workflowExecution(current.id, "before");
+    const terminal = deferred<WorkflowExecutionDetail>();
+    const api = {
+      listTabs: vi.fn(async () => [current]), getTool: vi.fn(async () => tool), updateTab: vi.fn(async () => current),
+      getToolWorkflow: vi.fn(async () => workflow), getActiveWorkflowExecution: vi.fn(async () => running),
+      getWorkflowExecution: vi.fn(() => terminal.promise), startWorkflowExecution: vi.fn(), startRun: vi.fn(),
+    } as unknown as InspectorApiClient;
+    render(<DebugWorkspace api={api} projectId={projectId} />);
+
+    const execute = await screen.findByRole("button", { name: /执行/ });
+    await waitFor(() => expect(api.getActiveWorkflowExecution).toHaveBeenCalledWith(
+      projectId, current.id, expect.any(AbortSignal),
+    ));
+    expect(execute).toBeDisabled();
+    fireEvent.click(execute);
+    expect(api.startWorkflowExecution).not.toHaveBeenCalled();
+
+    await act(async () => { terminal.resolve(workflowExecution(current.id, "succeeded")); await Promise.resolve(); });
+    await waitFor(() => expect(screen.getByRole("button", { name: "执行流水线" })).toBeEnabled());
+  });
+
   it("isolates invalid nested JSON drafts by tab and JSON Pointer", async () => {
     const nestedTool = structuredClone(tool);
     nestedTool.tool.currentSnapshot.definition.inputSchema = { type: "object", properties: { payload: { type: "object" } } };
@@ -650,7 +898,7 @@ describe("DebugWorkspace", () => {
     const api = { listTabs: vi.fn(async () => [current]), getTool: vi.fn(async () => tool), updateTab: vi.fn() } as unknown as InspectorApiClient;
     const user = userEvent.setup();
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
-    render(<DebugWorkspace api={api} projectId={projectId} />);
+    render(<><AppToaster /><DebugWorkspace api={api} projectId={projectId} /></>);
 
     await user.click(await screen.findByLabelText("sum (3) 操作"));
     const menu = screen.getByLabelText("sum (3) Tab 操作菜单");
@@ -659,7 +907,7 @@ describe("DebugWorkspace", () => {
     await user.click(actions[0]!);
 
     expect(writeText).toHaveBeenCalledWith("sum");
-    expect(await screen.findByText("Tool 名称已复制")).toHaveClass("copy-toast");
+    expect((await screen.findByText("Tool 名称已复制")).closest("[data-sonner-toast]")).toHaveClass("app-toast");
   });
 
   it("links Tabs to their panel, supports roving keys, and focuses fallback after close", async () => {
@@ -863,7 +1111,7 @@ describe("DebugWorkspace", () => {
     const api = { listTabs: vi.fn(async () => [current]), getTool: vi.fn(async () => tool), updateTab: vi.fn(),
       createSavedItem: vi.fn(async () => saved), listSavedItems: vi.fn(async () => ({ items: [saved], nextCursor: null })),
       getSavedItem: vi.fn(async () => saved), deleteSavedItem: vi.fn() } as unknown as InspectorApiClient;
-    const user = userEvent.setup(); render(<DebugWorkspace api={api} projectId={projectId} />);
+    const user = userEvent.setup(); render(<><AppToaster /><DebugWorkspace api={api} projectId={projectId} /></>);
     await user.click(await screen.findByRole("button", { name: "保存请求" }));
     const dialog = screen.getByRole("dialog", { name: "保存请求" });
     await user.type(screen.getByLabelText("名称"), "nine"); await user.type(screen.getByLabelText("描述"), "known result");
@@ -874,7 +1122,7 @@ describe("DebugWorkspace", () => {
     await waitFor(() => expect(dialog).not.toBeInTheDocument());
     expect(screen.getByRole("button", { name: "调试" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("button", { name: "已保存" })).not.toHaveAttribute("aria-current");
-    expect(await screen.findByText("请求保存成功")).toHaveClass("copy-toast");
+    expect((await screen.findByText("请求保存成功")).closest("[data-sonner-toast]")).toHaveClass("app-toast");
   });
 
   it("shows current Tab history records without repeating the view title", async () => {

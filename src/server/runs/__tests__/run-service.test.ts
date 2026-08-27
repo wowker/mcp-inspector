@@ -61,6 +61,8 @@ describe("RunService", () => {
   it("is idempotent only for the same Tab, snapshot, and canonical arguments", async () => {
     const { projects, session, service, tabA, tabB } = fixture();
     try {
+      expect(() => service.start({ projectId, connectionId: "00000000-0000-4000-8000-000000000799",
+        tabId: tabA.id, idempotencyKey: "wrong-server", arguments: { a: 1 } })).toThrow(/different connection/i);
       const first = service.start({ projectId, tabId: tabA.id, idempotencyKey: "submit-a", arguments: { a: 1, b: 2 } });
       const duplicate = service.start({ projectId, tabId: tabA.id, idempotencyKey: "submit-a", arguments: { b: 2, a: 1 } });
       expect(duplicate.id).toBe(first.id);
@@ -140,6 +142,30 @@ describe("RunService", () => {
       expect(terminalWasCommitted).toBe(true);
       expect(new RunRepository(projects.open(projectId), service.eventBus)
         .transition(projectId, first.id, ["queued"], "running", new Date().toISOString())).toBe(false);
+    } finally { projects.close(); }
+  });
+
+  it("runs a helper invocation without creating or mutating a debug Tab", async () => {
+    const { projects, connections, service, tabA, tabB, session } = fixture();
+    try {
+      await connections.connect(projectId, connectionId);
+      const helper = service.startInvocation({
+        projectId,
+        connectionId,
+        toolName: "sum",
+        idempotencyKey: "workflow-helper-1",
+        arguments: { a: 4 },
+      });
+      expect(helper.tabId).toBeNull();
+      const completed = await service.waitForTerminal(projectId, helper.id);
+      expect(completed.status).toBe("succeeded");
+      expect(completed.response?.result).toEqual({ content: [{ type: "text", text: "sum" }] });
+      expect(session.calls).toHaveLength(1);
+      expect(service.get(projectId, helper.id).tabId).toBeNull();
+      const rows = projects.open(projectId).database.prepare(
+        "SELECT id, last_run_id FROM debug_tabs WHERE id IN (?, ?) ORDER BY id",
+      ).all(tabA.id, tabB.id) as Array<{ id: string; last_run_id: string | null }>;
+      expect(rows.map((row) => row.last_run_id)).toEqual([null, null]);
     } finally { projects.close(); }
   });
 
@@ -490,7 +516,7 @@ describe("RunService", () => {
       projects.open(projectId).database.prepare("UPDATE run_requests SET arguments_json = 'not-json' WHERE run_id = ?").run(runs[0].id);
       expect(() => service.get(projectId, runs[0].id)).toThrow(/corrupt/i);
       expect(projects.open(projectId).database.prepare("SELECT version FROM schema_migrations ORDER BY version").all())
-        .toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((version) => ({ version })));
+        .toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((version) => ({ version })));
       const store = projects.open(projectId); const snapshotId = store.database.prepare("SELECT id FROM tool_snapshots LIMIT 1").get() as { id: string };
       const insert = store.database.prepare(`INSERT INTO runs
         (id, project_id, connection_id, tab_id, tool_name, tool_snapshot_id, idempotency_key, status, created_at, client_info_json)

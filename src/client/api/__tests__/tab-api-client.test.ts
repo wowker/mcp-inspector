@@ -32,14 +32,17 @@ describe("Tab API client", () => {
   ])("rejects list response with %s", async (_label, invalid) => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ tabs: [invalid] }), { status: 200,
       headers: { "Content-Type": "application/json" } }));
-    await expect(createApiClient("session").listTabs(projectId)).rejects.toThrow("Invalid Tab response");
+    await expect(createApiClient("session").listTabs(projectId, connectionId)).rejects.toThrow("Invalid Tab response");
   });
 
-  it("rejects duplicate, sparse, and malformed envelope responses", async () => {
+  it("rejects duplicate, unordered, and malformed envelope responses while accepting legacy sparse positions", async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ tabs: [tab, tab] }), { status: 200 }));
-    await expect(createApiClient("session").listTabs(projectId)).rejects.toThrow("Invalid Tab response");
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ tabs: [{ ...tab, position: 1 }] }), { status: 200 }));
-    await expect(createApiClient("session").listTabs(projectId)).rejects.toThrow("Invalid Tab response");
+    await expect(createApiClient("session").listTabs(projectId, connectionId)).rejects.toThrow("Invalid Tab response");
+    const later = { ...tab, id: "00000000-0000-4000-8000-000000000704", position: 1 };
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ tabs: [later, tab] }), { status: 200 }));
+    await expect(createApiClient("session").listTabs(projectId, connectionId)).rejects.toThrow("Invalid Tab response");
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ tabs: [{ ...tab, position: 4 }] }), { status: 200 }));
+    await expect(createApiClient("session").listTabs(projectId, connectionId)).resolves.toEqual([{ ...tab, position: 4 }]);
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ tab: { ...tab, title: "" } }), { status: 200 }));
     await expect(createApiClient("session").openTab(projectId, connectionId, "sum")).rejects.toThrow("Invalid Tab response");
   });
@@ -67,15 +70,15 @@ describe("Tab API client", () => {
       .mockResolvedValueOnce(json({ tabs: [tab] }))
       .mockResolvedValueOnce(json({ tabs: [tab] }));
     const api = createApiClient("session");
-    await expect(api.listTabs(projectId)).resolves.toEqual([tab]);
+    await expect(api.listTabs(projectId, connectionId)).resolves.toEqual([tab]);
     await expect(api.openTab(projectId, connectionId, "sum")).resolves.toEqual(tab);
     await expect(api.replaceTabTool(projectId, tabId, connectionId, "sum")).resolves.toEqual(tab);
     await expect(api.updateTab(projectId, tabId, { rawText: "{}" })).resolves.toEqual(tab);
     await expect(api.duplicateTab(projectId, tabId)).resolves.toEqual(tab);
-    await expect(api.reorderTabs(projectId, [tabId])).resolves.toEqual([tab]);
+    await expect(api.reorderTabs(projectId, connectionId, [tabId])).resolves.toEqual([tab]);
     await expect(api.closeTab(projectId, tabId)).resolves.toBeUndefined();
-    await expect(api.closeOtherTabs(projectId, tabId)).resolves.toEqual([tab]);
-    await expect(api.closeTabsRight(projectId, tabId)).resolves.toEqual([tab]);
+    await expect(api.closeOtherTabs(projectId, connectionId, tabId)).resolves.toEqual([tab]);
+    await expect(api.closeTabsRight(projectId, connectionId, tabId)).resolves.toEqual([tab]);
     expect(fetchMock).toHaveBeenCalledTimes(9);
   });
 });

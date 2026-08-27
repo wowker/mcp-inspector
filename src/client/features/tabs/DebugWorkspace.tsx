@@ -1,7 +1,18 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { X } from "@phosphor-icons/react";
-import type { CatalogToolSummary, DebugTabSummary, InspectorApiClient, RunDetail, RunSummary, ToolDetailSummary } from "../../api/api-client.js";
+import { toast } from "sonner";
+import type {
+  CatalogToolSummary,
+  DebugTabSummary,
+  InspectorApiClient,
+  RunDetail,
+  RunSummary,
+  ToolDetailSummary,
+  ToolWorkflow,
+  WorkflowExecutionDetail,
+} from "../../api/api-client.js";
 import { formatRawArguments, parseRawArguments } from "../../../shared/json.js";
+import { confirmToast } from "../../app/AppToaster.js";
 import { RunHistory } from "../runs/RunHistory.js";
 import { EmptyRunResultPanel, RunResultPanel } from "../runs/RunResultPanel.js";
 import { useRunEvents, useRunPolling } from "../runs/use-run-events.js";
@@ -11,6 +22,7 @@ import { ToolDefinitionView } from "./ToolDefinitionView.js";
 import { SavedItemDialog } from "../saved-items/SavedItemDialog.js";
 import { SavedItemsView } from "../saved-items/SavedItemsView.js";
 import { schemaHasEditableArguments } from "./schema-form.js";
+import { ScriptWorkflowView } from "./ScriptWorkflowView.js";
 
 export interface ToolOpenIntent {
   sequence: number;
@@ -19,16 +31,17 @@ export interface ToolOpenIntent {
   restoreRun?: RunDetail;
 }
 interface Props {
-  api: InspectorApiClient; projectId: string; toolIntent?: ToolOpenIntent | null;
+  api: InspectorApiClient; projectId: string; connectionId?: string; toolIntent?: ToolOpenIntent | null;
   onExecute?: (tab: DebugTabSummary) => void;
   onActiveToolChange?: (tool: { connectionId: string; name: string } | null) => void;
 }
 
-type WorkspaceView = "debug" | "definition" | "history" | "saved";
+type WorkspaceView = "debug" | "definition" | "script" | "history" | "saved";
 const PERSIST_DELAY = 300;
 const ACTIVE_TAB_KEY_PREFIX = "mcp-inspector-active-tab:";
 interface PendingSave { revision: number; patch: Partial<DebugTabSummary> }
 interface BoundToolDetail { tabId: string; connectionId: string; toolName: string; value: ToolDetailSummary }
+interface BoundWorkflow { tabId: string; connectionId: string; toolName: string; value: ToolWorkflow }
 interface SubtreeDraft { text: string; base: string }
 interface ActiveObservation { run: RunDetail | null; error: string | null }
 interface SaveIntent {
@@ -50,13 +63,14 @@ function ActiveRunObserver({ api, projectId, tabId, runId, selected, onUpdate }:
 }
 
 export function DebugWorkspace(props: Props) {
-  return <ProjectWorkspace key={props.projectId} {...props} />;
+  return <ProjectWorkspace key={`${props.projectId}:${props.connectionId ?? "test"}`} {...props} />;
 }
 
-function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActiveToolChange }: Props) {
+function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null, onExecute, onActiveToolChange }: Props) {
   const [tabs, setTabs] = useState<DebugTabSummary[] | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [boundDetail, setBoundDetail] = useState<BoundToolDetail | null>(null);
+  const [boundWorkflow, setBoundWorkflow] = useState<BoundWorkflow | null>(null);
   const [view, setView] = useState<WorkspaceView>("debug");
   const [message, setMessage] = useState<string | null>(null);
   const [subtreeDrafts, setSubtreeDrafts] = useState<Record<string, Record<string, SubtreeDraft>>>({});
@@ -66,9 +80,10 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActi
   const [startingIds, setStartingIds] = useState<ReadonlySet<string>>(new Set());
   const [activeObservations, setActiveObservations] = useState<Record<string, ActiveObservation>>({});
   const [saveIntent, setSaveIntent] = useState<SaveIntent | null>(null);
-  const [saveNotice, setSaveNotice] = useState<{ sequence: number; message: string } | null>(null);
   const [savedRevision, setSavedRevision] = useState(0);
   const [parameterExpansion, setParameterExpansion] = useState<Record<string, boolean>>({});
+  const [responseExpansion, setResponseExpansion] = useState<Record<string, boolean>>({});
+  const [workflowExecutions, setWorkflowExecutions] = useState<Record<string, WorkflowExecutionDetail>>({});
   const tabsRef = useRef<DebugTabSummary[]>([]);
   const activeRef = useRef<string | null>(null);
   const pending = useRef(new Map<string, PendingSave>());
@@ -82,15 +97,11 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActi
   const workspaceGeneration = useRef(0);
   const starts = useRef(new Set<string>());
   const activeRuns = useRef(new Map<string, string>());
+  const activeWorkflows = useRef(new Map<string, string>());
+  const workflowControllers = useRef(new Map<string, AbortController>());
   const settledLastRuns = useRef(new Map<string, string>());
   const requestPaneRef = useRef<HTMLDivElement>(null);
   const resultPaneRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (saveNotice === null) return;
-    const timer = window.setTimeout(() => setSaveNotice((current) => current?.sequence === saveNotice.sequence ? null : current), 2_000);
-    return () => window.clearTimeout(timer);
-  }, [saveNotice]);
 
   function assign(next: DebugTabSummary[]): void {
     tabsRef.current = next; setTabs(next);
@@ -111,8 +122,8 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActi
   function activate(id: string | null): void {
     activeRef.current = id; setActiveId(id); if (id !== null) setActiveReadOnlyId(null);
     try {
-      if (id === null) sessionStorage.removeItem(`${ACTIVE_TAB_KEY_PREFIX}${projectId}`);
-      else sessionStorage.setItem(`${ACTIVE_TAB_KEY_PREFIX}${projectId}`, id);
+      if (id === null) sessionStorage.removeItem(`${ACTIVE_TAB_KEY_PREFIX}${projectId}:${connectionId}`);
+      else sessionStorage.setItem(`${ACTIVE_TAB_KEY_PREFIX}${projectId}:${connectionId}`, id);
     } catch { /* The workspace remains usable when browser storage is unavailable. */ }
   }
 
@@ -121,7 +132,7 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActi
       if (navigator.clipboard === undefined) throw new Error("Clipboard is unavailable");
       await navigator.clipboard.writeText(toolName);
       setMessage(null);
-      setSaveNotice((current) => ({ sequence: (current?.sequence ?? 0) + 1, message: "Tool 名称已复制" }));
+      toast.success("Tool 名称已复制");
     } catch {
       setMessage("无法复制 Tool 名称，请检查浏览器剪贴板权限。");
     }
@@ -177,16 +188,20 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActi
 
   useEffect(() => {
     const generation = ++loadGeneration.current; setTabs(null); setMessage(null);
-    void api.listTabs(projectId).then((loaded) => {
+    void api.listTabs(projectId, connectionId).then((loaded) => {
       if (loadGeneration.current !== generation) return;
+      if (connectionId !== "" && loaded.some((tab) => tab.connectionId !== connectionId)) {
+        throw new Error("Tab 列表与当前 Server 不匹配");
+      }
       let stored: string | null = null;
-      try { stored = sessionStorage.getItem(`${ACTIVE_TAB_KEY_PREFIX}${projectId}`); } catch { /* Ignore unavailable storage. */ }
+      try { stored = sessionStorage.getItem(`${ACTIVE_TAB_KEY_PREFIX}${projectId}:${connectionId}`); } catch { /* Ignore unavailable storage. */ }
       assign(loaded); activate(loaded.some(({ id }) => id === stored) ? stored : loaded[0]?.id ?? null);
     }).catch((error: unknown) => { if (loadGeneration.current === generation) setMessage(error instanceof Error ? error.message : "加载 Tabs 失败"); });
     const scope = ++workspaceGeneration.current;
     return () => { loadGeneration.current += 1; if (workspaceGeneration.current === scope) workspaceGeneration.current += 1;
+      for (const controller of workflowControllers.current.values()) controller.abort(); workflowControllers.current.clear(); activeWorkflows.current.clear();
       void flush(); for (const timer of timers.current.values()) clearTimeout(timer); timers.current.clear(); };
-  }, [api, flush, projectId]);
+  }, [api, connectionId, flush, projectId]);
 
   const active = tabs?.find(({ id }) => id === activeId) ?? null;
   const selectedRunId = activeReadOnlyId ?? (active === null ? null : selectedRuns[active.id] ?? active.lastRunId);
@@ -205,7 +220,9 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActi
     if (observation.run !== null && terminalRunStatuses.has(observation.run.status)) {
       settledLastRuns.current.set(tabId, runId);
       activeRuns.current.delete(tabId);
-      setStartingIds((current) => { const next = new Set(current); next.delete(tabId); return next; });
+      if (!activeWorkflows.current.has(tabId)) {
+        setStartingIds((current) => { const next = new Set(current); next.delete(tabId); return next; });
+      }
       setActiveObservations((current) => { const next = { ...current }; delete next[tabId]; return next; });
       return;
     }
@@ -228,18 +245,56 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActi
       .filter(([tabId, observation]) => persisted.get(tabId) === observation.run?.id)));
   }, [tabs === null ? null : tabs.map(({ id, lastRunId }) => `${id}:${lastRunId ?? ""}`).join("|")]);
   useEffect(() => {
-    setBoundDetail(null);
+    setBoundDetail(null); setBoundWorkflow(null);
     if (active === null) return;
     const generation = ++loadGeneration.current;
     void api.getTool(projectId, active.connectionId, active.toolName).then((value) => {
-      if (loadGeneration.current === generation && activeRef.current === active.id) setBoundDetail({
-        tabId: active.id, connectionId: active.connectionId, toolName: active.toolName, value,
-      });
+      if (loadGeneration.current === generation && activeRef.current === active.id) {
+        setBoundDetail({ tabId: active.id, connectionId: active.connectionId, toolName: active.toolName, value });
+      }
     }).catch((error: unknown) => { if (loadGeneration.current === generation) { setBoundDetail(null); setMessage(error instanceof Error ? error.message : "加载 Tool 失败"); } });
+    if (typeof api.getToolWorkflow === "function") {
+      void Promise.resolve(api.getToolWorkflow(projectId, active.connectionId, active.toolName)).then((workflow) => {
+        if (workflow === undefined) return;
+        if (loadGeneration.current === generation && activeRef.current === active.id) {
+          setBoundWorkflow({ tabId: active.id, connectionId: active.connectionId, toolName: active.toolName, value: workflow });
+        }
+      }).catch((error: unknown) => { if (loadGeneration.current === generation) setMessage(error instanceof Error ? error.message : "加载脚本配置失败"); });
+    }
   }, [active?.connectionId, active?.id, active?.toolName, api, projectId]);
 
   useEffect(() => {
-    if (toolIntent === null || toolIntent.sequence === handledIntent.current || tabs === null || toolIntent.tool.projectId !== projectId) return;
+    if (active === null || typeof api.getActiveWorkflowExecution !== "function" || activeWorkflows.current.has(active.id)) return;
+    const tabId = active.id; const scope = workspaceGeneration.current; const query = new AbortController();
+    setStartingIds((current) => new Set(current).add(tabId));
+    void api.getActiveWorkflowExecution(projectId, tabId, query.signal).then((execution) => {
+      if (query.signal.aborted || workspaceGeneration.current !== scope || activeRef.current !== tabId) return;
+      if (execution === null) {
+        if (!starts.current.has(tabId) && !activeRuns.current.has(tabId)) {
+          setStartingIds((current) => { const next = new Set(current); next.delete(tabId); return next; });
+        }
+        return;
+      }
+      activeWorkflows.current.set(tabId, execution.id);
+      setWorkflowExecutions((current) => ({ ...current, [tabId]: execution }));
+      const observer = new AbortController(); workflowControllers.current.set(tabId, observer);
+      void observeWorkflow(tabId, execution.id, scope, observer.signal);
+    }).catch((error: unknown) => {
+      if (query.signal.aborted || workspaceGeneration.current !== scope) return;
+      setStartingIds((current) => { const next = new Set(current); next.delete(tabId); return next; });
+      setMessage(error instanceof Error ? error.message : "恢复流水线状态失败");
+    });
+    return () => {
+      query.abort();
+      if (!activeWorkflows.current.has(tabId) && !starts.current.has(tabId) && !activeRuns.current.has(tabId)) {
+        setStartingIds((current) => { const next = new Set(current); next.delete(tabId); return next; });
+      }
+    };
+  }, [active?.id, api, projectId]);
+
+  useEffect(() => {
+    if (toolIntent === null || toolIntent.sequence === handledIntent.current || tabs === null ||
+      toolIntent.tool.projectId !== projectId || (connectionId !== "" && toolIntent.tool.connectionId !== connectionId)) return;
     handledIntent.current = toolIntent.sequence;
     const intent = toolIntent; const scope = workspaceGeneration.current;
     intentQueue.current = intentQueue.current.catch(() => undefined).then(async () => {
@@ -271,7 +326,7 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActi
       }
       activate(opened.id); setView("debug");
     }).catch((error: unknown) => { if (workspaceGeneration.current === scope) setMessage(error instanceof Error ? error.message : "无法打开 Tool Tab"); });
-  }, [api, flush, projectId, tabs, toolIntent]);
+  }, [api, connectionId, flush, projectId, tabs, toolIntent]);
 
   async function reconcileLaunch(id: string): Promise<boolean> {
     const persistedRunId = tabsRef.current.find((tab) => tab.id === id)?.lastRunId ?? null;
@@ -333,7 +388,7 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActi
   } catch (error) { actionError(error); } }
   async function bulk(id: string, side: "others" | "right"): Promise<void> {
     try {
-      if (!(await flush())) return; const next = side === "others" ? await api.closeOtherTabs(projectId, id) : await api.closeTabsRight(projectId, id);
+      if (!(await flush())) return; const next = side === "others" ? await api.closeOtherTabs(projectId, connectionId, id) : await api.closeTabsRight(projectId, connectionId, id);
       assign(next); if (!next.some((tab) => tab.id === activeRef.current)) activate(next.find((tab) => tab.id === id)?.id ?? next[0]?.id ?? null);
     } catch (error) { actionError(error); }
   }
@@ -342,10 +397,10 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActi
       if (!(await flush())) return; const ordered = [...tabsRef.current]; const index = ordered.findIndex((tab) => tab.id === id);
       const target = index + offset; if (index < 0 || target < 0 || target >= ordered.length) return;
       [ordered[index], ordered[target]] = [ordered[target], ordered[index]];
-      assign(await api.reorderTabs(projectId, ordered.map((tab) => tab.id)));
+      assign(await api.reorderTabs(projectId, connectionId, ordered.map((tab) => tab.id)));
     } catch (error) { actionError(error); }
   }
-  async function execute(): Promise<void> {
+  async function execute(destructiveHelpersApproved = false): Promise<void> {
     if (active === null || starts.current.has(active.id)) return;
     // Acquire the per-Tab lock before the first await so rapid clicks cannot
     // both pass the gate while launch reconciliation is in flight.
@@ -356,23 +411,95 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActi
       markedStarting = true; setStartingIds((current) => new Set(current).add(active.id)); setMessage(null);
       if (!(await flush(active.id))) return;
       const latest = tabsRef.current.find(({ id }) => id === active.id); if (latest === undefined) return;
+      if (connectionId !== "" && latest.connectionId !== connectionId) {
+        setMessage("当前 Tab 不属于所选 Server，已阻止执行"); return;
+      }
       const parsed = latest.inputMode === "raw" ? parseRawArguments(latest.rawText) : { ok: true as const, value: latest.arguments };
       if (!parsed.ok) { setMessage(parsed.message); return; }
       if (onExecute !== undefined) { onExecute(latest); return; }
-      const run = await api.startRun(projectId, latest.id, crypto.randomUUID(), parsed.value);
-      launched = true;
-      activeRuns.current.set(latest.id, run.id);
-      setSelectedRuns((current) => ({ ...current, [latest.id]: run.id }));
-      schedule(latest.id, { lastRunId: run.id }); setView("debug");
+      const workflow = destructiveHelpersApproved && typeof api.getToolWorkflow === "function"
+        ? await api.getToolWorkflow(projectId, latest.connectionId, latest.toolName)
+        : boundWorkflow?.tabId === latest.id ? boundWorkflow.value
+          : typeof api.getToolWorkflow === "function" ? await api.getToolWorkflow(projectId, latest.connectionId, latest.toolName) : null;
+      if (workflow?.before.enabled === true || workflow?.after.enabled === true) {
+        const sources = `${workflow.before.source}\n${workflow.after.source}`;
+        const callsHelpers = sources.includes("tools.call");
+        if (callsHelpers && !destructiveHelpersApproved) {
+          confirmToast({
+            message: "流水线脚本会调用辅助 Tool，其中可能包含有副作用的操作。",
+            description: "是否允许本次执行调用破坏性辅助 Tool？",
+            actionLabel: "允许执行",
+            cancelLabel: "取消",
+            onAction: () => void execute(true),
+          });
+          return;
+        }
+        const allowDestructiveHelpers = callsHelpers && destructiveHelpersApproved;
+        const execution = await api.startWorkflowExecution(projectId, connectionId, latest.id, crypto.randomUUID(), parsed.value, allowDestructiveHelpers);
+        launched = true;
+        activeWorkflows.current.set(latest.id, execution.id);
+        setWorkflowExecutions((current) => ({ ...current, [latest.id]: execution }));
+        const controller = new AbortController(); workflowControllers.current.set(latest.id, controller);
+        const scope = workspaceGeneration.current;
+        void observeWorkflow(latest.id, execution.id, scope, controller.signal);
+      } else {
+        const run = await api.startRun(projectId, connectionId, latest.id, crypto.randomUUID(), parsed.value);
+        launched = true;
+        activeRuns.current.set(latest.id, run.id);
+        setSelectedRuns((current) => ({ ...current, [latest.id]: run.id }));
+        schedule(latest.id, { lastRunId: run.id });
+      }
+      setView("debug");
     } catch (error) { setMessage(error instanceof Error ? error.message : "启动运行失败"); }
     finally { starts.current.delete(active.id); if (markedStarting && !launched) setStartingIds((current) => { const next = new Set(current); next.delete(active.id); return next; }); }
   }
 
+  async function observeWorkflow(tabId: string, executionId: string, scope: number, signal: AbortSignal): Promise<void> {
+    try {
+      while (!signal.aborted && workspaceGeneration.current === scope && activeWorkflows.current.get(tabId) === executionId) {
+        const execution = await api.getWorkflowExecution(projectId, executionId, signal);
+        if (execution.tabId !== tabId) throw new Error("流水线与当前 Tab 不匹配");
+        setWorkflowExecutions((current) => ({ ...current, [tabId]: execution }));
+        const mainRunId = execution.runs.find(({ phase }) => phase === "main")?.runId;
+        if (mainRunId !== undefined && activeRuns.current.get(tabId) !== mainRunId) {
+          activeRuns.current.set(tabId, mainRunId);
+          setSelectedRuns((current) => ({ ...current, [tabId]: mainRunId }));
+          schedule(tabId, { lastRunId: mainRunId });
+        }
+        if (["succeeded", "failed", "cancelled", "interrupted"].includes(execution.status)) {
+          activeWorkflows.current.delete(tabId); workflowControllers.current.delete(tabId);
+          // A terminal workflow may already own a terminal main Run whose detail
+          // request is still in flight. Keep its observer mounted until that Run
+          // becomes authoritative; otherwise the result pane waits forever.
+          if (!activeRuns.current.has(tabId)) {
+            setStartingIds((current) => { const next = new Set(current); next.delete(tabId); return next; });
+          }
+          return;
+        }
+        await new Promise<void>((resolve, reject) => {
+          const aborted = () => { window.clearTimeout(timer); reject(new DOMException("Aborted", "AbortError")); };
+          const timer = window.setTimeout(() => { signal.removeEventListener("abort", aborted); resolve(); }, 350);
+          signal.addEventListener("abort", aborted, { once: true });
+        });
+      }
+    } catch (error) {
+      if (signal.aborted || workspaceGeneration.current !== scope) return;
+      activeWorkflows.current.delete(tabId); workflowControllers.current.delete(tabId);
+      setStartingIds((current) => { const next = new Set(current); next.delete(tabId); return next; });
+      setMessage(error instanceof Error ? error.message : "观察流水线失败");
+    }
+  }
+
   const detail = active !== null && boundDetail?.tabId === active.id && boundDetail.connectionId === active.connectionId &&
     boundDetail.toolName === active.toolName ? boundDetail.value : null;
+  const activeWorkflowExecution = active === null ? null : workflowExecutions[active.id] ?? null;
+  const activeWorkflowEnabled = active !== null && boundWorkflow?.tabId === active.id &&
+    (boundWorkflow.value.before.enabled || boundWorkflow.value.after.enabled);
+  const resultWorkflowExecution = activeWorkflowEnabled ? activeWorkflowExecution : undefined;
   const noEditableParameters = active !== null && detail !== null && active.inputMode === "form" &&
     !schemaHasEditableArguments(detail.tool.currentSnapshot.definition.inputSchema, active.arguments);
   const parametersExpanded = active === null ? true : parameterExpansion[active.id] ?? true;
+  const responseExpanded = active === null ? true : responseExpansion[active.id] ?? true;
 
   useLayoutEffect(() => {
     if (view !== "debug" || detail === null) return;
@@ -393,6 +520,11 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActi
     schedule(active.id, { viewState: { ...active.viewState, splitRatio: Math.round(ratio * 1000) / 1000 } });
   }
 
+  function cancelWorkflow(execution: WorkflowExecutionDetail): void {
+    void api.cancelWorkflowExecution(projectId, execution.id).catch((error: unknown) =>
+      setMessage(error instanceof Error ? error.message : "取消流水线失败"));
+  }
+
   if (tabs === null) return <p role="status">正在恢复调试 Tabs…</p>;
   return <section className="debug-workspace" aria-label="Tool 调试工作台">
     {[...startingIds].map((tabId) => { const runId = activeRuns.current.get(tabId); return runId === undefined ? null
@@ -407,9 +539,9 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActi
         onMove={(id, offset) => void move(id, offset)}
         onCloseOthers={(id) => void bulk(id, "others")} onCloseRight={(id) => void bulk(id, "right")} />
       {activeReadOnlyId === null && active !== null && <nav className="workspace-nav" aria-label="当前 Tab 视图">
-        {(["debug", "definition", "saved", "history"] as const).map((item) => <button type="button" key={item}
+        {(["debug", "definition", "script", "saved", "history"] as const).map((item) => <button type="button" key={item}
           aria-current={view === item ? "page" : undefined} onClick={() => setView(item)}>
-          {item === "debug" ? "调试" : item === "definition" ? "Tool 定义" : item === "saved" ? "已保存" : "当前 Tab 历史"}</button>)}
+          {item === "debug" ? "调试" : item === "definition" ? "Tool 定义" : item === "script" ? "脚本" : item === "saved" ? "已保存" : "当前 Tab 历史"}</button>)}
       </nav>}
     </div>
     {readOnlyTabs.length > 0 && <div className="history-tabs" role="tablist" aria-label="只读运行 Tabs" onKeyDown={(event) => {
@@ -429,11 +561,15 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActi
       : active === null ? <div className="workspace-empty"><h2>选择一个 Tool 开始调试</h2><p>单击复用当前未固定 Tab，双击打开新 Tab。</p></div> : <div className="workspace-tab-panel" id={`tabpanel-${active.id}`} role="tabpanel" aria-labelledby={`tab-${active.id}`}>
       {view === "debug" && detail === null && <p role="status">正在加载 Tool 定义…</p>}
       {view === "debug" && detail !== null && <div className={`request-result-split${selectedRunId === null ? " request-result-split--empty" : ""}${noEditableParameters ? " request-result-split--no-parameters" : ""}`}
-        style={{ gridTemplateRows: noEditableParameters || !parametersExpanded
-          ? "auto 10px minmax(0, 1fr)" : `${active.viewState.splitRatio * 100}% 10px 1fr` }}>
+        style={{ gridTemplateRows: !responseExpanded
+          ? "minmax(0, 1fr) 10px auto"
+          : noEditableParameters || !parametersExpanded
+            ? "auto 10px minmax(0, 1fr)" : `${active.viewState.splitRatio * 100}% 10px 1fr` }}>
         <div className="request-pane" ref={requestPaneRef}
           onScroll={(event) => schedule(active.id, { viewState: { ...active.viewState, editorScrollTop: event.currentTarget.scrollTop } })}>
           <ParameterEditor tab={active} schema={detail.tool.currentSnapshot.definition.inputSchema} executing={startingIds.has(active.id)}
+            workflowEnabled={boundWorkflow?.tabId === active.id && (boundWorkflow.value.before.enabled || boundWorkflow.value.after.enabled)}
+            deferRequiredValidation={boundWorkflow?.tabId === active.id && boundWorkflow.value.before.enabled}
             expanded={parametersExpanded} onExpandedChange={(expanded) => setParameterExpansion((current) => ({ ...current, [active.id]: expanded }))}
             subtreeDrafts={subtreeDrafts[active.id]}
             onSubtreeDraftChange={(path, text, base) => setSubtreeDrafts((current) => ({ ...current,
@@ -448,15 +584,29 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActi
           <input aria-label="请求区高度" type="range" min="20" max="80" value={active.viewState.splitRatio * 100}
             onChange={(event) => schedule(active.id, { viewState: { ...active.viewState, splitRatio: Number(event.target.value) / 100 } })} />
         </label>
-        <div className="result-placeholder" ref={resultPaneRef}
+        <div className={`result-placeholder${responseExpanded ? "" : " result-placeholder--collapsed"}`} ref={resultPaneRef}
           onScroll={(event) => schedule(active.id, { viewState: { ...active.viewState, resultScrollTop: event.currentTarget.scrollTop } })}>
           {observed.error !== null && <p role="alert">{observed.error}</p>}
-          {selectedRunId === null ? <EmptyRunResultPanel />
-            : observed.run === null ? <p role="status">正在加载运行详情…</p> : <RunResultPanel run={observed.run}
+          {selectedRunId === null ? <EmptyRunResultPanel expanded={responseExpanded}
+              workflowExecution={resultWorkflowExecution} onCancelWorkflow={cancelWorkflow}
+              onExpandedChange={(expanded) => setResponseExpansion((current) => ({ ...current, [active.id]: expanded }))} />
+            : observed.run === null ? resultWorkflowExecution !== undefined
+              ? <EmptyRunResultPanel expanded={responseExpanded} workflowExecution={resultWorkflowExecution}
+                  onCancelWorkflow={cancelWorkflow}
+                  onExpandedChange={(expanded) => setResponseExpansion((current) => ({ ...current, [active.id]: expanded }))} />
+              : <p role="status">正在加载运行详情…</p> : <RunResultPanel run={observed.run}
+              workflowExecution={resultWorkflowExecution} onCancelWorkflow={cancelWorkflow}
+              expanded={responseExpanded}
+              onExpandedChange={(expanded) => setResponseExpansion((current) => ({ ...current, [active.id]: expanded }))}
               onSaveResponse={(payload) => setSaveIntent({ tabId: active.id, connectionId: active.connectionId,
                 toolName: active.toolName, kind: "response", payload, sourceRunId: observed.run!.id })} />}</div>
       </div>}
       {view === "definition" && detail !== null && <ToolDefinitionView detail={detail} />}
+      {view === "script" && <ScriptWorkflowView api={api} projectId={projectId} connectionId={active.connectionId}
+        toolName={active.toolName} argumentsValue={active.arguments}
+        onApplyArguments={(argumentsValue) => schedule(active.id, { arguments: argumentsValue, rawText: formatRawArguments(argumentsValue) })}
+        onWorkflowChange={(value) => setBoundWorkflow({ tabId: active.id,
+          connectionId: active.connectionId, toolName: active.toolName, value })} />}
       {view === "saved" && <SavedItemsView api={api} projectId={projectId} connectionId={active.connectionId} toolName={active.toolName}
         refreshKey={savedRevision} onLoadRequest={(payload) => { schedule(active.id, { arguments: payload, rawText: formatRawArguments(payload) }); setView("debug"); }} />}
       {view === "history" && <RunHistory api={api} projectId={projectId} tabId={active.id} connectionId={active.connectionId}
@@ -465,8 +615,7 @@ function ProjectWorkspace({ api, projectId, toolIntent = null, onExecute, onActi
     {saveIntent !== null && <SavedItemDialog api={api} projectId={projectId} connectionId={saveIntent.connectionId}
       toolName={saveIntent.toolName} kind={saveIntent.kind} payload={saveIntent.payload} sourceRunId={saveIntent.sourceRunId}
       onClose={() => setSaveIntent(null)} onSaved={() => { const saved = saveIntent; setSaveIntent(null); setSavedRevision((value) => value + 1);
-        setSaveNotice((current) => ({ sequence: (current?.sequence ?? 0) + 1, message: `${saved.kind === "request" ? "请求" : "响应"}保存成功` })); }} />}
-    {saveNotice !== null && <div className="copy-toast" role="status" aria-live="polite">{saveNotice.message}</div>}
+        toast.success(`${saved.kind === "request" ? "请求" : "响应"}保存成功`); }} />}
     <span className="sr-only" role="status" aria-live="polite">{queues.current.size > 0 ? "正在保存 Tab" : pending.current.size > 0 ? "Tab 有待保存更改" : "Tab 已保存"}</span>
   </section>;
 }

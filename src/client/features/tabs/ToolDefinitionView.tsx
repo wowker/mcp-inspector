@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Question } from "@phosphor-icons/react";
+import { toast } from "sonner";
 import type { ToolDetailSummary } from "../../api/api-client.js";
 import { descriptionSections } from "../tools/tool-description.js";
 
@@ -61,9 +62,7 @@ const annotationLabels = {
 } as const;
 
 export function ToolDefinitionView({ detail }: { detail: ToolDetailSummary }) {
-  const [copyNotice, setCopyNotice] = useState<{ message: string; kind: "success" | "error" } | null>(null);
   const [historyHelpOpen, setHistoryHelpOpen] = useState(false);
-  const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const historyHelpRef = useRef<HTMLDivElement>(null);
   const snapshot = detail.tool.currentSnapshot;
   const definition = snapshot.definition;
@@ -73,9 +72,6 @@ export function ToolDefinitionView({ detail }: { detail: ToolDetailSummary }) {
     return typeof value === "boolean" ? [{ key, label: labels[value ? 0 : 1], warning: key === "destructiveHint" && value }] : [];
   });
 
-  useEffect(() => () => {
-    if (dismissTimer.current !== null) clearTimeout(dismissTimer.current);
-  }, []);
   useEffect(() => { setHistoryHelpOpen(false); }, [snapshot.id]);
   useEffect(() => {
     if (!historyHelpOpen) return;
@@ -88,21 +84,12 @@ export function ToolDefinitionView({ detail }: { detail: ToolDetailSummary }) {
     return () => { document.removeEventListener("pointerdown", dismiss); document.removeEventListener("keydown", escape); };
   }, [historyHelpOpen]);
 
-  function showCopyNotice(message: string, kind: "success" | "error"): void {
-    if (dismissTimer.current !== null) clearTimeout(dismissTimer.current);
-    setCopyNotice({ message, kind });
-    dismissTimer.current = setTimeout(() => {
-      dismissTimer.current = null;
-      setCopyNotice(null);
-    }, 2_000);
-  }
-
   async function copyDefinition(): Promise<void> {
     try {
       await navigator.clipboard.writeText(JSON.stringify(definition, null, 2));
-      showCopyNotice("已复制", "success");
+      toast.success("已复制");
     } catch {
-      showCopyNotice("复制失败，请手动复制 Raw JSON", "error");
+      toast.error("复制失败，请手动复制 Raw JSON");
     }
   }
 
@@ -112,9 +99,6 @@ export function ToolDefinitionView({ detail }: { detail: ToolDetailSummary }) {
         {definition.title !== undefined && <p className="tool-definition__title">{definition.title}</p>}</div>
       <div className="definition-copy"><button type="button" onClick={() => void copyDefinition()}>复制完整定义</button></div>
     </header>
-
-    {copyNotice !== null && <div className={`copy-toast copy-toast--${copyNotice.kind}`}
-      role={copyNotice.kind === "error" ? "alert" : "status"} aria-live="polite">{copyNotice.message}</div>}
 
     <section className="tool-description" aria-label="Tool 说明">
       {descriptionSections(definition.description).map((section, index) => <section key={`${section.title}:${index}`}>

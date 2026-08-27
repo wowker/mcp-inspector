@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ToolDetailSummary } from "../../../api/api-client.js";
+import { AppToaster } from "../../../app/AppToaster.js";
 import { ToolDefinitionView } from "../ToolDefinitionView.js";
 
 const detail: ToolDetailSummary = {
@@ -89,21 +90,16 @@ describe("ToolDefinitionView", () => {
   });
 
   it("shows copy success in a temporary toast instead of beside the copy button", async () => {
-    vi.useFakeTimers();
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
-    render(<ToolDefinitionView detail={detail} />);
+    render(<><AppToaster /><ToolDefinitionView detail={detail} /></>);
 
     const button = screen.getByRole("button", { name: "复制完整定义" });
     fireEvent.click(button);
-    await act(async () => Promise.resolve());
-    const toast = screen.getByRole("status");
-    expect(toast).toHaveClass("copy-toast");
-    expect(toast).toHaveTextContent("已复制");
-    expect(button.parentElement).not.toContainElement(toast);
-    act(() => vi.advanceTimersByTime(1_999));
-    expect(toast).toBeInTheDocument();
-    act(() => vi.advanceTimersByTime(1));
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    const message = await screen.findByText("已复制");
+    const notification = message.closest("[data-sonner-toast]");
+    expect(notification).toHaveClass("app-toast");
+    expect(notification).toHaveAttribute("data-type", "success");
+    expect(button.parentElement).not.toContainElement(notification as HTMLElement);
   });
 });

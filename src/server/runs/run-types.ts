@@ -28,7 +28,7 @@ export interface RunDetail extends RunSummary {
   events: RunEvent[];
 }
 export interface StartRunInput {
-  projectId: string; tabId: string; idempotencyKey: string; arguments: Record<string, unknown>;
+  projectId: string; connectionId?: string; tabId: string; idempotencyKey: string; arguments: Record<string, unknown>;
 }
 export interface RunPage { runs: RunSummary[]; nextCursor: string | null }
 export interface RunListFilter { tabId?: string; connectionId?: string; toolName?: string }

@@ -38,11 +38,11 @@ export interface UpdateTabInput {
   arguments?: Record<string, unknown>; rawText?: string; viewState?: TabViewState; lastRunId?: string | null;
 }
 export interface TabService {
-  list(projectId: string): DebugTab[]; get(projectId: string, id: string): DebugTab;
+  list(projectId: string, connectionId: string): DebugTab[]; get(projectId: string, id: string): DebugTab;
   open(input: OpenTabInput): DebugTab; replaceTool(projectId: string, id: string, connectionId: string, toolName: string): DebugTab;
   update(id: string, projectId: string, patch: UpdateTabInput): DebugTab; duplicate(projectId: string, id: string): DebugTab;
-  reorder(projectId: string, ids: string[]): DebugTab[]; close(projectId: string, id: string): void;
-  closeOthers(projectId: string, id: string): void; closeRight(projectId: string, id: string): void;
+  reorder(projectId: string, connectionId: string, ids: string[]): DebugTab[]; close(projectId: string, id: string): void;
+  closeOthers(projectId: string, id: string): DebugTab[]; closeRight(projectId: string, id: string): DebugTab[];
 }
 
 export function createTabService(projects: ProjectService, connections: ConnectionService,
@@ -61,8 +61,8 @@ export function createTabService(projects: ProjectService, connections: Connecti
     const detail = tools.get(projectId, connectionId, toolName);
     if (detail.tool.status === "removed") throw new InvalidTabError("Removed Tool cannot be opened");
   }
-  function titleFor(projectId: string, toolName: string, excludeId?: string): string {
-    const used = new Set(repo(projectId).list(projectId).filter((tab) => tab.toolName === toolName && tab.id !== excludeId).map(({ title }) => title));
+  function titleFor(projectId: string, connectionId: string, toolName: string, excludeId?: string): string {
+    const used = new Set(repo(projectId).list(projectId, connectionId).filter((tab) => tab.toolName === toolName && tab.id !== excludeId).map(({ title }) => title));
     if (!used.has(toolName)) return toolName;
     for (let suffix = 2; suffix < 100_000; suffix += 1) {
       const title = `${toolName} (${suffix})`; if (!used.has(title)) return title;
@@ -71,18 +71,20 @@ export function createTabService(projects: ProjectService, connections: Connecti
   }
   function fresh(projectId: string, connectionId: string, toolName: string): DebugTab {
     const id = createId(); if (!uuid.safeParse(id).success) throw new Error("Tab ID generator returned an invalid UUID");
-    return { id, projectId, connectionId, toolName, title: titleFor(projectId, toolName),
-      position: repo(projectId).list(projectId).length, pinned: false, inputMode: "form", arguments: {}, rawText: "",
+    const scopedTabs = repo(projectId).list(projectId, connectionId);
+    return { id, projectId, connectionId, toolName, title: titleFor(projectId, connectionId, toolName),
+      position: (scopedTabs.at(-1)?.position ?? -1) + 1, pinned: false, inputMode: "form", arguments: {}, rawText: "",
       viewState: { editorScrollTop: 0, resultScrollTop: 0, splitRatio: 0.5 }, lastRunId: null };
   }
   return {
-    list(projectId) { return repo(projectId).list(projectId); },
+    list(projectId, connectionId) { connections.get(projectId, connectionId); return repo(projectId).list(projectId, connectionId); },
     get(projectId, id) { return existing(projectId, id); },
     open(input) { validateTool(input.projectId, input.connectionId, input.toolName);
       return repo(input.projectId).insert(fresh(input.projectId, input.connectionId, input.toolName), timestamp()); },
     replaceTool(projectId, id, connectionId, toolName) {
       validateTool(projectId, connectionId, toolName); const tab = existing(projectId, id);
-      return repo(projectId).replace({ ...tab, connectionId, toolName, title: titleFor(projectId, toolName, id),
+      if (tab.connectionId !== connectionId) throw new InvalidTabError("Tab belongs to a different connection");
+      return repo(projectId).replace({ ...tab, toolName, title: titleFor(projectId, connectionId, toolName, id),
         inputMode: "form", arguments: {}, rawText: "", lastRunId: null }, timestamp());
     },
     update(id, projectId, patch) {
@@ -103,15 +105,17 @@ export function createTabService(projects: ProjectService, connections: Connecti
       return repo(projectId).insert({ ...copy, pinned: false, inputMode: source.inputMode,
         arguments: source.arguments, rawText: source.rawText, viewState: source.viewState }, timestamp());
     },
-    reorder(projectId, ids) {
-      const tabs = repo(projectId).list(projectId); const expected = new Set(tabs.map(({ id }) => id));
+    reorder(projectId, connectionId, ids) {
+      const tabs = repo(projectId).list(projectId, connectionId); const expected = new Set(tabs.map(({ id }) => id));
       if (ids.length !== tabs.length || new Set(ids).size !== ids.length || ids.some((id) => !expected.has(id))) throw new InvalidTabError();
-      repo(projectId).reorder(projectId, ids, timestamp()); return repo(projectId).list(projectId);
+      repo(projectId).reorder(projectId, connectionId, ids, timestamp()); return repo(projectId).list(projectId, connectionId);
     },
-    close(projectId, id) { const tab = existing(projectId, id); if (!tab.pinned) repo(projectId).deleteIds(projectId, [id]); },
-    closeOthers(projectId, id) { existing(projectId, id); repo(projectId).deleteIds(projectId,
-      repo(projectId).list(projectId).filter((tab) => tab.id !== id && !tab.pinned).map(({ id: tabId }) => tabId)); },
-    closeRight(projectId, id) { const target = existing(projectId, id); repo(projectId).deleteIds(projectId,
-      repo(projectId).list(projectId).filter((tab) => tab.position > target.position && !tab.pinned).map(({ id: tabId }) => tabId)); },
+    close(projectId, id) { const tab = existing(projectId, id); if (!tab.pinned) repo(projectId).deleteIds(projectId, tab.connectionId, [id]); },
+    closeOthers(projectId, id) { const target = existing(projectId, id); repo(projectId).deleteIds(projectId, target.connectionId,
+      repo(projectId).list(projectId, target.connectionId).filter((tab) => tab.id !== id && !tab.pinned).map(({ id: tabId }) => tabId));
+      return repo(projectId).list(projectId, target.connectionId); },
+    closeRight(projectId, id) { const target = existing(projectId, id); repo(projectId).deleteIds(projectId, target.connectionId,
+      repo(projectId).list(projectId, target.connectionId).filter((tab) => tab.position > target.position && !tab.pinned).map(({ id: tabId }) => tabId));
+      return repo(projectId).list(projectId, target.connectionId); },
   };
 }

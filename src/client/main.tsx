@@ -4,6 +4,7 @@ import "@primer/primitives/dist/css/functional/themes/light.css";
 import "@primer/primitives/dist/css/functional/themes/dark.css";
 import "@primer/css/dist/core.css";
 import { App } from "./app/App.js";
+import { AppToaster } from "./app/AppToaster.js";
 import { applyInitialTheme } from "./app/theme.js";
 import { JsonDocumentPage } from "./features/runs/JsonDocumentPage.js";
 
@@ -16,6 +17,7 @@ if (root === null) {
 
 createRoot(root).render(
   <StrictMode>
+    <AppToaster />
     {window.location.pathname === "/json-viewer" ? <JsonDocumentPage /> : <App />}
   </StrictMode>,
 );

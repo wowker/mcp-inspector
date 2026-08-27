@@ -20,14 +20,17 @@ function fake(overrides: Partial<RunServiceWithEvents> = {}): RunServiceWithEven
   return {
     eventBus: new RunEventBus(), start: () => summary, cancel: () => true,
     list: () => ({ runs: [summary], nextCursor: null }), getSummary: () => summary, get: () => detail,
-    assertExists: () => summary, events: () => [], close: async () => undefined, ...overrides,
+    assertExists: () => summary,
+    startInvocation: () => summary,
+    waitForTerminal: async () => detail,
+    events: () => [], close: async () => undefined, ...overrides,
   };
 }
 
 describe("run routes", () => {
   it("returns planned start, validation, conflict, cancel, and not-found statuses", async () => {
     const headers = { "Content-Type": "application/json" };
-    const valid = { tabId, idempotencyKey: "submit", arguments: { a: 1 } };
+    const valid = { connectionId: summary.connectionId, tabId, idempotencyKey: "submit", arguments: { a: 1 } };
     expect((await createRunRoutes(fake()).request(`/${projectId}/runs`, {
       method: "POST", headers, body: JSON.stringify(valid),
     })).status).toBe(202);

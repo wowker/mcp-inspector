@@ -2,7 +2,8 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { RunDetail } from "../../../api/api-client.js";
+import type { RunDetail, WorkflowExecutionDetail } from "../../../api/api-client.js";
+import { AppToaster } from "../../../app/AppToaster.js";
 import { EmptyRunResultPanel, RunResultPanel } from "../RunResultPanel.js";
 
 const run: RunDetail = {
@@ -73,6 +74,82 @@ describe("RunResultPanel", () => {
     expect(screen.getByText("请求结果")).toBeVisible();
     expect(screen.queryByText("等待执行")).not.toBeInTheDocument();
     expect(screen.queryByText(/填写参数并执行 Tool/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "脚本流水线" })).not.toBeInTheDocument();
+  });
+
+  it("shows an empty workflow view only when a script is enabled", () => {
+    render(<EmptyRunResultPanel workflowExecution={null} />);
+
+    expect(screen.getByRole("tab", { name: "脚本流水线" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("脚本流水线 · 未执行")).toBeVisible();
+    expect(screen.getByText(/前置脚本、主调用、后置脚本及脚本日志/)).toBeVisible();
+  });
+
+  it("shows a main Tool failure only in the request result view", () => {
+    const failedRun: RunDetail = {
+      ...run,
+      status: "failed",
+      response: {
+        result: {
+          content: [{
+            type: "text",
+            text: JSON.stringify({ code: "VALIDATION_ERROR", message: "operation would not change the resource" }),
+          }],
+          isError: true,
+        },
+        error: null,
+        truncated: false,
+        originalBytes: 120,
+      },
+    };
+    const workflowExecution: WorkflowExecutionDetail = {
+      id: "00000000-0000-4000-8000-000000000811",
+      projectId: run.projectId,
+      connectionId: run.connectionId,
+      tabId: null,
+      toolName: run.toolName,
+      toolSnapshotId: run.toolSnapshotId,
+      idempotencyKey: "workflow-failure",
+      status: "failed",
+      initialArguments: { value: 5 },
+      finalArguments: { value: 5 },
+      workflowSnapshot: {
+        projectId: run.projectId,
+        connectionId: run.connectionId,
+        toolName: run.toolName,
+        revision: 1,
+        before: { enabled: true, source: "export default async function before(ctx) {}" },
+        after: { enabled: false, source: "" },
+        timeoutMs: 5_000,
+        createdAt: run.createdAt,
+        updatedAt: run.createdAt,
+      },
+      response: {
+        content: [{
+          type: "text",
+          text: JSON.stringify({ code: "VALIDATION_ERROR", message: "operation would not change the resource" }),
+        }],
+        isError: true,
+      },
+      error: { code: "WORKFLOW_FAILED", message: "Workflow execution failed" },
+      createdAt: run.createdAt,
+      startedAt: run.startedAt,
+      completedAt: run.completedAt,
+      durationMs: run.durationMs,
+      runs: [{ runId: run.id, phase: "main", ordinal: 0, sourceLine: null }],
+      events: [],
+    };
+
+    render(<RunResultPanel run={failedRun} workflowExecution={workflowExecution} />);
+
+    expect(screen.getByText("脚本流水线", { selector: "strong" })).toBeVisible();
+    expect(screen.queryByText("脚本流水线 · failed")).not.toBeInTheDocument();
+    expect(screen.queryByText("Workflow execution failed")).not.toBeInTheDocument();
+    expect(screen.queryByText(/operation would not change the resource/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "请求与结果" }));
+    expect(screen.getByText(/operation would not change the resource/)).toBeVisible();
+    expect(screen.queryByText("Workflow execution failed")).not.toBeInTheDocument();
   });
 
   it("collapses request and result independently and places HTTP before RPC", () => {
@@ -218,7 +295,7 @@ describe("RunResultPanel", () => {
   it("copies formatted JSON from the modal action immediately before Close", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
-    render(<RunResultPanel run={run} />);
+    render(<><AppToaster /><RunResultPanel run={run} /></>);
 
     fireEvent.click(screen.getByRole("button", { name: "放大查看" }));
     const dialog = screen.getByRole("dialog", { name: "结构化响应" });
@@ -228,11 +305,12 @@ describe("RunResultPanel", () => {
 
     fireEvent.click(copy);
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('{\n  "answer": 5\n}'));
-    expect(await screen.findByRole("status")).toHaveTextContent("JSON 已复制");
+    const copied = await screen.findByText("JSON 已复制");
+    expect(copied.closest("[data-sonner-toast]")).toHaveClass("app-toast");
 
     fireEvent.click(close);
     fireEvent.click(screen.getByRole("button", { name: "放大查看" }));
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByText("JSON 已复制")).toBeVisible();
   });
 
   it("closes the formatted JSON modal with Escape", () => {

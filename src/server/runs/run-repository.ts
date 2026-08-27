@@ -39,7 +39,7 @@ function event(row: EventRow): RunEvent {
 }
 
 export interface NewRun {
-  id: string; projectId: string; connectionId: string; tabId: string; toolName: string; toolSnapshotId: string;
+  id: string; projectId: string; connectionId: string; tabId: string | null; toolName: string; toolSnapshotId: string;
   idempotencyKey: string; canonicalArguments: string; jsonrpc: unknown; clientInfo: Record<string, unknown>; createdAt: string;
 }
 export interface ExistingIdentity { tabId: string | null; toolSnapshotId: string; canonicalArguments: string }

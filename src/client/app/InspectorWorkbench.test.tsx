@@ -71,9 +71,12 @@ function api(): InspectorApiClient {
     listTools: vi.fn().mockResolvedValue([]), refreshTools: vi.fn().mockResolvedValue([]), getTool: vi.fn(), deleteTool: vi.fn(),
     listToolFolders: vi.fn().mockResolvedValue([]), createToolFolder: vi.fn(), renameToolFolder: vi.fn(),
     deleteToolFolder: vi.fn(), moveToolToFolder: vi.fn(),
+    getToolWorkflow: vi.fn(), updateToolWorkflow: vi.fn(), validateToolWorkflow: vi.fn(), debugToolWorkflow: vi.fn(),
+    listEnvironmentVariables: vi.fn().mockResolvedValue([]), setEnvironmentVariable: vi.fn(), deleteEnvironmentVariable: vi.fn(),
     listTabs: vi.fn().mockResolvedValue([]), openTab: vi.fn(), replaceTabTool: vi.fn(), updateTab: vi.fn(),
     duplicateTab: vi.fn(), reorderTabs: vi.fn(), closeTab: vi.fn(), closeOtherTabs: vi.fn(), closeTabsRight: vi.fn(),
-    startRun: vi.fn(), getRunSummary: vi.fn(), getRun: vi.fn(),
+    startRun: vi.fn(), startWorkflowExecution: vi.fn(), getActiveWorkflowExecution: vi.fn().mockResolvedValue(null), getWorkflowExecution: vi.fn(), cancelWorkflowExecution: vi.fn(),
+    getRunSummary: vi.fn(), getRun: vi.fn(),
     listRuns: vi.fn().mockResolvedValue({ runs: [], nextCursor: null }), openRunEventStream: vi.fn(),
     listSavedItems: vi.fn(), getSavedItem: vi.fn(), createSavedItem: vi.fn(), deleteSavedItem: vi.fn(),
   };
@@ -102,7 +105,7 @@ describe("InspectorWorkbench", () => {
     expect(container.querySelector(".project-identity")).not.toBeInTheDocument();
     expect(container.querySelector(".server-tabbar__actions")).not.toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "工作台导航" })).toBeVisible();
-    for (const label of ["Servers", "Tools", "运行历史"]) {
+    for (const label of ["Servers", "Tools", "环境变量", "运行历史"]) {
       const icon = screen.getByRole("button", { name: label }).querySelector(".workbench-nav-icon");
       expect(icon).toBeVisible();
       expect(icon).toHaveAttribute("width", "18");
@@ -115,6 +118,8 @@ describe("InspectorWorkbench", () => {
     expect(screen.queryByRole("heading", { name: "Tools", level: 1 })).not.toBeInTheDocument();
     expect(screen.queryByText("选择 Tool，编辑参数并查看完整调用轨迹。")).not.toBeInTheDocument();
     expect(screen.getByText("选择一个已连接的 Server 开始调试")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "环境变量" }));
+    expect(await screen.findByRole("heading", { name: "环境变量", level: 1 })).toBeVisible();
     await user.click(screen.getByRole("button", { name: "运行历史" }));
     expect(await screen.findByRole("heading", { name: "运行历史", level: 1 })).toBeVisible();
     expect(screen.getByText("选择一条运行记录")).toBeVisible();
@@ -202,12 +207,42 @@ describe("InspectorWorkbench", () => {
     expect(client.listTools).toHaveBeenCalledWith(project.id, second.id);
     expect(client.listTools).not.toHaveBeenCalledWith(project.id, connection.id);
     expect(client.refreshTools).not.toHaveBeenCalled();
-    expect(screen.queryByText("目录已就绪", { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByText("目录已更新。", { exact: true })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "Supplier MCP" }));
     expect(await screen.findByRole("tabpanel", { name: "Supplier MCP" })).toBeVisible();
     expect(client.listTools).toHaveBeenCalledWith(project.id, connection.id);
     expect(client.refreshTools).not.toHaveBeenCalled();
+  });
+
+  it("keeps Tool Tabs isolated when two Servers share the same URL but use different authorization", async () => {
+    const user = userEvent.setup();
+    const client = api();
+    const oauth = { ...connection, name: "OAuth MCP", status: "connected" as const };
+    const bearer = { ...connection, id: "00000000-0000-4000-8000-000000000703", name: "Bearer MCP",
+      authMode: "bearer" as const, bearerToken: "secret", authorizationStatus: "not-required" as const,
+      status: "connected" as const };
+    const oauthTab = restoredTab({ title: "oauth_sum", connectionId: oauth.id });
+    const bearerTab = restoredTab({ id: "00000000-0000-4000-8000-000000000708", title: "bearer_sum",
+      connectionId: bearer.id });
+    vi.mocked(client.listConnections).mockResolvedValue([oauth, bearer]);
+    vi.mocked(client.listTabs).mockImplementation(async (_projectId, requestedConnectionId) =>
+      requestedConnectionId === oauth.id ? [oauthTab] : requestedConnectionId === bearer.id ? [bearerTab] : []);
+    vi.mocked(client.getTool).mockImplementation(async (_projectId, requestedConnectionId) => ({
+      ...historyTool, tool: { ...historyTool.tool, connectionId: requestedConnectionId,
+        currentSnapshot: { ...historyTool.tool.currentSnapshot, connectionId: requestedConnectionId } },
+    }));
+    render(<InspectorWorkbench api={client} project={project} version="0.1.0" />);
+
+    await user.click(await screen.findByRole("tab", { name: "OAuth MCP" }));
+    expect(await screen.findByRole("tab", { name: "oauth_sum" })).toBeVisible();
+    expect(screen.queryByRole("tab", { name: "bearer_sum" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Bearer MCP" }));
+    expect(await screen.findByRole("tab", { name: "bearer_sum" })).toBeVisible();
+    expect(screen.queryByRole("tab", { name: "oauth_sum" })).not.toBeInTheDocument();
+    expect(client.listTabs).toHaveBeenCalledWith(project.id, oauth.id);
+    expect(client.listTabs).toHaveBeenCalledWith(project.id, bearer.id);
   });
 
   it("keeps the active Server Tool catalog permanently visible and full-height", async () => {

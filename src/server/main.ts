@@ -12,6 +12,10 @@ import { createProjectService } from "./projects/project-service.js";
 import { createRunService } from "./runs/run-service.js";
 import { createTabService } from "./tabs/tab-service.js";
 import { createToolService } from "./tools/tool-service.js";
+import { createWorkflowService } from "./workflows/workflow-service.js";
+import { createEnvironmentService } from "./environment/environment-service.js";
+import { createWorkflowExecutionService } from "./workflows/workflow-execution-service.js";
+import { createWorkflowDebugService } from "./workflows/workflow-debug-service.js";
 
 export interface InspectorAddress {
   host: "127.0.0.1";
@@ -92,13 +96,26 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
   const staticRoot = options.staticRoot ?? (clientOrigin === undefined ? resolveStaticRoot() : undefined);
   const projects = createProjectService({ dataRoot: options.dataRoot ?? resolveDefaultDataRoot() });
   let allowedOrigin = clientOrigin ?? "";
+  let environment: ReturnType<typeof createEnvironmentService> | undefined;
   const connections = createConnectionService(projects, {
     oauthRedirectUrl: () => `${allowedOrigin}/oauth/callback`,
     openAuthorizationUrl: options.openBrowser ?? (async (url) => { await open(url); }),
+    resolveEnvironment: (projectId, connectionId) => {
+      const resolved = environment?.resolve(projectId, connectionId);
+      return resolved === undefined
+        ? { project: {}, server: {} }
+        : { project: resolved.project, server: resolved.server };
+    },
   });
   const tools = createToolService(projects, connections);
   const tabs = createTabService(projects, connections, { tools });
   const runs = createRunService(projects, connections, tabs);
+  const workflows = createWorkflowService(projects, tools);
+  environment = createEnvironmentService(projects, connections);
+  const workflowExecutions = createWorkflowExecutionService({
+    projects, connections, tabs, workflows, environment, runs,
+  });
+  const workflowDebug = createWorkflowDebugService({ connections, tools, environment, runs });
   const app = createApp({
     sessionToken: config.sessionToken,
     allowedOrigin: () => allowedOrigin,
@@ -108,6 +125,10 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
     tools,
     tabs,
     runs,
+    workflows,
+    environment,
+    workflowExecutions,
+    workflowDebug,
     staticRoot,
   });
   let server: ServerType | undefined;
@@ -123,6 +144,8 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
     closePromise = (async () => {
       removeSignalHandlers();
       const listenerClose = server === undefined ? Promise.resolve() : closeServer(server);
+      await workflowExecutions.close();
+      await workflowDebug.close();
       await runs.close();
       await connections.close().catch(() => undefined);
       const closable = server as (ServerType & { closeAllConnections?: () => void }) | undefined;

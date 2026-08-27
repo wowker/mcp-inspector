@@ -14,7 +14,8 @@ const patchBody = z.object({ title: z.string().min(1).max(180).optional(), pinne
   inputMode: z.enum(["form", "raw"]).optional(), arguments: z.record(z.string(), z.unknown()).optional(),
   rawText: z.string().max(2_000_000).optional(), viewState: viewState.optional(),
   lastRunId: uuid.nullable().optional() }).strict().refine((value) => Object.keys(value).length > 0);
-const reorderBody = z.object({ tabIds: z.array(uuid).max(1_000) }).strict();
+const listQuery = z.object({ connectionId: uuid }).strict();
+const reorderBody = z.object({ connectionId: uuid, tabIds: z.array(uuid).max(1_000) }).strict();
 const invalid = { error: { code: "INVALID_TAB", message: "Tab payload is invalid" } } as const;
 
 function errorResponse(context: Context, error: unknown) {
@@ -33,7 +34,11 @@ async function body(context: Context): Promise<unknown> {
 
 export function createTabRoutes(tabs: TabService): Hono {
   const routes = new Hono();
-  routes.get("/:projectId/tabs", (c) => { try { return c.json({ tabs: tabs.list(c.req.param("projectId")) }); } catch (e) { return errorResponse(c, e); } });
+  routes.get("/:projectId/tabs", (c) => {
+    const parsed = listQuery.safeParse({ connectionId: c.req.query("connectionId") });
+    if (!parsed.success) return c.json(invalid, 400);
+    try { return c.json({ tabs: tabs.list(c.req.param("projectId"), parsed.data.connectionId) }); } catch (e) { return errorResponse(c, e); }
+  });
   routes.get("/:projectId/tabs/:tabId", (c) => { try {
     const tab = tabs.get(c.req.param("projectId"), c.req.param("tabId"));
     return c.json({ tab });
@@ -56,11 +61,11 @@ export function createTabRoutes(tabs: TabService): Hono {
   routes.post("/:projectId/tabs/:tabId/duplicate", (c) => { try { return c.json({ tab: tabs.duplicate(c.req.param("projectId"), c.req.param("tabId")) }, 201); } catch (e) { return errorResponse(c, e); } });
   routes.put("/:projectId/tabs/reorder", async (c) => {
     const parsed = reorderBody.safeParse(await body(c)); if (!parsed.success) return c.json(invalid, 400);
-    try { return c.json({ tabs: tabs.reorder(c.req.param("projectId"), parsed.data.tabIds) }); } catch (e) { return errorResponse(c, e); }
+    try { return c.json({ tabs: tabs.reorder(c.req.param("projectId"), parsed.data.connectionId, parsed.data.tabIds) }); } catch (e) { return errorResponse(c, e); }
   });
   routes.delete("/:projectId/tabs/:tabId", (c) => { try { tabs.close(c.req.param("projectId"), c.req.param("tabId")); return c.body(null, 204); } catch (e) { return errorResponse(c, e); } });
   for (const [suffix, action] of [["close-others", tabs.closeOthers], ["close-right", tabs.closeRight]] as const) {
-    routes.post(`/:projectId/tabs/:tabId/${suffix}`, (c) => { try { action(c.req.param("projectId"), c.req.param("tabId")); return c.json({ tabs: tabs.list(c.req.param("projectId")) }); } catch (e) { return errorResponse(c, e); } });
+    routes.post(`/:projectId/tabs/:tabId/${suffix}`, (c) => { try { return c.json({ tabs: action(c.req.param("projectId"), c.req.param("tabId")) }); } catch (e) { return errorResponse(c, e); } });
   }
   return routes;
 }

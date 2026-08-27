@@ -83,6 +83,14 @@ function visibleRun(run: RunDetail, redactSensitiveInfo: boolean): RunDetail {
 export interface RunServiceWithEvents extends RunService {
   readonly eventBus: RunEventBus;
   assertExists(projectId: string, runId: string): RunSummary;
+  startInvocation(input: {
+    projectId: string;
+    connectionId: string;
+    toolName: string;
+    idempotencyKey: string;
+    arguments: Record<string, unknown>;
+  }): RunSummary;
+  waitForTerminal(projectId: string, runId: string, signal?: AbortSignal): Promise<RunDetail>;
   close(): Promise<void>;
 }
 
@@ -222,54 +230,138 @@ export function createRunService(projects: ProjectService, connections: Connecti
     return run;
   }
 
+  function createAndSchedule(input: {
+    projectId: string;
+    connectionId: string;
+    tabId: string | null;
+    toolName: string;
+    idempotencyKey: string;
+    arguments: Record<string, unknown>;
+  }): RunSummary {
+    if (!uuid.safeParse(input.projectId).success ||
+        (input.tabId !== null && !uuid.safeParse(input.tabId).success) ||
+        !uuid.safeParse(input.connectionId).success ||
+        typeof input.toolName !== "string" || input.toolName.trim() === "" || input.toolName.length > 512 ||
+        typeof input.idempotencyKey !== "string" || input.idempotencyKey.length < 1 || input.idempotencyKey.length > 200 ||
+        typeof input.arguments !== "object" || input.arguments === null || Array.isArray(input.arguments)) {
+      throw new InvalidRunError();
+    }
+    connections.get(input.projectId, input.connectionId);
+    const tool = new ToolRepository(projects.open(input.projectId)).get(
+      input.projectId,
+      input.connectionId,
+      input.toolName,
+    );
+    if (tool === null || tool.tool.status === "removed") throw new InvalidRunError("Tool is not available");
+    const canonicalArguments = canonicalJson(input.arguments);
+    const issues = validateArguments(tool.tool.currentSnapshot.definition.inputSchema, input.arguments);
+    if (issues.length > 0) throw new RunValidationError(issues);
+    const id = createId();
+    if (!uuid.safeParse(id).success) throw new Error("Run ID generator returned an invalid UUID");
+    const createdAt = timestamp();
+    const result = repository(input.projectId).create({
+      id,
+      projectId: input.projectId,
+      connectionId: input.connectionId,
+      tabId: input.tabId,
+      toolName: input.toolName,
+      toolSnapshotId: tool.tool.currentSnapshot.id,
+      idempotencyKey: input.idempotencyKey,
+      canonicalArguments,
+      jsonrpc: {
+        jsonrpc: "2.0",
+        id,
+        method: "tools/call",
+        params: { name: input.toolName, arguments: input.arguments },
+      },
+      clientInfo,
+      createdAt,
+    });
+    if (!result.created) {
+      if (result.identity.tabId !== input.tabId ||
+          result.identity.toolSnapshotId !== tool.tool.currentSnapshot.id ||
+          result.identity.canonicalArguments !== canonicalArguments) {
+        throw new RunIdempotencyConflictError();
+      }
+      return result.run;
+    }
+    activeRuns.set(key(input.projectId, id), { controller: new AbortController(), observationsClosed: false });
+    queueMicrotask(() => {
+      const operation = execute(input.projectId, id).catch(() => undefined);
+      executions.add(operation);
+      void operation.finally(() => executions.delete(operation));
+    });
+    return result.run;
+  }
+
+  function cancelRun(projectId: string, runId: string): boolean {
+    const run = requireRun(projectId, runId);
+    if (terminal.has(run.status)) return false;
+    const activeRun = activeRuns.get(key(projectId, runId));
+    if (activeRun !== undefined) activeRun.observationsClosed = true;
+    const completedAt = timestamp();
+    const changed = finishSafely(repository(projectId), projectId, runId, "cancelled", completedAt,
+      elapsed(run.createdAt, completedAt), run.networkDurationMs, { error: { code: "CALL_CANCELLED", message: "MCP Tool call was cancelled" } });
+    if (!changed) return false;
+    if (activeRun !== undefined) {
+      activeRuns.delete(key(projectId, runId));
+      activeRun.controller.abort();
+    }
+    return true;
+  }
+
   return {
     eventBus,
     assertExists: requireSummary,
     start(input: StartRunInput): RunSummary {
-      if (!uuid.safeParse(input.projectId).success || !uuid.safeParse(input.tabId).success ||
-          typeof input.idempotencyKey !== "string" || input.idempotencyKey.length < 1 || input.idempotencyKey.length > 200 ||
-          typeof input.arguments !== "object" || input.arguments === null || Array.isArray(input.arguments)) throw new InvalidRunError();
       const tab = tabs.get(input.projectId, input.tabId);
-      const tool = new ToolRepository(projects.open(input.projectId)).get(input.projectId, tab.connectionId, tab.toolName);
-      if (tool === null || tool.tool.status === "removed") throw new InvalidRunError("Tool is not available");
-      const canonicalArguments = canonicalJson(input.arguments);
-      const issues = validateArguments(tool.tool.currentSnapshot.definition.inputSchema, input.arguments);
-      if (issues.length > 0) throw new RunValidationError(issues);
-      const id = createId(); if (!uuid.safeParse(id).success) throw new Error("Run ID generator returned an invalid UUID");
-      const createdAt = timestamp();
-      const result = repository(input.projectId).create({ id, projectId: input.projectId, connectionId: tab.connectionId,
-        tabId: tab.id, toolName: tab.toolName, toolSnapshotId: tool.tool.currentSnapshot.id,
-        idempotencyKey: input.idempotencyKey, canonicalArguments,
-        jsonrpc: { jsonrpc: "2.0", id, method: "tools/call", params: { name: tab.toolName, arguments: input.arguments } },
-        clientInfo, createdAt });
-      if (!result.created) {
-        if (result.identity.tabId !== tab.id || result.identity.toolSnapshotId !== tool.tool.currentSnapshot.id ||
-            result.identity.canonicalArguments !== canonicalArguments) throw new RunIdempotencyConflictError();
-        return result.run;
+      if (input.connectionId !== undefined && tab.connectionId !== input.connectionId) {
+        throw new InvalidRunError("Run Tab belongs to a different connection");
       }
-      activeRuns.set(key(input.projectId, id), { controller: new AbortController(), observationsClosed: false });
-      queueMicrotask(() => {
-        const operation = execute(input.projectId, id).catch(() => undefined);
-        executions.add(operation);
-        void operation.finally(() => executions.delete(operation));
+      return createAndSchedule({
+        projectId: input.projectId,
+        connectionId: tab.connectionId,
+        tabId: tab.id,
+        toolName: tab.toolName,
+        idempotencyKey: input.idempotencyKey,
+        arguments: input.arguments,
       });
-      return result.run;
     },
-    cancel(projectId, runId) {
-      const run = requireRun(projectId, runId);
-      if (terminal.has(run.status)) return false;
-      const activeRun = activeRuns.get(key(projectId, runId));
-      if (activeRun !== undefined) activeRun.observationsClosed = true;
-      const completedAt = timestamp();
-      const changed = finishSafely(repository(projectId), projectId, runId, "cancelled", completedAt,
-        elapsed(run.createdAt, completedAt), run.networkDurationMs, { error: { code: "CALL_CANCELLED", message: "MCP Tool call was cancelled" } });
-      if (!changed) return false;
-      if (activeRun !== undefined) {
-        activeRuns.delete(key(projectId, runId));
-        activeRun.controller.abort();
-      }
-      return true;
+    startInvocation(input) {
+      return createAndSchedule({ ...input, tabId: null });
     },
+    async waitForTerminal(projectId, runId, signal) {
+      const current = requireRun(projectId, runId);
+      if (terminal.has(current.status)) return current;
+      return await new Promise<RunDetail>((resolve, reject) => {
+        let finished = false;
+        const cleanup = () => {
+          unsubscribe();
+          signal?.removeEventListener("abort", aborted);
+        };
+        const complete = () => {
+          if (finished) return;
+          finished = true;
+          cleanup();
+          resolve(requireRun(projectId, runId));
+        };
+        const aborted = () => {
+          if (finished) return;
+          finished = true;
+          cleanup();
+          cancelRun(projectId, runId);
+          reject(new DOMException("Run wait was aborted", "AbortError"));
+        };
+        const unsubscribe = eventBus.subscribe(runId, (event) => {
+          if (event.kind === "run-status" &&
+              terminal.has((event.payload as { status?: string }).status ?? "")) complete();
+        });
+        signal?.addEventListener("abort", aborted, { once: true });
+        if (signal?.aborted) aborted();
+        else if (terminal.has(requireSummary(projectId, runId).status)) complete();
+      });
+    },
+    cancel: cancelRun,
     list(projectId, cursor, filter = {}) {
       projects.open(projectId);
       if (filter.tabId !== undefined) tabs.get(projectId, filter.tabId);

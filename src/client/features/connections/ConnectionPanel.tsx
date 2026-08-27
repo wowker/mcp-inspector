@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Plus } from "@phosphor-icons/react";
+import { toast } from "sonner";
 import type {
   CatalogToolSummary,
   ConnectionSummary,
@@ -66,13 +67,11 @@ function ProjectScopedConnectionPanel({
   const addButton = useRef<HTMLButtonElement>(null);
   const catalogGenerations = useRef(new Map<string, number>());
   const catalogSnapshotsRequested = useRef(new Set<string>());
-  const catalogToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const catalogToastConnectionId = useRef<string | null>(null);
+  const catalogToastIds = useRef(new Set<string>());
   const nextHeaderId = useRef(1);
   const [connections, setConnections] = useState<ConnectionSummary[] | null>(null);
   const [catalogs, setCatalogs] = useState<Record<string, CatalogToolSummary[]>>({});
   const [folders, setFolders] = useState<Record<string, ToolFolderSummary[]>>({});
-  const [catalogToast, setCatalogToast] = useState<CatalogToast | null>(null);
   const [refreshingConnectionIds, setRefreshingConnectionIds] = useState<ReadonlySet<string>>(new Set());
   const [pendingConnectionIds, setPendingConnectionIds] = useState<ReadonlySet<string>>(new Set());
   const [exportingConnectionIds, setExportingConnectionIds] = useState<ReadonlySet<string>>(new Set());
@@ -100,7 +99,8 @@ function ProjectScopedConnectionPanel({
     mounted.current = true;
     return () => {
       mounted.current = false;
-      if (catalogToastTimer.current !== null) clearTimeout(catalogToastTimer.current);
+      for (const id of catalogToastIds.current) toast.dismiss(id);
+      catalogToastIds.current.clear();
     };
   }, []);
 
@@ -181,26 +181,23 @@ function ProjectScopedConnectionPanel({
   }
 
   function clearCatalogToast(connectionId?: string): void {
-    if (connectionId !== undefined && catalogToastConnectionId.current !== connectionId) return;
-    if (catalogToastTimer.current !== null) clearTimeout(catalogToastTimer.current);
-    catalogToastTimer.current = null;
-    catalogToastConnectionId.current = null;
-    setCatalogToast(null);
+    if (connectionId !== undefined) {
+      const id = `catalog:${projectId}:${connectionId}`;
+      toast.dismiss(id);
+      catalogToastIds.current.delete(id);
+      return;
+    }
+    for (const id of catalogToastIds.current) toast.dismiss(id);
+    catalogToastIds.current.clear();
   }
 
-  function showCatalogToast(toast: CatalogToast, dismissAfterMs?: number): void {
-    if (catalogToastTimer.current !== null) clearTimeout(catalogToastTimer.current);
-    catalogToastTimer.current = null;
-    catalogToastConnectionId.current = toast.connectionId;
-    setCatalogToast(toast);
-    if (dismissAfterMs !== undefined) {
-      catalogToastTimer.current = setTimeout(() => {
-        if (!mounted.current || catalogToastConnectionId.current !== toast.connectionId) return;
-        catalogToastTimer.current = null;
-        catalogToastConnectionId.current = null;
-        setCatalogToast(null);
-      }, dismissAfterMs);
-    }
+  function showCatalogToast(value: CatalogToast, dismissAfterMs?: number): void {
+    const id = `catalog:${projectId}:${value.connectionId}`;
+    catalogToastIds.current.add(id);
+    const options = { id, duration: dismissAfterMs ?? (value.kind === "loading" ? Infinity : undefined) };
+    if (value.kind === "loading") toast.loading(value.message, options);
+    else if (value.kind === "success") toast.success(value.message, options);
+    else toast.error(value.message, options);
   }
 
   function invalidateConnection(connectionId: string): number {
@@ -301,7 +298,7 @@ function ProjectScopedConnectionPanel({
       showCatalogToast({
         connectionId,
         kind: "success",
-        message: `${connectionName} 的 Tool 目录已就绪`,
+        message: `${connectionName} 的 Tool 目录已更新。`,
       }, 2_000);
     } catch (cause) {
       if (!mounted.current || catalogGenerations.current.get(connectionId) !== generation) return;
@@ -692,16 +689,6 @@ function ProjectScopedConnectionPanel({
           onMoveTool={moveTool}
           selectedTool={selectedTool}
         />
-      )}
-
-      {catalogToast !== null && (
-        <div
-          className={`copy-toast catalog-toast copy-toast--${catalogToast.kind}`}
-          role={catalogToast.kind === "error" ? "alert" : "status"}
-          aria-live={catalogToast.kind === "error" ? "assertive" : "polite"}
-        >
-          {catalogToast.message}
-        </div>
       )}
 
       {formMode !== null && (

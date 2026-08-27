@@ -46,9 +46,10 @@ const columns = `id, project_id, connection_id, tool_name, title, position, pinn
 
 export class TabRepository {
   constructor(private readonly store: ProjectStore) {}
-  list(projectId: string): DebugTab[] {
-    return (this.store.database.prepare(`SELECT ${columns} FROM debug_tabs WHERE project_id = ? ORDER BY position, id`)
-      .all(projectId) as TabRow[]).map(fromRow);
+  list(projectId: string, connectionId: string): DebugTab[] {
+    return (this.store.database.prepare(`SELECT ${columns} FROM debug_tabs
+      WHERE project_id = ? AND connection_id = ? ORDER BY position, id`)
+      .all(projectId, connectionId) as TabRow[]).map(fromRow);
   }
   get(projectId: string, id: string): DebugTab | null {
     const row = this.store.database.prepare(`SELECT ${columns} FROM debug_tabs WHERE project_id = ? AND id = ?`)
@@ -74,19 +75,19 @@ export class TabRepository {
         timestamp, tab.projectId, tab.id);
     return tab;
   }
-  deleteIds(projectId: string, ids: string[]): void {
+  deleteIds(projectId: string, connectionId: string, ids: string[]): void {
     if (ids.length === 0) return;
     this.store.database.transaction(() => {
-      const del = this.store.database.prepare("DELETE FROM debug_tabs WHERE project_id = ? AND id = ?");
-      for (const id of ids) del.run(projectId, id);
-      const update = this.store.database.prepare("UPDATE debug_tabs SET position = ? WHERE project_id = ? AND id = ?");
-      this.list(projectId).forEach((tab, index) => update.run(index, projectId, tab.id));
+      const del = this.store.database.prepare("DELETE FROM debug_tabs WHERE project_id = ? AND connection_id = ? AND id = ?");
+      for (const id of ids) del.run(projectId, connectionId, id);
+      const update = this.store.database.prepare("UPDATE debug_tabs SET position = ? WHERE project_id = ? AND connection_id = ? AND id = ?");
+      this.list(projectId, connectionId).forEach((tab, index) => update.run(index, projectId, connectionId, tab.id));
     })();
   }
-  reorder(projectId: string, ids: string[], timestamp: string): void {
+  reorder(projectId: string, connectionId: string, ids: string[], timestamp: string): void {
     this.store.database.transaction(() => {
-      const update = this.store.database.prepare("UPDATE debug_tabs SET position = ?, updated_at = ? WHERE project_id = ? AND id = ?");
-      ids.forEach((id, index) => update.run(index, timestamp, projectId, id));
+      const update = this.store.database.prepare("UPDATE debug_tabs SET position = ?, updated_at = ? WHERE project_id = ? AND connection_id = ? AND id = ?");
+      ids.forEach((id, index) => update.run(index, timestamp, projectId, connectionId, id));
     })();
   }
 }

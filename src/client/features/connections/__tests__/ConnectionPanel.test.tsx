@@ -5,6 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CatalogToolSummary, InspectorApiClient } from "../../../api/api-client.js";
+import { AppToaster } from "../../../app/AppToaster.js";
 import { ConnectionPanel } from "../ConnectionPanel.js";
 
 const projectId = "00000000-0000-4000-8000-000000000401";
@@ -57,10 +58,13 @@ function api(overrides: Partial<InspectorApiClient> = {}): InspectorApiClient {
     renameToolFolder: vi.fn(),
     deleteToolFolder: vi.fn(),
     moveToolToFolder: vi.fn(),
+    getToolWorkflow: vi.fn(), updateToolWorkflow: vi.fn(), validateToolWorkflow: vi.fn(), debugToolWorkflow: vi.fn(),
+    listEnvironmentVariables: vi.fn(), setEnvironmentVariable: vi.fn(), deleteEnvironmentVariable: vi.fn(),
     listTabs: vi.fn().mockResolvedValue([]),
     openTab: vi.fn(), replaceTabTool: vi.fn(), updateTab: vi.fn(), duplicateTab: vi.fn(),
     reorderTabs: vi.fn(), closeTab: vi.fn(), closeOtherTabs: vi.fn(), closeTabsRight: vi.fn(),
-    startRun: vi.fn(), getRunSummary: vi.fn(), getRun: vi.fn(), listRuns: vi.fn(), openRunEventStream: vi.fn(),
+    startRun: vi.fn(), startWorkflowExecution: vi.fn(), getActiveWorkflowExecution: vi.fn(), getWorkflowExecution: vi.fn(), cancelWorkflowExecution: vi.fn(),
+    getRunSummary: vi.fn(), getRun: vi.fn(), listRuns: vi.fn(), openRunEventStream: vi.fn(),
     listSavedItems: vi.fn(), getSavedItem: vi.fn(), createSavedItem: vi.fn(), deleteSavedItem: vi.fn(),
     ...overrides,
   };
@@ -151,7 +155,7 @@ describe("ConnectionPanel", () => {
     vi.stubGlobal("URL", Object.assign(URL, { createObjectURL, revokeObjectURL }));
     const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
     const user = userEvent.setup();
-    render(<ConnectionPanel api={api({ exportConnection })} projectId={projectId} />);
+    render(<><AppToaster /><ConnectionPanel api={api({ exportConnection })} projectId={projectId} /></>);
 
     const edit = await screen.findByRole("button", { name: "编辑 Catalog MCP" });
     const actions = edit.parentElement!;
@@ -165,7 +169,7 @@ describe("ConnectionPanel", () => {
     expect(exportConnection).toHaveBeenCalledWith(projectId, connection.id);
     expect(createObjectURL).toHaveBeenCalledTimes(1);
     expect(click).toHaveBeenCalledTimes(1);
-    expect(await screen.findByRole("status")).toHaveTextContent("Catalog MCP 已导出");
+    expect((await screen.findByText("Catalog MCP 已导出")).closest("[data-sonner-toast]")).toHaveAttribute("data-type", "success");
   });
 
   it("performs exactly one Tool refresh after connect and can disconnect explicitly", async () => {
@@ -173,13 +177,13 @@ describe("ConnectionPanel", () => {
     const refreshTools = vi.fn().mockResolvedValue([]);
     const disconnectConnection = vi.fn().mockResolvedValue(connection);
     const user = userEvent.setup();
-    render(<ConnectionPanel api={api({ connectConnection, refreshTools, disconnectConnection })} projectId={projectId} />);
+    render(<><AppToaster /><ConnectionPanel api={api({ connectConnection, refreshTools, disconnectConnection })} projectId={projectId} /></>);
     await screen.findByText("Catalog MCP");
 
     await user.click(screen.getByRole("button", { name: "连接 Catalog MCP" }));
     await waitFor(() => expect(refreshTools).toHaveBeenCalledTimes(1));
     expect(refreshTools).toHaveBeenCalledWith(projectId, connection.id);
-    expect(screen.getByRole("status")).toHaveTextContent("Catalog MCP 的 Tool 目录已就绪");
+    expect((await screen.findByText("Catalog MCP 的 Tool 目录已更新。")).closest("[data-sonner-toast]")).toHaveAttribute("data-type", "success");
     expect(screen.queryByText("已连接，目录未就绪")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "断开 Catalog MCP" }));
     expect(disconnectConnection).toHaveBeenCalledWith(projectId, connection.id);
@@ -203,19 +207,20 @@ describe("ConnectionPanel", () => {
     const refreshTools = vi.fn().mockRejectedValue(new Error("目录刷新失败"));
     const disconnectConnection = vi.fn().mockResolvedValue(connection);
     const user = userEvent.setup();
-    render(<ConnectionPanel api={api({ refreshTools, disconnectConnection })} projectId={projectId} />);
+    render(<><AppToaster /><ConnectionPanel api={api({ refreshTools, disconnectConnection })} projectId={projectId} /></>);
     await screen.findByText("Catalog MCP");
     await user.click(screen.getByRole("button", { name: "连接 Catalog MCP" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Catalog MCP 的 Tool 目录刷新失败：目录刷新失败");
+    const failure = await screen.findByText("Catalog MCP 的 Tool 目录刷新失败：目录刷新失败");
+    expect(failure.closest("[data-sonner-toast]")).toHaveAttribute("data-type", "error");
     expect(screen.getByRole("button", { name: "断开 Catalog MCP" })).toBeVisible();
     expect(screen.queryByText("已连接，目录未就绪")).not.toBeInTheDocument();
     expect(disconnectConnection).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "刷新 Catalog MCP Tools" }));
     expect(refreshTools).toHaveBeenCalledTimes(2);
-    await screen.findByRole("alert");
+    await screen.findByText("Catalog MCP 的 Tool 目录刷新失败：目录刷新失败");
     await user.click(screen.getByRole("button", { name: "断开 Catalog MCP" }));
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("Catalog MCP 的 Tool 目录刷新失败：目录刷新失败")).not.toBeInTheDocument());
   });
 
   it("synchronously invalidates an in-flight refresh when disconnecting", async () => {
@@ -225,22 +230,22 @@ describe("ConnectionPanel", () => {
       .mockResolvedValueOnce([])
       .mockReturnValueOnce(pendingRefresh.promise);
     const user = userEvent.setup();
-    render(<ConnectionPanel api={api({
+    render(<><AppToaster /><ConnectionPanel api={api({
       connectConnection: vi.fn().mockResolvedValue(connected),
       disconnectConnection: vi.fn().mockResolvedValue(connection),
       refreshTools,
-    })} projectId={projectId} />);
+    })} projectId={projectId} /></>);
     await screen.findByText("Catalog MCP");
     await user.click(screen.getByRole("button", { name: "连接 Catalog MCP" }));
-    expect(await screen.findByText("Catalog MCP 的 Tool 目录已就绪")).toBeVisible();
+    expect(await screen.findByText("Catalog MCP 的 Tool 目录已更新。")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "刷新 Catalog MCP Tools" }));
     expect(screen.getByRole("button", { name: "刷新 Catalog MCP Tools" })).toHaveTextContent("刷新中");
-    expect(screen.getByText("正在刷新 Catalog MCP 的 Tool 目录…")).toHaveAttribute("aria-live", "polite");
+    expect(screen.getByText("正在刷新 Catalog MCP 的 Tool 目录…").closest("[data-sonner-toast]")).toHaveAttribute("data-type", "loading");
 
     await user.click(screen.getByRole("button", { name: "断开 Catalog MCP" }));
 
     expect(screen.getByRole("button", { name: "刷新 Catalog MCP Tools" })).toHaveTextContent("刷新");
-    expect(screen.queryByText(/Tool 目录/)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText(/Tool 目录/)).not.toBeInTheDocument());
     await act(async () => pendingRefresh.resolve([]));
     expect(screen.queryByText(/Tool 目录/)).not.toBeInTheDocument();
   });

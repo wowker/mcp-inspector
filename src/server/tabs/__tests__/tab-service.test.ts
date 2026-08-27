@@ -9,6 +9,7 @@ import { createTabService } from "../tab-service.js";
 
 const projectId = "00000000-0000-4000-8000-000000000601";
 const connectionId = "00000000-0000-4000-8000-000000000602";
+const bearerConnectionId = "00000000-0000-4000-8000-000000000603";
 
 describe("TabService", () => {
   const roots: string[] = [];
@@ -24,18 +25,47 @@ describe("TabService", () => {
     const ids = () => `00000000-0000-4000-8000-${String(next++).padStart(12, "0")}`;
     const projects = createProjectService({ dataRoot, createId: () => projectId });
     projects.create("Tabs");
-    const connections = createConnectionService(projects, { createId: () => connectionId });
+    const connectionIds = [connectionId, bearerConnectionId];
+    const connections = createConnectionService(projects, { createId: () => connectionIds.shift()! });
     connections.create(projectId, {
-      name: "Server", url: "https://example.test/mcp", transport: "streamable-http",
-      authMode: "none", timeoutMs: 10_000,
+      name: "OAuth", url: "https://example.test/mcp", transport: "streamable-http",
+      authMode: "oauth", timeoutMs: 10_000,
     });
-    new ToolRepository(projects.open(projectId)).replaceCatalog(projectId, connectionId, [{
+    connections.create(projectId, {
+      name: "Bearer", url: "https://example.test/mcp", transport: "streamable-http",
+      authMode: "bearer", bearerToken: "secret", timeoutMs: 10_000,
+    });
+    const toolRepository = new ToolRepository(projects.open(projectId));
+    toolRepository.replaceCatalog(projectId, connectionId, [{
       id: ids(), name: "sum", contentHash: "a".repeat(64),
+      definitionJson: JSON.stringify({ name: "sum", inputSchema: { type: "object" } }),
+    }], "2026-08-17T00:00:00.000Z");
+    toolRepository.replaceCatalog(projectId, bearerConnectionId, [{
+      id: ids(), name: "sum", contentHash: "b".repeat(64),
       definitionJson: JSON.stringify({ name: "sum", inputSchema: { type: "object" } }),
     }], "2026-08-17T00:00:00.000Z");
     return { dataRoot, projects, service: createTabService(projects, connections, { createId: ids,
       now: () => new Date("2026-08-17T00:00:00.000Z") }) };
   }
+
+  it("isolates persisted Tabs and bulk operations by immutable connection identity", () => {
+    const { projects, service } = fixture();
+    try {
+      const oauthFirst = service.open({ projectId, connectionId, toolName: "sum" });
+      const oauthSecond = service.open({ projectId, connectionId, toolName: "sum" });
+      const bearer = service.open({ projectId, connectionId: bearerConnectionId, toolName: "sum" });
+
+      expect(service.list(projectId, connectionId).map(({ id, title }) => [id, title]))
+        .toEqual([[oauthFirst.id, "sum"], [oauthSecond.id, "sum (2)"]]);
+      expect(service.list(projectId, bearerConnectionId).map(({ id, title }) => [id, title]))
+        .toEqual([[bearer.id, "sum"]]);
+
+      service.closeOthers(projectId, oauthFirst.id);
+      expect(service.list(projectId, connectionId).map(({ id }) => id)).toEqual([oauthFirst.id]);
+      expect(service.list(projectId, bearerConnectionId).map(({ id }) => id)).toEqual([bearer.id]);
+      expect(() => service.replaceTool(projectId, oauthFirst.id, bearerConnectionId, "sum")).toThrow(/connection/i);
+    } finally { projects.close(); }
+  });
 
   it("keeps repeated same-Tool Tabs independently persisted", () => {
     const { projects, service } = fixture();
@@ -74,12 +104,12 @@ describe("TabService", () => {
       const last = service.open({ projectId, connectionId, toolName: "sum" });
       service.update(pinned.id, projectId, { pinned: true });
       service.closeOthers(projectId, first.id);
-      expect(service.list(projectId).map(({ id, position }) => [id, position])).toEqual([
+      expect(service.list(projectId, connectionId).map(({ id, position }) => [id, position])).toEqual([
         [first.id, 0], [pinned.id, 1],
       ]);
       service.open({ projectId, connectionId, toolName: "sum" });
       service.closeRight(projectId, first.id);
-      expect(service.list(projectId).map(({ id }) => id)).toEqual([first.id, pinned.id]);
+      expect(service.list(projectId, connectionId).map(({ id }) => id)).toEqual([first.id, pinned.id]);
       expect(() => service.get(projectId, last.id)).toThrow(/not found/i);
     } finally { projects.close(); }
   });
@@ -95,8 +125,8 @@ describe("TabService", () => {
       const copy = service.duplicate(projectId, second.id);
       expect(copy).toMatchObject({ title: "sum (4)", arguments: { marker: 2 }, rawText: "{\"marker\":2}",
         inputMode: "raw", pinned: false, lastRunId: null });
-      expect(() => service.reorder(projectId, [first.id, second.id])).toThrow(/invalid/i);
-      expect(service.reorder(projectId, [copy.id, third.id, first.id, second.id]).map(({ id, position }) => [id, position]))
+      expect(() => service.reorder(projectId, connectionId, [first.id, second.id])).toThrow(/invalid/i);
+      expect(service.reorder(projectId, connectionId, [copy.id, third.id, first.id, second.id]).map(({ id, position }) => [id, position]))
         .toEqual([[copy.id, 0], [third.id, 1], [first.id, 2], [second.id, 3]]);
       service.update(second.id, projectId, { pinned: false });
       service.close(projectId, second.id);
@@ -128,11 +158,11 @@ describe("TabService", () => {
     } finally { projects.close(); }
   });
 
-  it("applies migrations 1-10 once and enforces Tab foreign keys", () => {
+  it("applies migrations 1-11 once and enforces Tab foreign keys", () => {
     const { dataRoot, projects } = fixture();
     const store = projects.open(projectId);
     expect(store.database.prepare("SELECT version FROM schema_migrations ORDER BY version").all())
-      .toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((version) => ({ version })));
+      .toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((version) => ({ version })));
     expect(() => store.database.prepare(`INSERT INTO debug_tabs
       (id, project_id, connection_id, tool_name, title, position, pinned, input_mode,
        arguments_json, raw_text, view_state_json, created_at, updated_at)

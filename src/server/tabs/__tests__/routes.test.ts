@@ -12,7 +12,7 @@ const record = { id: tabId, projectId, connectionId, toolName: "sum", title: "su
 function service(overrides: Partial<TabService> = {}): TabService {
   return { list: vi.fn(() => []), get: vi.fn(() => { throw new TabNotFoundError(); }),
     open: vi.fn(), replaceTool: vi.fn(), update: vi.fn(), duplicate: vi.fn(), reorder: vi.fn(() => []),
-    close: vi.fn(), closeOthers: vi.fn(), closeRight: vi.fn(), ...overrides };
+    close: vi.fn(), closeOthers: vi.fn(() => []), closeRight: vi.fn(() => []), ...overrides };
 }
 
 describe("Tab routes", () => {
@@ -34,17 +34,17 @@ describe("Tab routes", () => {
   it("passes a complete reorder intent and returns a dense list envelope", async () => {
     const reorder = vi.fn(() => []); const app = createTabRoutes(service({ reorder }));
     const response = await app.request(`/${projectId}/tabs/reorder`, { method: "PUT",
-      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tabIds: [tabId] }) });
-    expect(response.status).toBe(200); expect(reorder).toHaveBeenCalledWith(projectId, [tabId]);
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ connectionId, tabIds: [tabId] }) });
+    expect(response.status).toBe(200); expect(reorder).toHaveBeenCalledWith(projectId, connectionId, [tabId]);
     expect(await response.json()).toEqual({ tabs: [] });
   });
 
   it("wires project-scoped CRUD and bulk actions", async () => {
     const tabs = service({ list: vi.fn(() => [record]), get: vi.fn(() => record), open: vi.fn(() => record),
       update: vi.fn(() => record), replaceTool: vi.fn(() => record), duplicate: vi.fn(() => record),
-      close: vi.fn(), closeOthers: vi.fn(), closeRight: vi.fn() });
+      close: vi.fn(), closeOthers: vi.fn(() => [record]), closeRight: vi.fn(() => [record]) });
     const app = createTabRoutes(tabs); const json = { "Content-Type": "application/json" };
-    expect((await app.request(`/${projectId}/tabs`)).status).toBe(200);
+    expect((await app.request(`/${projectId}/tabs?connectionId=${connectionId}`)).status).toBe(200);
     expect((await app.request(`/${projectId}/tabs/${tabId}`)).status).toBe(200);
     expect((await app.request(`/${projectId}/tabs`, { method: "POST", headers: json,
       body: JSON.stringify({ connectionId, toolName: "sum" }) })).status).toBe(201);

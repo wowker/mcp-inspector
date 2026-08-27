@@ -11,7 +11,7 @@ import type { RunEvent } from "./run-types.js";
 
 const uuid = z.string().uuid();
 const toolName = z.string().min(1).max(512).refine((value) => value.trim() === value);
-const startBody = z.object({ tabId: uuid, idempotencyKey: z.string().min(1).max(200),
+const startBody = z.object({ connectionId: uuid, tabId: uuid, idempotencyKey: z.string().min(1).max(200),
   arguments: z.record(z.string(), z.unknown()) }).strict();
 const errors = {
   invalid: { error: { code: "INVALID_RUN", message: "Run payload is invalid" } },

@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import { ArrowsOutSimple, Question, Wrench, X } from "@phosphor-icons/react";
-import type { RunDetail, RunEvent } from "../../api/api-client.js";
+import { ArrowsOutSimple, CaretRight, Question, Wrench, X } from "@phosphor-icons/react";
+import { toast } from "sonner";
+import type { RunDetail, RunEvent, WorkflowExecutionDetail } from "../../api/api-client.js";
 import { JsonViewer, parseJsonDocument } from "./JsonViewer.js";
 
-type View = "overview" | "details" | "rpc" | "http" | "timeline";
-const resultViews: Array<[View, string]> = [["overview", "请求与结果"], ["details", "调用详情"], ["http", "HTTP"], ["rpc", "RPC"], ["timeline", "时间线"]];
+type View = "workflow" | "overview" | "details" | "rpc" | "http" | "timeline";
+const baseResultViews: Array<[View, string]> = [["overview", "请求与结果"], ["details", "调用详情"], ["http", "HTTP"], ["rpc", "RPC"], ["timeline", "时间线"]];
+function resultViews(workflowEnabled: boolean): Array<[View, string]> {
+  return workflowEnabled ? [["workflow", "脚本流水线"], ...baseResultViews] : baseResultViews;
+}
 const terminalLabels: Record<string, string> = { queued: "排队中", connecting: "连接中", authorizing: "授权中",
   running: "运行中", succeeded: "成功", failed: "失败", cancelled: "已取消", interrupted: "已中断" };
 const supportedImages = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
@@ -47,10 +51,8 @@ function CopyButton({ value, label = "复制", className, onCopied }: {
 
 function JsonDialogButton({ value, label }: { value: unknown; label: string }) {
   const [open, setOpen] = useState(false);
-  const [copyNotice, setCopyNotice] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
-  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -60,25 +62,7 @@ function JsonDialogButton({ value, label }: { value: unknown; label: string }) {
     return () => { document.body.style.overflow = previousOverflow; };
   }, [open]);
 
-  useEffect(() => () => {
-    if (noticeTimerRef.current !== null) clearTimeout(noticeTimerRef.current);
-  }, []);
-
-  function showCopyNotice(): void {
-    if (noticeTimerRef.current !== null) clearTimeout(noticeTimerRef.current);
-    setCopyNotice(true);
-    noticeTimerRef.current = setTimeout(() => {
-      setCopyNotice(false);
-      noticeTimerRef.current = null;
-    }, 2_000);
-  }
-
   function close(): void {
-    if (noticeTimerRef.current !== null) {
-      clearTimeout(noticeTimerRef.current);
-      noticeTimerRef.current = null;
-    }
-    setCopyNotice(false);
     setOpen(false);
     triggerRef.current?.focus();
   }
@@ -106,7 +90,7 @@ function JsonDialogButton({ value, label }: { value: unknown; label: string }) {
         <header className="json-inspector-dialog__header">
           <div><span className="json-inspector-dialog__eyebrow">JSON VIEWER</span><h2 id="json-inspector-title">{label}</h2></div>
           <div className="json-inspector-dialog__actions">
-            <CopyButton value={value} onCopied={showCopyNotice} />
+            <CopyButton value={value} onCopied={() => toast.success("JSON 已复制")} />
             <button ref={closeRef} type="button" className="json-inspector-dialog__close"
               aria-label="关闭 JSON 查看器" onClick={close}><X size={20} weight="bold" aria-hidden="true" /></button>
           </div>
@@ -114,7 +98,6 @@ function JsonDialogButton({ value, label }: { value: unknown; label: string }) {
         <div className="json-inspector-dialog__content">
           <JsonViewer value={value} label={`${label} JSON`} defaultExpanded="all" />
         </div>
-        {copyNotice && <div className="copy-toast" role="status" aria-live="polite">JSON 已复制</div>}
       </section>
     </div>, document.body)}
   </span>;
@@ -235,15 +218,109 @@ function MetadataLabel({ name, help }: Pick<MetadataEntry, "name" | "help">) {
   </span>}</dt>;
 }
 
-export function EmptyRunResultPanel() {
-  const [view, setView] = useState<View>("overview");
+function ResultCollapseButton({ expanded, controls, onExpandedChange }: {
+  expanded: boolean;
+  controls: string;
+  onExpandedChange?: (expanded: boolean) => void;
+}) {
+  if (onExpandedChange === undefined) return null;
+  return <button type="button" className="result-collapse" aria-expanded={expanded} aria-controls={controls}
+    aria-label={expanded ? "收起响应" : "展开响应"} title={expanded ? "收起响应" : "展开响应"}
+    onClick={() => onExpandedChange(!expanded)}>
+    <CaretRight size={18} weight="bold" aria-hidden="true" />
+  </button>;
+}
+
+function WorkflowExecutionView({ execution, onCancel, mainToolFailed = false }: {
+  execution: WorkflowExecutionDetail | null;
+  onCancel?: (execution: WorkflowExecutionDetail) => void;
+  mainToolFailed?: boolean;
+}) {
+  if (execution === null) return <div className="workflow-view workflow-view--empty" role="status">
+    <strong>脚本流水线 · 未执行</strong>
+    <p>执行 Tool 后，这里会显示前置脚本、主调用、后置脚本及脚本日志。</p>
+  </div>;
+  const logs = execution.events.filter(({ kind }) => kind === "script-log")
+    .sort((left, right) => left.sequence - right.sequence);
+  const isTerminal = ["succeeded", "failed", "cancelled", "interrupted"].includes(execution.status);
+  const phaseLabel = (value: unknown): string => value === "before" ? "前置脚本" : value === "after" ? "后置脚本" : "脚本";
+  const visualStatus = mainToolFailed ? "main-tool-failed" : execution.status;
+  return <div className={`workflow-view workflow-view--${visualStatus}`}>
+    <header className="workflow-view__summary">
+      <div><strong>{mainToolFailed ? "脚本流水线" : `脚本流水线 · ${execution.status}`}</strong>
+        <span>{execution.durationMs === null ? "执行中" : `总耗时 ${formatDuration(execution.durationMs)}`}</span>
+        <span>{execution.runs.length} 个关联 Run</span><span>{logs.length} 条脚本日志</span></div>
+      {!isTerminal && onCancel !== undefined && <button type="button" className="run-result-action"
+        onClick={() => onCancel(execution)}>取消流水线</button>}
+    </header>
+    {!mainToolFailed && execution.error !== null && <p className="workflow-view__error" role="alert">
+      <strong>{execution.error.code}</strong><span>{execution.error.message}</span>
+    </p>}
+    {execution.runs.length > 0 && <section className="workflow-view__runs" aria-label="流水线关联运行">
+      <h3>执行阶段</h3><ol>{[...execution.runs].sort((left, right) => left.ordinal - right.ordinal).map((run) => <li key={run.runId}>
+        <span>#{run.ordinal + 1}</span><strong>{run.phase === "helper-before" ? "前置辅助 Tool" : run.phase === "helper-after" ? "后置辅助 Tool" : "主 Tool 调用"}</strong>
+        <code>{run.runId.slice(0, 8)}</code>{run.sourceLine === null ? null : <span>脚本第 {run.sourceLine} 行</span>}
+      </li>)}</ol>
+    </section>}
+    <section className="workflow-view__logs" aria-label="脚本执行日志">
+      <h3>脚本日志</h3>
+      {logs.length === 0 ? <p className="workflow-view__empty-log">暂无脚本日志。脚本调用 <code>console.log/info/warn/error</code> 后会显示在这里。</p>
+        : <ol>{logs.map((event) => {
+          const payload = typeof event.payload === "object" && event.payload !== null && !Array.isArray(event.payload)
+            ? event.payload as Record<string, unknown> : {};
+          const logValue = payload.data ?? payload;
+          return <li className="workflow-log-entry" key={event.sequence}>
+            <header className="workflow-log-entry__header"><div className="workflow-log-entry__meta">
+              <span>#{event.sequence}</span><strong>{phaseLabel(payload.phase)}</strong>
+              <span className={`workflow-log-level workflow-log-level--${String(payload.level ?? "info")}`}>{String(payload.level ?? "info")}</span>
+              <time>{event.occurredAt}</time></div>
+              <div className="workflow-log-entry__actions"><CopyButton value={logValue} />
+                <JsonDialogButton value={logValue} label={`脚本日志 #${event.sequence}`} /></div>
+            </header>
+            <p>{String(payload.message ?? "")}</p>
+            <div className="workflow-log-entry__content">
+              <JsonViewer value={logValue} label={`日志 ${event.sequence} 数据`} defaultExpanded="all" />
+            </div>
+          </li>;
+        })}</ol>}
+    </section>
+  </div>;
+}
+
+export function EmptyRunResultPanel({ expanded = true, onExpandedChange, workflowExecution, onCancelWorkflow }: {
+  expanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
+  workflowExecution?: WorkflowExecutionDetail | null;
+  onCancelWorkflow?: (execution: WorkflowExecutionDetail) => void;
+} = {}) {
+  const workflowEnabled = workflowExecution !== undefined;
+  const [view, setView] = useState<View>(workflowEnabled ? "workflow" : "overview");
+  const hadWorkflow = useRef(workflowEnabled);
+  useEffect(() => {
+    if (workflowEnabled && !hadWorkflow.current) setView("workflow");
+    else if (!workflowEnabled && view === "workflow") setView("overview");
+    hadWorkflow.current = workflowEnabled;
+  }, [view, workflowEnabled]);
+  const views = resultViews(workflowEnabled);
+  const contentId = "empty-run-result-content";
   return <article className="run-result run-result--empty" aria-label="尚未执行的运行结果">
     <div className="run-result__sticky-header">
-      <header><div className="run-summary"><div className="run-status run-status--idle">未执行</div><span>总耗时 —</span><span>网络耗时 —</span></div></header>
-      <div role="tablist" aria-label="运行结果视图" className="result-tabs">{resultViews.map(([id, label]) => <button key={id} type="button" role="tab"
+      <header><div className="run-summary-shell"><ResultCollapseButton expanded={expanded} controls={contentId} onExpandedChange={onExpandedChange} />
+        <div className="run-summary"><div className="run-status run-status--idle">未执行</div><span>总耗时 —</span><span>网络耗时 —</span></div></div></header>
+      {expanded && <div role="tablist" aria-label="运行结果视图" className="result-tabs" onKeyDown={(event) => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        const index = views.findIndex(([id]) => id === view); const next = event.key === "Home" ? 0 : event.key === "End" ? views.length - 1
+          : event.key === "ArrowRight" ? (index + 1) % views.length : (index - 1 + views.length) % views.length;
+        event.preventDefault(); const target = views[next]?.[0]; if (target !== undefined) {
+          setView(target); queueMicrotask(() => document.getElementById(`empty-result-tab-${target}`)?.focus());
+        }
+      }}>{views.map(([id, label]) => <button id={`empty-result-tab-${id}`} key={id} type="button" role="tab"
+        tabIndex={view === id ? 0 : -1} aria-controls={contentId}
         aria-selected={view === id} onClick={() => setView(id)}>{label}</button>)}</div>
+      }
     </div>
-    <section role="tabpanel" className="result-view">
+    {expanded && <section id={contentId} role="tabpanel" aria-labelledby={`empty-result-tab-${view}`} className="result-view">
+      {view === "workflow" && workflowExecution !== undefined && <WorkflowExecutionView execution={workflowExecution} onCancel={onCancelWorkflow} />}
       {view === "overview" && <div className="run-overview">
         <details className="result-disclosure" open><summary>请求参数</summary><div className="result-disclosure__content result-empty-content" /></details>
         <details className="result-disclosure" open><summary>请求结果</summary><div className="result-disclosure__content result-empty-content" /></details>
@@ -252,7 +329,7 @@ export function EmptyRunResultPanel() {
       {view === "details" && <dl className="run-metadata">{["Run ID", "状态", "总耗时", "网络耗时", "Tool 快照哈希", "协议版本"].map((name) =>
         <div key={name}><dt>{name}</dt><dd /></div>)}</dl>}
       {(view === "http" || view === "rpc" || view === "timeline") && <div className="result-empty-content result-empty-content--trace" />}
-    </section>
+    </section>}
   </article>;
 }
 
@@ -260,22 +337,35 @@ function formatDuration(durationMs: number): string {
   return durationMs < 1_000 ? `${durationMs} ms` : `${(durationMs / 1_000).toFixed(2)} s`;
 }
 
-export function RunResultPanel({ run, onSaveResponse, onOpenDebug, openingDebug = false }: {
+export function RunResultPanel({ run, onSaveResponse, onOpenDebug, openingDebug = false, expanded = true, onExpandedChange,
+  workflowExecution, onCancelWorkflow }: {
   run: RunDetail;
   onSaveResponse?: (response: NonNullable<RunDetail["response"]>) => void;
   onOpenDebug?: (run: RunDetail) => void;
   openingDebug?: boolean;
+  expanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
+  workflowExecution?: WorkflowExecutionDetail | null;
+  onCancelWorkflow?: (execution: WorkflowExecutionDetail) => void;
 }) {
-  const [view, setView] = useState<View>("overview");
+  const workflowEnabled = workflowExecution !== undefined;
+  const [view, setView] = useState<View>(workflowEnabled ? "workflow" : "overview");
+  const hadWorkflow = useRef(workflowEnabled);
   const [requestOpen, setRequestOpen] = useState(true);
   const [responseOpen, setResponseOpen] = useState(true);
   const [rawOpen, setRawOpen] = useState(false);
   useEffect(() => {
-    setView("overview");
+    setView(workflowEnabled ? "workflow" : "overview");
     setRequestOpen(true);
     setResponseOpen(true);
     setRawOpen(false);
   }, [run.id]);
+  useEffect(() => {
+    if (workflowEnabled && !hadWorkflow.current) setView("workflow");
+    else if (!workflowEnabled && view === "workflow") setView("overview");
+    hadWorkflow.current = workflowEnabled;
+  }, [view, workflowEnabled]);
+  const views = resultViews(workflowEnabled);
   const ordered = useMemo(() => [...run.events].sort((left, right) => left.sequence - right.sequence), [run.events]);
   const result = run.response?.result;
   const resultRecord = typeof result === "object" && result !== null && !Array.isArray(result) ? result as Record<string, unknown> : null;
@@ -296,26 +386,33 @@ export function RunResultPanel({ run, onSaveResponse, onOpenDebug, openingDebug 
   const visibleHeaders = (headers: unknown) => shouldRedact ? redactHeaders(headers) : headers;
   const safeRequestHttp = requestHttp === null ? null : { ...requestHttp, headers: visibleHeaders(requestHttp.headers) };
   const origin = Date.parse(run.createdAt);
+  const contentId = `run-result-content-${run.id}`;
+  const mainToolFailure = run.status === "failed" && workflowExecution?.runs.some(
+    ({ phase, runId }) => phase === "main" && runId === run.id,
+  ) === true;
   return <article className="run-result" aria-label={`运行 ${run.id} 详情`}>
     <div className="run-result__sticky-header">
-      <header><div className="run-summary"><div className={`run-status run-status--${run.status}`}>{terminalLabels[run.status] ?? run.status}</div>
+      <header><div className="run-summary-shell"><ResultCollapseButton expanded={expanded} controls={contentId} onExpandedChange={onExpandedChange} />
+        <div className="run-summary"><div className={`run-status run-status--${run.status}`}>{terminalLabels[run.status] ?? run.status}</div>
         <span>{run.durationMs === null ? "总耗时未记录" : `总耗时 ${formatDuration(run.durationMs)}`}</span>
-        {run.networkDurationMs !== null && <span>网络耗时 {formatDuration(run.networkDurationMs)}</span>}</div>
+        {run.networkDurationMs !== null && <span>网络耗时 {formatDuration(run.networkDurationMs)}</span>}</div></div>
         <div className="run-result-actions">{run.response !== null && onSaveResponse !== undefined && <button type="button" className="run-result-action" onClick={() => onSaveResponse(run.response!)}>保存响应</button>}
           {onOpenDebug !== undefined && <button type="button" className="run-result-action" disabled={openingDebug} onClick={() => onOpenDebug(run)}>
             <Wrench size={15} weight="bold" aria-hidden="true" />{openingDebug ? "打开中…" : "打开调试"}
           </button>}
           <CopyButton value={run.response} label="复制全部结果" className="run-result-action" /></div></header>
-      {run.response?.truncated && <p role="status" className="truncated-warning">结果已截断（原始大小 {run.response.originalBytes ?? "未知"} bytes），以下仅为安全预览。</p>}
-      <div role="tablist" aria-label="运行结果视图" className="result-tabs" onKeyDown={(event) => {
+      {expanded && run.response?.truncated && <p role="status" className="truncated-warning">结果已截断（原始大小 {run.response.originalBytes ?? "未知"} bytes），以下仅为安全预览。</p>}
+      {expanded && <div role="tablist" aria-label="运行结果视图" className="result-tabs" onKeyDown={(event) => {
         if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-        const index = resultViews.findIndex(([id]) => id === view); const next = event.key === "Home" ? 0 : event.key === "End" ? resultViews.length - 1
-          : event.key === "ArrowRight" ? (index + 1) % resultViews.length : (index - 1 + resultViews.length) % resultViews.length;
-        event.preventDefault(); const target = resultViews[next]?.[0]; if (target !== undefined) { setView(target); queueMicrotask(() => document.getElementById(`result-tab-${target}-${run.id}`)?.focus()); }
-      }}>{resultViews.map(([id, label]) => <button id={`result-tab-${id}-${run.id}`} key={id} type="button" role="tab" tabIndex={view === id ? 0 : -1}
-        aria-selected={view === id} aria-controls={`result-${id}-${run.id}`} onClick={() => setView(id)}>{label}</button>)}</div>
+        const index = views.findIndex(([id]) => id === view); const next = event.key === "Home" ? 0 : event.key === "End" ? views.length - 1
+          : event.key === "ArrowRight" ? (index + 1) % views.length : (index - 1 + views.length) % views.length;
+        event.preventDefault(); const target = views[next]?.[0]; if (target !== undefined) { setView(target); queueMicrotask(() => document.getElementById(`result-tab-${target}-${run.id}`)?.focus()); }
+      }}>{views.map(([id, label]) => <button id={`result-tab-${id}-${run.id}`} key={id} type="button" role="tab" tabIndex={view === id ? 0 : -1}
+        aria-selected={view === id} aria-controls={`result-${id}-${run.id}`} onClick={() => setView(id)}>{label}</button>)}</div>}
     </div>
-    <section id={`result-${view}-${run.id}`} role="tabpanel" aria-labelledby={`result-tab-${view}-${run.id}`} className="result-view">
+    {expanded && <section id={contentId} role="tabpanel" aria-labelledby={`result-tab-${view}-${run.id}`} className="result-view">
+      {view === "workflow" && workflowExecution !== undefined && <WorkflowExecutionView execution={workflowExecution}
+        onCancel={onCancelWorkflow} mainToolFailed={mainToolFailure} />}
       {view === "overview" && <div className="run-overview">
         <details className="result-disclosure" open={requestOpen} onToggle={(event) => setRequestOpen(event.currentTarget.open)}>
           <summary>请求参数</summary>
@@ -355,6 +452,6 @@ export function RunResultPanel({ run, onSaveResponse, onOpenDebug, openingDebug 
       })}</div>}
       {view === "timeline" && <ol className="timeline">{ordered.map((event) => <li key={event.sequence}><span data-testid="timeline-sequence">#{event.sequence}</span>
         <strong>{event.kind}</strong><time>{Number.isFinite(origin) ? `+${Math.max(0, Date.parse(event.occurredAt) - origin)} ms` : event.occurredAt}</time></li>)}</ol>}
-    </section>
+    </section>}
   </article>;
 }

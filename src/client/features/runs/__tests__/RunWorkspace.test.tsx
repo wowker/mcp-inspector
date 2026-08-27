@@ -28,29 +28,29 @@ describe("Run workspace", () => {
   it("flushes the latest draft and hard-gates rapid execution to one POST", async () => {
     let resolveSave!: (value: DebugTabSummary) => void; const save = new Promise<DebugTabSummary>((resolve) => { resolveSave = resolve; });
     const client = api({ updateTab: vi.fn(() => save), startRun: vi.fn(async () => summary) });
-    render(<DebugWorkspace api={client} projectId={projectId} />); fireEvent.change(await screen.findByLabelText("a"), { target: { value: "2" } });
+    render(<DebugWorkspace api={client} projectId={projectId} connectionId={connectionId} />); fireEvent.change(await screen.findByLabelText("a"), { target: { value: "2" } });
     const execute = screen.getByRole("button", { name: "执行" }); fireEvent.click(execute); fireEvent.click(execute);
     expect(client.startRun).not.toHaveBeenCalled();
     await act(async () => { resolveSave({ ...tab, arguments: { a: 2 }, rawText: '{\n  "a": 2\n}' }); await Promise.resolve(); await Promise.resolve(); });
     await waitFor(() => expect(client.startRun).toHaveBeenCalledTimes(1));
-    expect(client.startRun).toHaveBeenCalledWith(projectId, tabId, expect.any(String), { a: 2 });
+    expect(client.startRun).toHaveBeenCalledWith(projectId, connectionId, tabId, expect.any(String), { a: 2 });
   });
 
   it("executes canonical Form arguments even when a retained Raw draft is invalid", async () => {
     const formTab = { ...tab, inputMode: "form" as const, rawText: '{"a":' };
     const client = api({ listTabs: vi.fn(async () => [formTab]) });
 
-    render(<DebugWorkspace api={client} projectId={projectId} />);
+    render(<DebugWorkspace api={client} projectId={projectId} connectionId={connectionId} />);
     fireEvent.click(await screen.findByRole("button", { name: "执行" }));
 
     await waitFor(() => expect(client.startRun).toHaveBeenCalledWith(
-      projectId, tabId, expect.any(String), { a: 1 },
+      projectId, connectionId, tabId, expect.any(String), { a: 1 },
     ));
   });
 
   it("restores lastRunId without starting another Run", async () => {
     const client = api({ listTabs: vi.fn(async () => [{ ...tab, lastRunId: runId }]) });
-    render(<DebugWorkspace api={client} projectId={projectId} />);
+    render(<DebugWorkspace api={client} projectId={projectId} connectionId={connectionId} />);
     expect(await screen.findByText(/^answer/)).toBeVisible(); expect(client.getRun).toHaveBeenCalledWith(projectId, runId);
     expect(client.startRun).not.toHaveBeenCalled();
   });
@@ -64,7 +64,7 @@ describe("Run workspace", () => {
       openRunEventStream: vi.fn((_project, _run, _after, signal) => {
         streamSignal = signal; return new Promise<Response>((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }));
     }) });
-    const view = render(<DebugWorkspace api={client} projectId={projectId} />);
+    const view = render(<DebugWorkspace api={client} projectId={projectId} connectionId={connectionId} />);
     await waitFor(() => expect(screen.getByRole("button", { name: "执行中…" })).toBeDisabled());
     await waitFor(() => expect(client.openRunEventStream).toHaveBeenCalledTimes(1));
     fireEvent.keyDown(screen.getByLabelText("a"), { key: "Enter", ctrlKey: true }); expect(client.startRun).not.toHaveBeenCalled();
@@ -84,7 +84,7 @@ describe("Run workspace", () => {
         if (id === secondRunId) expect(pollingSignals.get(id)?.aborted).toBe(true);
         return new Promise<Response>((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true })); }),
       closeTab: vi.fn(async () => undefined) });
-    render(<DebugWorkspace api={client} projectId={projectId} />);
+    render(<DebugWorkspace api={client} projectId={projectId} connectionId={connectionId} />);
     await waitFor(() => expect(client.openRunEventStream).toHaveBeenCalledTimes(1));
     expect(signals.get(runId)?.aborted).toBe(false); expect(signals.has(secondRunId)).toBe(false);
     await waitFor(() => expect(pollingSignals.get(secondRunId)?.aborted).toBe(false));
@@ -108,7 +108,7 @@ describe("Run workspace", () => {
       openRunEventStream: vi.fn((_project, _id, _after, signal) =>
         new Promise<Response>((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }))),
     });
-    render(<DebugWorkspace api={client} projectId={projectId} />);
+    render(<DebugWorkspace api={client} projectId={projectId} connectionId={connectionId} />);
     await waitFor(() => expect(client.getRunSummary).toHaveBeenCalledWith(projectId, secondRunId, expect.any(AbortSignal)));
     const secondTabButton = screen.getByRole("tab", { name: /sum \(2\)/ });
     expect(within(secondTabButton).getByLabelText("运行中")).toBeVisible();
@@ -123,7 +123,7 @@ describe("Run workspace", () => {
 
   it("uses the same single-POST path for Ctrl+Enter and recovers after a start error", async () => {
     const startRun = vi.fn().mockRejectedValueOnce(new Error("server unavailable")).mockResolvedValueOnce(summary);
-    const client = api({ startRun }); render(<DebugWorkspace api={client} projectId={projectId} />);
+    const client = api({ startRun }); render(<DebugWorkspace api={client} projectId={projectId} connectionId={connectionId} />);
     const editor = await screen.findByLabelText("a"); fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true });
     expect(await screen.findByRole("alert")).toHaveTextContent("server unavailable");
     await waitFor(() => expect(screen.getByRole("button", { name: "执行" })).toBeEnabled());
@@ -134,7 +134,7 @@ describe("Run workspace", () => {
 
   it("restores the selected history request and response in its existing Tab", async () => {
     const client = api({ listRuns: vi.fn(async () => ({ runs: [summary], nextCursor: null })) });
-    render(<DebugWorkspace api={client} projectId={projectId} />); const editor = await screen.findByLabelText("a");
+    render(<DebugWorkspace api={client} projectId={projectId} connectionId={connectionId} />); const editor = await screen.findByLabelText("a");
     fireEvent.change(editor, { target: { value: "9" } }); fireEvent.click(screen.getByRole("button", { name: "当前 Tab 历史" }));
     fireEvent.click(await screen.findByRole("button", { name: `打开运行 ${runId}` }));
     expect(await screen.findByText(/^answer/)).toBeVisible();
@@ -148,14 +148,14 @@ describe("Run workspace", () => {
     const liveSummary = { ...summary, id: liveRunId, idempotencyKey: "live" };
     const liveDetail = { ...detail(), ...liveSummary, status: "running" as const, completedAt: null, durationMs: null, response: null };
     const oldSummary = { ...summary, id: runId, idempotencyKey: "old" };
-    const startRun = vi.fn(async (_project: string, owner: string) => owner === tabId ? liveSummary : { ...summary, id: secondRunId, tabId: secondTabId, idempotencyKey: "second" });
+    const startRun = vi.fn(async (_project: string, _connection: string, owner: string) => owner === tabId ? liveSummary : { ...summary, id: secondRunId, tabId: secondTabId, idempotencyKey: "second" });
     const openRunEventStream = vi.fn((_project: string, _run: string, _after: number, signal: AbortSignal) =>
       new Promise<Response>((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true })));
     const client = api({ listTabs: vi.fn(async () => [tab, secondTab]), startRun,
       updateTab: vi.fn(async (_project, id, patch) => ({ ...([tab, secondTab].find((item) => item.id === id)!), ...patch })),
       getRun: vi.fn(async (_project, id) => id === liveRunId ? liveDetail : { ...detail(), id }), openRunEventStream,
       listRuns: vi.fn(async () => ({ runs: [oldSummary], nextCursor: null })) });
-    render(<DebugWorkspace api={client} projectId={projectId} />); await screen.findByLabelText("a");
+    render(<DebugWorkspace api={client} projectId={projectId} connectionId={connectionId} />); await screen.findByLabelText("a");
     fireEvent.click(screen.getByRole("button", { name: "执行" })); await waitFor(() => expect(startRun).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getByRole("button", { name: "执行中…" })).toBeDisabled());
     fireEvent.click(screen.getByRole("button", { name: "当前 Tab 历史" }));
@@ -165,7 +165,7 @@ describe("Run workspace", () => {
     fireEvent.click(screen.getByRole("tab", { name: "sum (2)" }));
     await waitFor(() => expect(screen.getByRole("tab", { name: "sum (2)" })).toHaveAttribute("aria-selected", "true"));
     fireEvent.click(await screen.findByRole("button", { name: "执行" }));
-    await waitFor(() => expect(startRun).toHaveBeenCalledTimes(2)); expect(startRun.mock.calls[1]?.[1]).toBe(secondTabId);
+    await waitFor(() => expect(startRun).toHaveBeenCalledTimes(2)); expect(startRun.mock.calls[1]?.[2]).toBe(secondTabId);
   });
 
   it("keeps observing an active Run while old history is inspected and clears its gate only when that active Run completes", async () => {
@@ -179,7 +179,7 @@ describe("Run workspace", () => {
       getRun: vi.fn(async (_project, id) => id === activeRunId ? (terminal ? completed : running) : detail()),
       openRunEventStream: vi.fn(async () => new Response(new ReadableStream<Uint8Array>({ start(controller) { streamController = controller; } }))),
       listRuns: vi.fn(async () => ({ runs: [summary], nextCursor: null })) });
-    render(<DebugWorkspace api={client} projectId={projectId} />);
+    render(<DebugWorkspace api={client} projectId={projectId} connectionId={connectionId} />);
     await waitFor(() => expect(screen.getByRole("button", { name: "执行中…" })).toBeDisabled());
     fireEvent.click(screen.getByRole("button", { name: "当前 Tab 历史" }));
     fireEvent.click(await screen.findByRole("button", { name: `打开运行 ${runId}` })); await screen.findByText(/^answer/);

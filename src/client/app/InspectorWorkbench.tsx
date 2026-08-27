@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import {
+  BracketsCurly,
   ClockCounterClockwise,
   HardDrives,
   Moon,
@@ -13,8 +14,9 @@ import { DebugWorkspace, type ToolOpenIntent } from "../features/tabs/DebugWorks
 import { applyInitialTheme, toggleTheme, type ThemeMode } from "./theme.js";
 import { isOAuthCompleteEvent, OAUTH_CHANNEL } from "../../shared/oauth-events.js";
 import { RunHistoryPage } from "../features/runs/RunHistoryPage.js";
+import { EnvironmentVariablesPage } from "../features/environment/EnvironmentVariablesPage.js";
 
-type WorkbenchPage = "servers" | "tools" | "history";
+type WorkbenchPage = "servers" | "tools" | "environment" | "history";
 
 interface InspectorWorkbenchProps {
   api: InspectorApiClient;
@@ -36,7 +38,15 @@ function NavIcon({ type, active }: { type: WorkbenchPage; active: boolean }) {
   } as const;
   if (type === "servers") return <HardDrives {...iconProps} />;
   if (type === "tools") return <Wrench {...iconProps} />;
+  if (type === "environment") return <BracketsCurly {...iconProps} />;
   return <ClockCounterClockwise {...iconProps} />;
+}
+
+function pageLabel(page: WorkbenchPage): string {
+  if (page === "servers") return "Servers";
+  if (page === "tools") return "Tools";
+  if (page === "environment") return "环境变量";
+  return "运行历史";
 }
 
 export function InspectorWorkbench({ api, project, version }: InspectorWorkbenchProps) {
@@ -162,7 +172,7 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
           <span className="workbench-brand__text"><strong>MCP</strong><small>Inspector</small></span>
         </div>
         <nav aria-label="工作台导航">
-          {(["servers", "tools", "history"] as const).map((item) => (
+          {(["servers", "tools", "environment", "history"] as const).map((item) => (
             <button
               key={item}
               type="button"
@@ -170,7 +180,7 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
               onClick={() => setPage(item)}
             >
               <NavIcon type={item} active={page === item} />
-              <span>{item === "servers" ? "Servers" : item === "tools" ? "Tools" : "运行历史"}</span>
+              <span>{pageLabel(item)}</span>
             </button>
           ))}
         </nav>
@@ -244,7 +254,8 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
                 connectionUpdate={oauthConnectionUpdate}
               />
             </section>
-          ) : page === "history" ? <RunHistoryPage api={api} projectId={project.id} onOpenDebug={openRunInDebug} /> : (
+          ) : page === "environment" ? <EnvironmentVariablesPage api={api} projectId={project.id} />
+            : page === "history" ? <RunHistoryPage api={api} projectId={project.id} onOpenDebug={openRunInDebug} /> : (
             <section
               id="server-tool-panel"
               className="tools-page"
@@ -291,7 +302,8 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
                       setCatalogWidth((current) => Math.min(380, Math.max(260, current + (event.key === "ArrowRight" ? 12 : -12))));
                     }}
                   ><span aria-hidden="true" /></div>
-                  <DebugWorkspace api={api} projectId={project.id} toolIntent={toolIntent} onActiveToolChange={setActiveTool} />
+                  <DebugWorkspace api={api} projectId={project.id} connectionId={servers.activeId}
+                    toolIntent={toolIntent} onActiveToolChange={setActiveTool} />
                 </div>
               )}
             </section>

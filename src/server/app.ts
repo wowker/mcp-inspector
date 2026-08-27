@@ -16,6 +16,17 @@ import { createRunService, type RunServiceWithEvents } from "./runs/run-service.
 import { createSavedItemRoutes } from "./saved-items/routes.js";
 import { createSavedItemService, type SavedItemService } from "./saved-items/saved-item-service.js";
 import { OAUTH_CHANNEL } from "../shared/oauth-events.js";
+import { createWorkflowRoutes } from "./workflows/routes.js";
+import { createWorkflowService, type WorkflowService } from "./workflows/workflow-service.js";
+import { createEnvironmentRoutes } from "./environment/routes.js";
+import { createEnvironmentService, type EnvironmentService } from "./environment/environment-service.js";
+import { createWorkflowExecutionRoutes } from "./workflows/execution-routes.js";
+import {
+  createWorkflowExecutionService,
+  type WorkflowExecutionService,
+} from "./workflows/workflow-execution-service.js";
+import { createWorkflowDebugRoutes } from "./workflows/debug-routes.js";
+import { createWorkflowDebugService, type WorkflowDebugService } from "./workflows/workflow-debug-service.js";
 
 export interface AppDependencies {
   sessionToken: string;
@@ -27,6 +38,10 @@ export interface AppDependencies {
   tabs?: TabService;
   runs?: RunServiceWithEvents;
   savedItems?: SavedItemService;
+  workflows?: WorkflowService;
+  environment?: EnvironmentService;
+  workflowExecutions?: WorkflowExecutionService;
+  workflowDebug?: WorkflowDebugService;
   staticRoot?: string;
 }
 
@@ -155,15 +170,39 @@ export function createApp(deps: AppDependencies): Hono {
   );
 
   if (deps.projects !== undefined) {
-    const connections = deps.connections ?? createConnectionService(deps.projects);
+    let environment = deps.environment;
+    const connections = deps.connections ?? createConnectionService(deps.projects, {
+      resolveEnvironment: (projectId, connectionId) => {
+        const resolved = environment?.resolve(projectId, connectionId);
+        return resolved === undefined
+          ? { project: {}, server: {} }
+          : { project: resolved.project, server: resolved.server };
+      },
+    });
     app.route("/api/projects", createProjectRoutes(deps.projects));
     app.route("/api/projects", createConnectionRoutes(connections));
     const tools = deps.tools ?? createToolService(deps.projects, connections);
     app.route("/api/projects", createToolRoutes(tools));
+    const workflows = deps.workflows ?? createWorkflowService(deps.projects, tools);
+    environment ??= createEnvironmentService(deps.projects, connections);
+    app.route("/api/projects", createWorkflowRoutes(workflows));
+    app.route("/api/projects", createEnvironmentRoutes(environment));
     const tabs = deps.tabs ?? createTabService(deps.projects, connections, { tools });
     app.route("/api/projects", createTabRoutes(tabs));
-    app.route("/api/projects", createRunRoutes(
-      deps.runs ?? createRunService(deps.projects, connections, tabs),
+    const runs = deps.runs ?? createRunService(deps.projects, connections, tabs);
+    app.route("/api/projects", createRunRoutes(runs));
+    app.route("/api/projects", createWorkflowDebugRoutes(
+      deps.workflowDebug ?? createWorkflowDebugService({ connections, tools, environment, runs }),
+    ));
+    app.route("/api/projects", createWorkflowExecutionRoutes(
+      deps.workflowExecutions ?? createWorkflowExecutionService({
+        projects: deps.projects,
+        connections,
+        tabs,
+        workflows,
+        environment,
+        runs,
+      }),
     ));
     app.route("/api/projects", createSavedItemRoutes(
       deps.savedItems ?? createSavedItemService(deps.projects),

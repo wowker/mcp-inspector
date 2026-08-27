@@ -141,6 +141,29 @@ describe("ConnectionRuntime", () => {
     expect(runtime.get(connection.id)).toBeUndefined(); expect(runtime.get(secondId)).toBeUndefined();
   });
 
+  it("keeps authentication isolated by connection ID when two Servers share one URL", async () => {
+    const oauthId = connection.id;
+    const bearerId = "00000000-0000-4000-8000-000000000402";
+    const oauth: ConnectionRecord = { ...connection, id: oauthId, name: "oauth", authMode: "oauth" };
+    const bearer: ConnectionRecord = { ...connection, id: bearerId, name: "bearerToken", authMode: "bearer",
+      bearerToken: "token-for-bearer" };
+    const resolved = new Map<string, ConnectionRecord>([[oauthId, oauth], [bearerId, bearer]]);
+    const seen: ConnectionRecord[] = [];
+    const runtime = createConnectionRuntime({
+      resolveConnection: (id) => resolved.get(id)!,
+      factory: async (record) => { seen.push(record); return new FakeMcpSession(); },
+    });
+
+    await Promise.all([runtime.connect(oauthId), runtime.connect(bearerId)]);
+
+    expect(seen).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: oauthId, url: connection.url, authMode: "oauth", bearerToken: null }),
+      expect.objectContaining({ id: bearerId, url: connection.url, authMode: "bearer", bearerToken: "token-for-bearer" }),
+    ]));
+    expect(runtime.get(oauthId)).not.toBe(runtime.get(bearerId));
+    await runtime.close();
+  });
+
   it("waits for disconnect before establishing a replacement session", async () => {
     const first = new FakeMcpSession();
     const second = new FakeMcpSession();

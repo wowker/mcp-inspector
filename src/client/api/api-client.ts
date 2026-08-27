@@ -1,6 +1,30 @@
 import { parseToolDefinition, type ToolDefinition } from "../../shared/tool-definition.js";
 import { normalizeCustomHeaders } from "../../shared/custom-headers.js";
-import { isValidBearerToken, type ConnectionAuthMode } from "../../shared/connection-auth.js";
+import { isValidBearerTokenConfiguration, type ConnectionAuthMode } from "../../shared/connection-auth.js";
+import {
+  parseToolWorkflow,
+  type ToolWorkflow,
+  type ToolWorkflowUpdate,
+  parseEnvironmentVariable,
+  type EnvironmentVariable,
+  parseWorkflowExecutionDetail,
+  workflowValidationResultSchema,
+  workflowDebugResultSchema,
+  type WorkflowDebugInput,
+  type WorkflowDebugResult,
+  type WorkflowExecutionDetail,
+  type WorkflowValidationResult,
+} from "../../shared/script-workflow.js";
+
+export type {
+  EnvironmentVariable,
+  ToolWorkflow,
+  ToolWorkflowUpdate,
+  WorkflowExecutionDetail,
+  WorkflowValidationResult,
+  WorkflowDebugInput,
+  WorkflowDebugResult,
+} from "../../shared/script-workflow.js";
 
 export interface ProjectSummary {
   id: string;
@@ -150,16 +174,30 @@ export interface InspectorApiClient {
   renameToolFolder(projectId: string, connectionId: string, folderId: string, name: string): Promise<ToolFolderSummary>;
   deleteToolFolder(projectId: string, connectionId: string, folderId: string): Promise<void>;
   moveToolToFolder(projectId: string, connectionId: string, toolName: string, folderId: string | null): Promise<CatalogToolSummary>;
-  listTabs(projectId: string): Promise<DebugTabSummary[]>;
+  getToolWorkflow(projectId: string, connectionId: string, toolName: string): Promise<ToolWorkflow>;
+  updateToolWorkflow(projectId: string, connectionId: string, toolName: string, input: ToolWorkflowUpdate): Promise<ToolWorkflow>;
+  validateToolWorkflow(projectId: string, connectionId: string, toolName: string,
+    input: { phase: "before" | "after"; source: string }): Promise<WorkflowValidationResult>;
+  debugToolWorkflow(projectId: string, connectionId: string, toolName: string,
+    input: WorkflowDebugInput, signal?: AbortSignal): Promise<WorkflowDebugResult>;
+  listEnvironmentVariables(projectId: string, connectionId: string | null): Promise<EnvironmentVariable[]>;
+  setEnvironmentVariable(projectId: string, connectionId: string | null, name: string, input: { value: unknown; secret: boolean }): Promise<EnvironmentVariable>;
+  deleteEnvironmentVariable(projectId: string, connectionId: string | null, name: string): Promise<void>;
+  listTabs(projectId: string, connectionId: string): Promise<DebugTabSummary[]>;
   openTab(projectId: string, connectionId: string, toolName: string): Promise<DebugTabSummary>;
   replaceTabTool(projectId: string, tabId: string, connectionId: string, toolName: string): Promise<DebugTabSummary>;
   updateTab(projectId: string, tabId: string, patch: UpdateDebugTabRequest): Promise<DebugTabSummary>;
   duplicateTab(projectId: string, tabId: string): Promise<DebugTabSummary>;
-  reorderTabs(projectId: string, tabIds: string[]): Promise<DebugTabSummary[]>;
+  reorderTabs(projectId: string, connectionId: string, tabIds: string[]): Promise<DebugTabSummary[]>;
   closeTab(projectId: string, tabId: string): Promise<void>;
-  closeOtherTabs(projectId: string, tabId: string): Promise<DebugTabSummary[]>;
-  closeTabsRight(projectId: string, tabId: string): Promise<DebugTabSummary[]>;
-  startRun(projectId: string, tabId: string, idempotencyKey: string, args: Record<string, unknown>): Promise<RunSummary>;
+  closeOtherTabs(projectId: string, connectionId: string, tabId: string): Promise<DebugTabSummary[]>;
+  closeTabsRight(projectId: string, connectionId: string, tabId: string): Promise<DebugTabSummary[]>;
+  startRun(projectId: string, connectionId: string, tabId: string, idempotencyKey: string, args: Record<string, unknown>): Promise<RunSummary>;
+  startWorkflowExecution(projectId: string, connectionId: string, tabId: string, idempotencyKey: string,
+    args: Record<string, unknown>, allowDestructiveHelpers?: boolean): Promise<WorkflowExecutionDetail>;
+  getActiveWorkflowExecution(projectId: string, tabId: string, signal?: AbortSignal): Promise<WorkflowExecutionDetail | null>;
+  getWorkflowExecution(projectId: string, executionId: string, signal?: AbortSignal): Promise<WorkflowExecutionDetail>;
+  cancelWorkflowExecution(projectId: string, executionId: string): Promise<void>;
   getRunSummary(projectId: string, runId: string, signal?: AbortSignal): Promise<RunSummary>;
   getRun(projectId: string, runId: string, signal?: AbortSignal): Promise<RunDetail>;
   listRuns(projectId: string, cursor?: string, filter?: RunListFilter): Promise<RunPage>;
@@ -255,7 +293,7 @@ function decodeConnection(value: unknown, projectId: string): ConnectionSummary 
     (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") ||
     parsedUrl.hostname.length === 0 || parsedUrl.username.length > 0 || parsedUrl.password.length > 0 ||
     transport !== "streamable-http" || (authMode !== "none" && authMode !== "bearer" && authMode !== "oauth") ||
-    !((authMode === "bearer" && isValidBearerToken(bearerToken)) ||
+    !((authMode === "bearer" && isValidBearerTokenConfiguration(bearerToken)) ||
       (authMode !== "bearer" && bearerToken === null)) || !isConnectionStatus(status) ||
     typeof timeoutMs !== "number" || !Number.isInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 600_000 ||
     !(lastProtocolVersion === null || typeof lastProtocolVersion === "string") ||
@@ -430,6 +468,84 @@ function decodeToolDetail(value: unknown, projectId: string, connectionId: strin
   return { tool, snapshots };
 }
 
+function decodeToolWorkflow(
+  value: unknown,
+  projectId: string,
+  connectionId: string,
+  toolName: string,
+): ToolWorkflow {
+  try {
+    if (!isObject(value) || !("workflow" in value)) throw new Error();
+    const workflow = parseToolWorkflow(value.workflow);
+    if (workflow.projectId !== projectId || workflow.connectionId !== connectionId || workflow.toolName !== toolName) {
+      throw new Error();
+    }
+    return workflow;
+  } catch {
+    throw new Error("Invalid workflow response");
+  }
+}
+
+function decodeWorkflowExecution(
+  value: unknown,
+  projectId: string,
+  expected?: { executionId?: string; tabId?: string; idempotencyKey?: string },
+): WorkflowExecutionDetail {
+  try {
+    if (!isObject(value) || !("execution" in value)) throw new Error();
+    const execution = parseWorkflowExecutionDetail(value.execution);
+    if (execution.projectId !== projectId ||
+        (expected?.executionId !== undefined && execution.id !== expected.executionId) ||
+        (expected?.tabId !== undefined && execution.tabId !== expected.tabId) ||
+        (expected?.idempotencyKey !== undefined && execution.idempotencyKey !== expected.idempotencyKey)) {
+      throw new Error();
+    }
+    if (new Set(execution.runs.map(({ runId }) => runId)).size !== execution.runs.length ||
+        execution.runs.some((run, index) => run.ordinal !== index) ||
+        execution.events.some((event, index) => event.executionId !== execution.id || event.sequence !== index + 1)) {
+      throw new Error();
+    }
+    return execution;
+  } catch {
+    throw new Error("Invalid workflow execution response");
+  }
+}
+
+function environmentBase(projectId: string, connectionId: string | null): string {
+  const project = `/api/projects/${encodeURIComponent(projectId)}`;
+  return connectionId === null
+    ? `${project}/variables`
+    : `${project}/connections/${encodeURIComponent(connectionId)}/variables`;
+}
+
+function decodeEnvironmentVariable(
+  value: unknown,
+  projectId: string,
+  connectionId: string | null,
+): EnvironmentVariable {
+  try {
+    const variable = parseEnvironmentVariable(value);
+    if (variable.projectId !== projectId || variable.connectionId !== connectionId) throw new Error();
+    return variable;
+  } catch {
+    throw new Error("Invalid environment response");
+  }
+}
+
+function decodeEnvironmentList(
+  value: unknown,
+  projectId: string,
+  connectionId: string | null,
+): EnvironmentVariable[] {
+  if (!isObject(value) || !Array.isArray(value.variables)) throw new Error("Invalid environment response");
+  const variables = value.variables.map((item) => decodeEnvironmentVariable(item, projectId, connectionId));
+  if (new Set(variables.map(({ id }) => id)).size !== variables.length ||
+      new Set(variables.map(({ name }) => name.toLocaleLowerCase())).size !== variables.length) {
+    throw new Error("Invalid environment response");
+  }
+  return variables;
+}
+
 function decodeTab(value: unknown, projectId: string): DebugTabSummary {
   if (!isObject(value)) throw new Error("Invalid Tab response");
   const { id, projectId: owner, connectionId, toolName, title, position, pinned, inputMode,
@@ -453,7 +569,8 @@ function decodeTab(value: unknown, projectId: string): DebugTabSummary {
 function decodeTabs(value: unknown, projectId: string): DebugTabSummary[] {
   if (!isObject(value) || !Array.isArray(value.tabs)) throw new Error("Invalid Tab response");
   const tabs = value.tabs.map((item) => decodeTab(item, projectId));
-  if (new Set(tabs.map(({ id }) => id)).size !== tabs.length || tabs.some((tab, index) => tab.position !== index)) {
+  if (new Set(tabs.map(({ id }) => id)).size !== tabs.length ||
+      tabs.some((tab, index) => index > 0 && tab.position <= tabs[index - 1]!.position)) {
     throw new Error("Invalid Tab response");
   }
   return tabs;
@@ -709,9 +826,77 @@ export function createApiClient(sessionToken: string): InspectorApiClient {
       if (tool.name !== toolName || tool.folderId !== folderId) throw new Error("Invalid Tool response");
       return tool;
     },
-    async listTabs(projectId) {
-      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tabs`, { headers });
-      return decodeTabs(await decodeResponse<unknown>(response), projectId);
+    async getToolWorkflow(projectId, connectionId, toolName) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/connections/${encodeURIComponent(connectionId)}/tools/${encodeURIComponent(toolName)}/workflow`,
+        { headers },
+      );
+      return decodeToolWorkflow(await decodeResponse<unknown>(response), projectId, connectionId, toolName);
+    },
+    async updateToolWorkflow(projectId, connectionId, toolName, input) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/connections/${encodeURIComponent(connectionId)}/tools/${encodeURIComponent(toolName)}/workflow`,
+        { method: "PUT", headers, body: JSON.stringify(input) },
+      );
+      const workflow = decodeToolWorkflow(
+        await decodeResponse<unknown>(response), projectId, connectionId, toolName,
+      );
+      if (workflow.revision !== input.revision + 1) throw new Error("Invalid workflow response");
+      return workflow;
+    },
+    async validateToolWorkflow(projectId, connectionId, toolName, input) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/connections/${encodeURIComponent(connectionId)}/tools/${encodeURIComponent(toolName)}/workflow/validate`,
+        { method: "POST", headers, body: JSON.stringify(input) },
+      );
+      const value = await decodeResponse<unknown>(response);
+      try {
+        if (!isObject(value) || !("validation" in value)) throw new Error();
+        return workflowValidationResultSchema.parse(value.validation);
+      } catch {
+        throw new Error("Invalid workflow validation response");
+      }
+    },
+    async debugToolWorkflow(projectId, connectionId, toolName, input, signal) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/connections/${encodeURIComponent(connectionId)}/tools/${encodeURIComponent(toolName)}/workflow/debug`,
+        { method: "POST", headers, body: JSON.stringify(input), signal },
+      );
+      const value = await decodeResponse<unknown>(response);
+      try {
+        if (!isObject(value) || !("result" in value)) throw new Error();
+        const result = workflowDebugResultSchema.parse(value.result);
+        if (result.phase !== input.phase) throw new Error();
+        return result;
+      } catch {
+        throw new Error("Invalid workflow debug response");
+      }
+    },
+    async listEnvironmentVariables(projectId, connectionId) {
+      const response = await fetch(environmentBase(projectId, connectionId), { headers });
+      return decodeEnvironmentList(await decodeResponse<unknown>(response), projectId, connectionId);
+    },
+    async setEnvironmentVariable(projectId, connectionId, name, input) {
+      const response = await fetch(`${environmentBase(projectId, connectionId)}/${encodeURIComponent(name)}`, {
+        method: "PUT", headers, body: JSON.stringify(input),
+      });
+      const value = await decodeResponse<unknown>(response);
+      if (!isObject(value) || !("variable" in value)) throw new Error("Invalid environment response");
+      const variable = decodeEnvironmentVariable(value.variable, projectId, connectionId);
+      if (variable.name !== name || variable.secret !== input.secret) throw new Error("Invalid environment response");
+      return variable;
+    },
+    async deleteEnvironmentVariable(projectId, connectionId, name) {
+      const response = await fetch(`${environmentBase(projectId, connectionId)}/${encodeURIComponent(name)}`, {
+        method: "DELETE", headers,
+      });
+      if (!response.ok) await decodeResponse<never>(response);
+    },
+    async listTabs(projectId, connectionId) {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tabs?connectionId=${encodeURIComponent(connectionId)}`, { headers });
+      const tabs = decodeTabs(await decodeResponse<unknown>(response), projectId);
+      if (tabs.some((tab) => tab.connectionId !== connectionId)) throw new Error("Invalid Tab response");
+      return tabs;
     },
     async openTab(projectId, connectionId, toolName) {
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tabs`, {
@@ -735,33 +920,74 @@ export function createApiClient(sessionToken: string): InspectorApiClient {
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tabs/${encodeURIComponent(tabId)}/duplicate`, { method: "POST", headers });
       return decodeTabEnvelope(await decodeResponse<unknown>(response), projectId);
     },
-    async reorderTabs(projectId, tabIds) {
+    async reorderTabs(projectId, connectionId, tabIds) {
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tabs/reorder`, {
-        method: "PUT", headers, body: JSON.stringify({ tabIds }),
+        method: "PUT", headers, body: JSON.stringify({ connectionId, tabIds }),
       });
-      return decodeTabs(await decodeResponse<unknown>(response), projectId);
+      const tabs = decodeTabs(await decodeResponse<unknown>(response), projectId);
+      if (tabs.some((tab) => tab.connectionId !== connectionId)) throw new Error("Invalid Tab response");
+      return tabs;
     },
     async closeTab(projectId, tabId) {
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tabs/${encodeURIComponent(tabId)}`, { method: "DELETE", headers });
       if (!response.ok) await decodeResponse<never>(response);
     },
-    async closeOtherTabs(projectId, tabId) {
+    async closeOtherTabs(projectId, connectionId, tabId) {
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tabs/${encodeURIComponent(tabId)}/close-others`, { method: "POST", headers });
-      return decodeTabs(await decodeResponse<unknown>(response), projectId);
+      const tabs = decodeTabs(await decodeResponse<unknown>(response), projectId);
+      if (tabs.some((tab) => tab.connectionId !== connectionId)) throw new Error("Invalid Tab response");
+      return tabs;
     },
-    async closeTabsRight(projectId, tabId) {
+    async closeTabsRight(projectId, connectionId, tabId) {
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tabs/${encodeURIComponent(tabId)}/close-right`, { method: "POST", headers });
-      return decodeTabs(await decodeResponse<unknown>(response), projectId);
+      const tabs = decodeTabs(await decodeResponse<unknown>(response), projectId);
+      if (tabs.some((tab) => tab.connectionId !== connectionId)) throw new Error("Invalid Tab response");
+      return tabs;
     },
-    async startRun(projectId, tabId, idempotencyKey, args) {
+    async startRun(projectId, connectionId, tabId, idempotencyKey, args) {
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/runs`, {
-        method: "POST", headers, body: JSON.stringify({ tabId, idempotencyKey, arguments: args }),
+        method: "POST", headers, body: JSON.stringify({ connectionId, tabId, idempotencyKey, arguments: args }),
       });
       const value = await decodeResponse<unknown>(response);
       if (!isObject(value) || !("run" in value)) throw new Error("Invalid Run response");
       const run = decodeRunSummary(value.run, projectId);
-      if (run.tabId !== tabId || run.idempotencyKey !== idempotencyKey) throw new Error("Invalid Run response");
+      if (run.connectionId !== connectionId || run.tabId !== tabId || run.idempotencyKey !== idempotencyKey) throw new Error("Invalid Run response");
       return run;
+    },
+    async startWorkflowExecution(projectId, connectionId, tabId, idempotencyKey, args, allowDestructiveHelpers = false) {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/workflow-executions`, {
+        method: "POST", headers, body: JSON.stringify({ connectionId, tabId, idempotencyKey, arguments: args, allowDestructiveHelpers }),
+      });
+      const execution = decodeWorkflowExecution(await decodeResponse<unknown>(response), projectId, { tabId, idempotencyKey });
+      if (execution.connectionId !== connectionId) throw new Error("Invalid workflow execution response");
+      return execution;
+    },
+    async getWorkflowExecution(projectId, executionId, signal) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/workflow-executions/${encodeURIComponent(executionId)}`,
+        { headers, signal },
+      );
+      return decodeWorkflowExecution(await decodeResponse<unknown>(response), projectId, { executionId });
+    },
+    async getActiveWorkflowExecution(projectId, tabId, signal) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/workflow-executions/active?tabId=${encodeURIComponent(tabId)}`,
+        { headers, signal },
+      );
+      const value = await decodeResponse<unknown>(response);
+      if (!isObject(value) || !("execution" in value)) throw new Error("Invalid workflow execution response");
+      if (value.execution === null) return null;
+      return decodeWorkflowExecution(value, projectId, { tabId });
+    },
+    async cancelWorkflowExecution(projectId, executionId) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/workflow-executions/${encodeURIComponent(executionId)}/cancel`,
+        { method: "POST", headers },
+      );
+      const value = await decodeResponse<unknown>(response);
+      if (!isObject(value) || value.cancelled !== true || Object.keys(value).length !== 1) {
+        throw new Error("Invalid workflow execution response");
+      }
     },
     async getRunSummary(projectId, runId, signal) {
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/runs/${encodeURIComponent(runId)}/status`, { headers, signal });

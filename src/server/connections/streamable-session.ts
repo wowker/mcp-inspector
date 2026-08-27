@@ -20,6 +20,10 @@ import type {
   WireObservation,
 } from "./connection-runtime.js";
 import { isValidBearerToken } from "../../shared/connection-auth.js";
+import {
+  resolveEnvironmentTemplate,
+  type EnvironmentTemplateValues,
+} from "../../shared/environment-template.js";
 
 type Observer = (event: WireObservation) => void;
 
@@ -52,6 +56,10 @@ export function createStreamableMcpSessionFactory(options: {
   createClient?: () => ClientLike;
   createTransport?: (url: URL, fetch: FetchLike) => TransportLike;
   oauth?: OAuthFlowCoordinator;
+  resolveEnvironment?: (
+    projectId: string,
+    connectionId: string,
+  ) => EnvironmentTemplateValues;
 } = {}): McpSessionFactory {
   const observerContext = new AsyncLocalStorage<Observer | undefined>();
   const baseFetch: FetchLike = options.fetch ?? globalThis.fetch;
@@ -61,7 +69,18 @@ export function createStreamableMcpSessionFactory(options: {
   ));
 
   return async (connection, connectionObserver) => {
-    if (connection.authMode === "bearer" && !isValidBearerToken(connection.bearerToken)) {
+    const environment = options.resolveEnvironment?.(connection.projectId, connection.id) ?? {
+      project: {},
+      server: {},
+    };
+    const headers = Object.fromEntries(Object.entries(connection.headers).map(([name, value]) => [
+      name,
+      resolveEnvironmentTemplate(value, environment),
+    ]));
+    const bearerToken = connection.authMode === "bearer"
+      ? resolveEnvironmentTemplate(connection.bearerToken ?? "", environment)
+      : null;
+    if (connection.authMode === "bearer" && !isValidBearerToken(bearerToken)) {
       throw new Error("Bearer authentication configuration is invalid");
     }
     const dispatch: Observer = (event) => {
@@ -83,8 +102,8 @@ export function createStreamableMcpSessionFactory(options: {
         authProvider,
         requestInit: {
           headers: connection.authMode === "bearer"
-            ? { ...connection.headers, Authorization: `Bearer ${connection.bearerToken}` }
-            : connection.headers,
+            ? { ...headers, Authorization: `Bearer ${bearerToken}` }
+            : headers,
         },
       }));
     const client = createClient();

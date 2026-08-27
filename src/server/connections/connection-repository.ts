@@ -1,7 +1,7 @@
 import type { ProjectStore } from "../projects/project-store.js";
 import { normalizeCustomHeaders } from "../../shared/custom-headers.js";
 import type { ConnectionError, ConnectionRecord, CreateConnectionInput } from "./connection-types.js";
-import { isValidBearerToken } from "../../shared/connection-auth.js";
+import { isValidBearerTokenConfiguration } from "../../shared/connection-auth.js";
 
 interface ConnectionRow {
   id: string;
@@ -44,7 +44,7 @@ function toRecord(row: ConnectionRow): ConnectionRecord {
     throw new Error("Connection configuration is not supported by this application version");
   }
   const headers = parseObject(row.headers_json);
-  if (row.auth_mode === "bearer" && !isValidBearerToken(row.bearer_token)) {
+  if (row.auth_mode === "bearer" && !isValidBearerTokenConfiguration(row.bearer_token)) {
     throw new Error("Connection Bearer token is invalid");
   }
   const normalizedHeaders = normalizeCustomHeaders(headers, row.auth_mode);

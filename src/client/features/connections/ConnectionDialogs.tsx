@@ -194,7 +194,7 @@ export function ConnectionFormDialog({
                     ? <EyeSlash size={17} aria-hidden="true" />
                     : <Eye size={17} aria-hidden="true" />}</button>
               </span>
-              <small>连接、刷新 Tool 和调用 Tool 时自动发送 Authorization Header。</small>
+              <small>支持直接值或 <code>{"{{VARIABLE_NAME}}"}</code>；连接时按当前 Server 解析变量并发送 Authorization Header。</small>
             </div>
           )}
         </div>
@@ -202,7 +202,7 @@ export function ConnectionFormDialog({
           <div className="connection-headers__heading">
             <div>
               <h4 id="connection-headers-title">自定义 Headers</h4>
-              <p>连接、刷新 Tool 和调用 Tool 时都会发送。敏感值仅保存在本地项目中。</p>
+              <p>连接、刷新 Tool 和调用 Tool 时都会发送。值支持直接输入或使用 <code>{"{{VARIABLE_NAME}}"}</code> 引用环境变量。</p>
             </div>
             <button type="button" className="button-secondary" onClick={onAddHeader} disabled={submitting || headers.length >= 32}>
               <Plus size={15} weight="bold" aria-hidden="true" />添加 Header

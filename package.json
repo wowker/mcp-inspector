@@ -40,9 +40,11 @@
     "better-sqlite3": "12.10.0",
     "hono": "4.13.4",
     "open": "10.2.0",
+    "quickjs-emscripten": "0.32.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-json-view-lite": "^2.5.0",
+    "sonner": "2.0.7",
     "zod": "4.3.6"
   },
   "devDependencies": {

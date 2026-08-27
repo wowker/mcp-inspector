@@ -16,11 +16,12 @@ import { createStreamableMcpSessionFactory } from "./streamable-session.js";
 import { OAuthFlowCoordinator } from "./oauth-flow.js";
 import { normalizeCustomHeaders } from "../../shared/custom-headers.js";
 import { createServerExport, type ServerExportBundle } from "./connection-export.js";
-import { isValidBearerToken, MAX_BEARER_TOKEN_LENGTH } from "../../shared/connection-auth.js";
+import { isValidBearerTokenConfiguration, MAX_BEARER_TOKEN_LENGTH } from "../../shared/connection-auth.js";
+import type { EnvironmentTemplateValues } from "../../shared/environment-template.js";
 
 const connectionIdSchema = z.string().uuid();
 const bearerTokenSchema = z.string().min(1).max(MAX_BEARER_TOKEN_LENGTH)
-  .refine(isValidBearerToken, "Bearer token contains unsupported characters");
+  .refine(isValidBearerTokenConfiguration, "Bearer token contains unsupported characters");
 const connectionConfigurationSchema = z.object({
   name: z.string().trim().min(1).max(120),
   url: z.string().trim().min(1).max(8192),
@@ -100,6 +101,7 @@ export function createConnectionService(projects: ProjectService, options: {
   sessionFactory?: McpSessionFactory;
   oauthRedirectUrl?: () => string;
   openAuthorizationUrl?: (url: string) => void | Promise<void>;
+  resolveEnvironment?: (projectId: string, connectionId: string) => EnvironmentTemplateValues;
 } = {}): ConnectionService {
   const createId = options.createId ?? randomUUID;
   const now = options.now ?? (() => new Date());
@@ -109,7 +111,10 @@ export function createConnectionService(projects: ProjectService, options: {
     }),
     openAuthorizationUrl: options.openAuthorizationUrl ?? (() => { throw new Error("OAuth browser opener is unavailable"); }),
   });
-  const sessionFactory = options.sessionFactory ?? createStreamableMcpSessionFactory({ oauth });
+  const sessionFactory = options.sessionFactory ?? createStreamableMcpSessionFactory({
+    oauth,
+    resolveEnvironment: options.resolveEnvironment,
+  });
   const runtimes = new Map<string, ConnectionRuntime>();
 
   function projectStore(projectId: string) {

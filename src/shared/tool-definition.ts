@@ -4,7 +4,7 @@ export type JsonPrimitive = null | boolean | number | string;
 export type JsonValue = JsonPrimitive | JsonValue[] | JsonObject;
 export interface JsonObject { [key: string]: JsonValue }
 
-const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
+export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
   z.null(),
   z.boolean(),
   z.number().finite(),
@@ -13,7 +13,7 @@ const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
   jsonObjectSchema,
 ]));
 
-const jsonObjectSchema: z.ZodType<JsonObject> = z.lazy(() =>
+export const jsonObjectSchema: z.ZodType<JsonObject> = z.lazy(() =>
   z.record(z.string(), jsonValueSchema));
 
 const inputSchemaObject = z.object({

@@ -11,6 +11,8 @@ interface Props {
   onChange: (patch: Partial<DebugTabSummary>) => void; onExecute?: () => void;
   onSaveRequest?: (argumentsValue: Record<string, unknown>) => void;
   executing?: boolean;
+  workflowEnabled?: boolean;
+  deferRequiredValidation?: boolean;
   expanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
   subtreeDrafts?: Readonly<Record<string, { text: string; base: string }>>;
@@ -87,7 +89,8 @@ function JsonSubtreeEditor({ id, value, describedBy, draft, objectOnly = false, 
     {!disabled && invalid && <p role="alert">{objectOnly ? "必须是 JSON 对象" : "请输入有效 JSON"}</p>}</>;
 }
 
-export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveRequest, executing = false,
+export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveRequest, executing = false, workflowEnabled = false,
+  deferRequiredValidation = false,
   expanded: controlledExpanded, onExpandedChange, subtreeDrafts = {}, onSubtreeDraftChange }: Props) {
   const [rawTouched, setRawTouched] = useState(false);
   const [localExpanded, setLocalExpanded] = useState(true);
@@ -100,7 +103,10 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveReques
   const hasEditableArguments = wholeFallback || fields.length > 0;
   const inputMode = hasEditableArguments ? tab.inputMode : "form";
   const validation = validateJsonSchema(schema, inputMode === "raw" && parsed.ok ? parsed.value : tab.arguments);
-  const canExecute = validation.issues.length === 0 && (inputMode === "form" || parsed.ok);
+  const blockingIssues = deferRequiredValidation
+    ? validation.issues.filter(({ keyword }) => keyword !== "required")
+    : validation.issues;
+  const canExecute = blockingIssues.length === 0 && (inputMode === "form" || parsed.ok);
   const rawErrorId = `raw-${tab.id}-error`;
   useEffect(() => {
     if (!hasEditableArguments && tab.inputMode === "raw") onChange({ inputMode: "form" });
@@ -125,7 +131,7 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveReques
     else args[name] = value;
     onChange({ arguments: args, rawText: formatRawArguments(args) });
   }
-  function issuesAt(path: string): SchemaIssue[] { return validation.issues.filter((item) => item.path === path); }
+  function issuesAt(path: string): SchemaIssue[] { return blockingIssues.filter((item) => item.path === path); }
   function execute(): void {
     if (!executing && canExecute && (inputMode === "form" || commitRaw())) onExecute?.();
   }
@@ -159,7 +165,9 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveReques
           </div>
         </div>
         <button type="button" className="editor-execute" disabled={!canExecute || executing} onClick={execute}>
-          <Play size={14} weight="fill" aria-hidden="true" />{executing ? "执行中…" : "执行"}
+          <Play size={14} weight="fill" aria-hidden="true" />{executing
+            ? workflowEnabled ? "流水线执行中…" : "执行中…"
+            : workflowEnabled ? "执行流水线" : "执行"}
         </button>
       </div>
       <div className="editor-actions">{onSaveRequest !== undefined && <button type="button" className="run-result-action" disabled={inputMode === "raw" && !parsed.ok}
@@ -169,20 +177,21 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveReques
     </div>
     {expanded && <div id={`parameter-content-${tab.id}`} className="parameter-content">
     {validation.warning !== null && <p role="status" className="editor-warning">{validation.warning}</p>}
+    {deferRequiredValidation && <p role="status" className="editor-warning">前置脚本已启用，必填参数将在脚本执行后校验。</p>}
     {inputMode === "form" && !parsed.ok && hasEditableArguments && <p role="status" className="editor-warning">
       Raw JSON 草稿暂时无效。Form 正在使用上一次有效参数，返回 Raw JSON 后可继续修改草稿。
     </p>}
     {inputMode === "raw" ? <div id={`panel-raw-${tab.id}`} role="tabpanel" aria-labelledby={`mode-raw-${tab.id}`} className="raw-arguments-panel">
       <div className="raw-arguments-heading"><label htmlFor={`raw-${tab.id}`}>完整 arguments JSON</label><span>JSON Object</span></div>
       <textarea id={`raw-${tab.id}`} value={rawText} onChange={(event) => rawChanged(event.target.value)}
-        onBlur={() => commitRaw()} aria-invalid={!parsed.ok || validation.issues.length > 0}
-        aria-describedby={!parsed.ok || validation.issues.length > 0 ? rawErrorId : undefined} />
+        onBlur={() => commitRaw()} aria-invalid={!parsed.ok || blockingIssues.length > 0}
+        aria-describedby={!parsed.ok || blockingIssues.length > 0 ? rawErrorId : undefined} />
       {!parsed.ok && (rawTouched || inputMode === "raw") && <p id={rawErrorId} role="alert">
         {rawErrorMessage(parsed.message)}{parsed.offset === null ? "" : `（位置 ${parsed.offset}）`}
       </p>}
-      {parsed.ok && validation.issues.length > 0 && <div id={rawErrorId} className="validation-summary" role="alert"><strong>参数尚未满足 Tool Schema</strong>
+      {parsed.ok && blockingIssues.length > 0 && <div id={rawErrorId} className="validation-summary" role="alert"><strong>参数尚未满足 Tool Schema</strong>
         <p>可以继续在 Form 或 Raw JSON 中修改，满足全部约束后即可执行。</p>
-        <ul>{validation.issues.map((item) => <li key={`${item.path}:${item.keyword}`}><code>{item.path || "/"}</code><span>{issueMessage(item)}</span></li>)}</ul>
+        <ul>{blockingIssues.map((item) => <li key={`${item.path}:${item.keyword}`}><code>{item.path || "/"}</code><span>{issueMessage(item)}</span></li>)}</ul>
       </div>}
     </div> : <div id={`panel-form-${tab.id}`} role="tabpanel" aria-labelledby={`mode-form-${tab.id}`} className="schema-fields">
       {wholeFallback && <div className="schema-field schema-field--json schema-field--whole">
