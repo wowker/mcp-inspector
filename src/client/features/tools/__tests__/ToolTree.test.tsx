@@ -110,7 +110,7 @@ describe("ToolTree", () => {
     expect(onMoveTool).toHaveBeenCalledWith(expect.objectContaining({ name: "sum" }), folder.id);
   });
 
-  it("shows folders expanded by default and toggles their Tool groups from the folder heading", async () => {
+  it("shows folders collapsed by default and toggles their Tool groups from the folder heading", async () => {
     const user = userEvent.setup();
     const folder: ToolFolderSummary = {
       id: "00000000-0000-4000-8000-000000000545", projectId, connectionId: first.id,
@@ -121,14 +121,14 @@ describe("ToolTree", () => {
       onRefresh={vi.fn()} onSelectTool={vi.fn()} onOpenTool={vi.fn()} />);
 
     const heading = screen.getByRole("treeitem", { name: "Products 文件夹，1 个 Tool" });
-    expect(heading).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("treeitem", { name: "products/list" })).toBeVisible();
-    await user.click(heading);
     expect(heading).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("treeitem", { name: "products/list" })).not.toBeInTheDocument();
     await user.click(heading);
     expect(heading).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("treeitem", { name: "products/list" })).toBeVisible();
+    await user.click(heading);
+    expect(heading).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("treeitem", { name: "products/list" })).not.toBeInTheDocument();
   });
 
   it("renames and deletes a folder from its menu while keeping the collapse action independent", async () => {

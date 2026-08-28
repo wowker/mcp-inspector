@@ -92,7 +92,10 @@ export function ToolTree({
   const [pendingDelete, setPendingDelete] = useState<CatalogToolSummary | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [collapsedFolderIds, setCollapsedFolderIds] = useState<ReadonlySet<string>>(new Set());
+  const [collapsedFolderIds, setCollapsedFolderIds] = useState<ReadonlySet<string>>(
+    () => new Set(folders.map(({ id }) => id)),
+  );
+  const seenFolderIds = useRef(new Set(folders.map(({ id }) => id)));
   const [folderMenuId, setFolderMenuId] = useState<string | null>(null);
   const [renamingFolder, setRenamingFolder] = useState<ToolFolderSummary | null>(null);
   const [renameName, setRenameName] = useState("");
@@ -107,6 +110,14 @@ export function ToolTree({
     .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base", numeric: true }) ||
       left.id.localeCompare(right.id)), [connection, folders]);
   const knownFolderIds = useMemo(() => new Set(activeFolders.map(({ id }) => id)), [activeFolders]);
+  useEffect(() => {
+    const newFolderIds = activeFolders
+      .map(({ id }) => id)
+      .filter((id) => !seenFolderIds.current.has(id));
+    if (newFolderIds.length === 0) return;
+    newFolderIds.forEach((id) => seenFolderIds.current.add(id));
+    setCollapsedFolderIds((current) => new Set([...current, ...newFolderIds]));
+  }, [activeFolders]);
   const filteredTools = useMemo(() => {
     if (normalizedQuery.length === 0) return tools;
     return tools.map((tool, index) => ({ tool, index, rank: searchRank(query, tool) }))
