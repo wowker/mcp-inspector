@@ -23,8 +23,12 @@ export function BooleanSwitch({ id, labelId, describedBy, invalid, disabled, che
     <input id={id} className="schema-switch__input" type="checkbox" checked={checked}
       disabled={disabled} aria-labelledby={labelId} aria-describedby={describedBy} aria-invalid={invalid}
       onChange={(event) => onChange(event.target.checked)} />
-    <span className="schema-switch__track" aria-hidden="true"><span className="schema-switch__thumb" /></span>
-    <span className="schema-switch__state" aria-hidden="true">{checked ? t("parameter.booleanOn") : t("parameter.booleanOff")}</span>
+    <span className="schema-switch__track" data-state={checked ? "checked" : "unchecked"} aria-hidden="true">
+      <span className="schema-switch__thumb" />
+    </span>
+    <span className="schema-switch__state" data-state={checked ? "checked" : "unchecked"} aria-hidden="true">
+      {checked ? t("parameter.booleanOn") : t("parameter.booleanOff")}
+    </span>
   </label>;
 }
 
@@ -50,7 +54,7 @@ function RadioEnum({ id, labelId, describedBy, invalid, disabled, value, options
     aria-describedby={describedBy} aria-invalid={invalid}>
     {options.map((option, index) => <label className="schema-radio-option" key={`${optionLabel(option)}-${index}`}>
       <input type="radio" name={id} checked={Object.is(option, value)} disabled={disabled} onChange={() => onSelect(index)} />
-      <span className="schema-radio-indicator" aria-hidden="true" />
+      <span className="schema-radio-indicator" data-state={Object.is(option, value) ? "checked" : "unchecked"} aria-hidden="true" />
       <span>{optionLabel(option)}</span>
     </label>)}
   </div>;

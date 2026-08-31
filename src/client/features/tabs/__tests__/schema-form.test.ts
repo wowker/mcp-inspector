@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fieldsFromSchema, requiresWholeArgumentsFallback, valueFromInput } from "../schema-form.js";
+import { arrayObjectItemSchema, fieldsFromSchema, requiresWholeArgumentsFallback, valueFromInput } from "../schema-form.js";
 
 describe("schema form", () => {
   it("describes primitive fields, defaults, constraints and additional arguments", () => {
@@ -55,5 +55,13 @@ describe("schema form", () => {
         then: { required: ["undeclared_platform_id"] },
       }],
     })).toBe(true);
+  });
+
+  it("recognizes only arrays with one object item schema for structured entry editing", () => {
+    const item = { type: "object", properties: { id: { type: "string" } } };
+    expect(arrayObjectItemSchema({ type: "array", items: item })).toBe(item);
+    expect(arrayObjectItemSchema({ type: "array", items: { type: "string" } })).toBeNull();
+    expect(arrayObjectItemSchema({ type: "array", items: [item] })).toBeNull();
+    expect(arrayObjectItemSchema({ type: "object", properties: {} })).toBeNull();
   });
 });

@@ -18,6 +18,10 @@ export const enUSTools = {
     formatJson: "Format {{name}} JSON", copyJson: "Copy {{name}} JSON", enlargeJson: "Enlarge {{name}} JSON editor",
     format: "Format", copy: "Copy", enlarge: "Enlarge", jsonParameter: "JSON parameter", editJson: "Edit {{name}} JSON",
     closeJson: "Close enlarged JSON editor", enlargedJsonEditor: "Enlarged {{name}} JSON editor",
+    fieldModes: "{{name}} editor mode", addArrayItem: "Add item", arrayRawLabel: "{{name}} array JSON",
+    arrayObjectRequired: "Enter a JSON array containing objects", arrayEmpty: "No items yet.",
+    arrayItem: "{{name}} item {{index}}", arrayItemTitle: "Item {{index}}", arrayItemFields: "{{count}} fields",
+    moveArrayItemUp: "Move item {{index}} up", moveArrayItemDown: "Move item {{index}} down", deleteArrayItem: "Delete item {{index}}",
     booleanOn: "On", booleanOff: "Off", selectRequired: "Select a required value", select: "Select",
   },
   validation: {

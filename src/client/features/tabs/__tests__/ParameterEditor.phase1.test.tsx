@@ -125,7 +125,8 @@ describe("ParameterEditor phase one", () => {
   it("formats, copies and opens a complex JSON parameter without changing Skip behavior", async () => {
     const clipboard = vi.fn(async () => undefined);
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: clipboard } });
-    const schema = { type: "object", properties: { items: { type: "array", items: { type: "object" } } } };
+    // Arrays without a declared object item schema continue to use the phase-one JSON editor.
+    const schema = { type: "object", properties: { items: { type: "array", items: {} } } };
     function LinkedEditor() {
       const [current, setCurrent] = useState(tab("00000000-0000-4000-8000-000000001007", {
         items: [{ id: 1 }, { id: 2 }],

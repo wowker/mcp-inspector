@@ -9,6 +9,11 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+export function arrayObjectItemSchema(schema: Record<string, unknown>): Record<string, unknown> | null {
+  if (schema.type !== "array" || !isObject(schema.items) || schema.items.type !== "object") return null;
+  return schema.items;
+}
+
 function unsupported(schema: Record<string, unknown>): boolean {
   return ["$ref", "allOf", "anyOf", "oneOf", "if", "then", "else"].some((key) => key in schema) ||
     (schema.type === "array" && Array.isArray(schema.items));

@@ -510,12 +510,17 @@ describe("DebugWorkspace", () => {
 
     const taxable = screen.getByRole("checkbox", { name: "taxable" });
     expect(taxable.closest(".schema-switch")).not.toBeNull();
+    expect(taxable.nextElementSibling).toHaveAttribute("data-state", "unchecked");
     fireEvent.click(taxable);
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ arguments: expect.objectContaining({ taxable: true }) }));
 
     const modes = screen.getByRole("radiogroup", { name: /mode/ });
     expect(modes).toHaveClass("schema-radio-group");
-    expect(screen.getByRole("radio", { name: "both" })).toBeChecked();
+    const selectedMode = screen.getByRole("radio", { name: "both" });
+    const unselectedMode = screen.getByRole("radio", { name: "overview_only" });
+    expect(selectedMode).toBeChecked();
+    expect(selectedMode.nextElementSibling).toHaveAttribute("data-state", "checked");
+    expect(unselectedMode.nextElementSibling).toHaveAttribute("data-state", "unchecked");
     fireEvent.click(screen.getByRole("radio", { name: "overview_only" }));
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ arguments: expect.objectContaining({ mode: "overview_only" }) }));
 

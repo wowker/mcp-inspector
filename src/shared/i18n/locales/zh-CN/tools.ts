@@ -18,6 +18,10 @@ export const zhCNTools = {
     formatJson: "格式化 {{name}} JSON", copyJson: "复制 {{name}} JSON", enlargeJson: "放大编辑 {{name}} JSON",
     format: "格式化", copy: "复制", enlarge: "放大编辑", jsonParameter: "JSON 参数", editJson: "编辑 {{name}} JSON",
     closeJson: "关闭 JSON 放大编辑器", enlargedJsonEditor: "{{name}} JSON 放大编辑器",
+    fieldModes: "{{name}} 编辑模式", addArrayItem: "添加一项", arrayRawLabel: "{{name}} 数组 JSON",
+    arrayObjectRequired: "必须是由对象组成的 JSON 数组", arrayEmpty: "当前没有条目。",
+    arrayItem: "{{name}} 第 {{index}} 项", arrayItemTitle: "第 {{index}} 项", arrayItemFields: "{{count}} 个字段",
+    moveArrayItemUp: "上移第 {{index}} 项", moveArrayItemDown: "下移第 {{index}} 项", deleteArrayItem: "删除第 {{index}} 项",
     booleanOn: "已开启", booleanOff: "已关闭", selectRequired: "请选择必填参数", select: "请选择",
   },
   validation: {

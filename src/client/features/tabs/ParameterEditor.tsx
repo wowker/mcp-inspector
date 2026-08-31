@@ -7,8 +7,9 @@ import "../../i18n/index.js";
 import type { DebugTabSummary } from "../../api/api-client.js";
 import { formatRawArguments, parseRawArguments } from "../../../shared/json.js";
 import { validateJsonSchema, type SchemaIssue } from "../../../shared/json-schema.js";
-import { fieldsFromSchema, requiresWholeArgumentsFallback, valueFromInput, type SchemaField } from "./schema-form.js";
+import { arrayObjectItemSchema, fieldsFromSchema, requiresWholeArgumentsFallback, valueFromInput, type SchemaField } from "./schema-form.js";
 import { BooleanSwitch, EnumControl } from "./ParameterControls.js";
+import { ArrayObjectEditor } from "./ArrayObjectEditor.js";
 import {
   fieldMatchesFilter,
   parameterStatus,
@@ -53,6 +54,8 @@ function initialOptionalValue(field: SchemaField): unknown {
   if (field.defaultValue !== undefined) return field.defaultValue;
   if (field.kind === "string") return "";
   if (field.kind === "boolean") return false;
+  if (field.schema.type === "array") return [];
+  if (field.schema.type === "object") return {};
   return null;
 }
 
@@ -335,6 +338,9 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveReques
               options={field.enumValues ?? []} required={field.required} invalid={errors.length > 0}
               disabled={!included} describedBy={describedBy} onSelect={(index) => edit(field.name, field.enumValues?.[index])}
               onClear={() => edit(field.name, undefined)} />
+          : field.kind === "json" && arrayObjectItemSchema(field.schema) !== null && Array.isArray(field.value)
+            ? <ArrayObjectEditor id={inputId} fieldName={field.name} itemSchema={arrayObjectItemSchema(field.schema)!}
+              value={field.value} disabled={!included} onChange={(value) => edit(field.name, value)} />
           : field.kind === "json" ? <JsonSubtreeEditor id={inputId} fieldName={field.name} value={field.value} describedBy={describedBy}
               required={field.required} disabled={!included} draft={subtreeDrafts[field.path]} onDraftChange={(text, base) => onSubtreeDraftChange?.(field.path, text, base)}
               onCommit={(value) => edit(field.name, value)} />
