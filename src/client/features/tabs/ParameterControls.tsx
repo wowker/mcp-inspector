@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CaretDown, Check } from "@phosphor-icons/react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
+import "../../i18n/index.js";
 
 interface CommonControlProps {
   id: string;
@@ -16,12 +18,13 @@ interface BooleanSwitchProps extends CommonControlProps {
 }
 
 export function BooleanSwitch({ id, labelId, describedBy, invalid, disabled, checked, onChange }: BooleanSwitchProps) {
+  const { t } = useTranslation("tools");
   return <label className="schema-switch">
     <input id={id} className="schema-switch__input" type="checkbox" checked={checked}
       disabled={disabled} aria-labelledby={labelId} aria-describedby={describedBy} aria-invalid={invalid}
       onChange={(event) => onChange(event.target.checked)} />
     <span className="schema-switch__track" aria-hidden="true"><span className="schema-switch__thumb" /></span>
-    <span className="schema-switch__state" aria-hidden="true">{checked ? "已开启" : "已关闭"}</span>
+    <span className="schema-switch__state" aria-hidden="true">{checked ? t("parameter.booleanOn") : t("parameter.booleanOff")}</span>
   </label>;
 }
 
@@ -56,6 +59,7 @@ function RadioEnum({ id, labelId, describedBy, invalid, disabled, value, options
 interface PopupPosition { top: number; left: number; width: number; maxHeight: number }
 
 function DropdownEnum(props: EnumControlProps) {
+  const { t } = useTranslation("tools");
   const { id, labelId, describedBy, invalid, disabled, required, value, options, onSelect, onClear } = props;
   const [open, setOpen] = useState(false);
   const selectedIndex = options.findIndex((option) => Object.is(option, value));
@@ -137,7 +141,7 @@ function DropdownEnum(props: EnumControlProps) {
         } else if (event.key === "Escape" && open) { event.preventDefault(); close(); }
       }}>
       <span id={valueId} className={`schema-enum-select__value${selectedLabel === null ? " is-placeholder" : ""}`}>
-        {selectedLabel ?? (required ? "请选择必填参数" : "请选择")}
+        {selectedLabel ?? (required ? t("parameter.selectRequired") : t("parameter.select"))}
       </span>
       <CaretDown size={16} weight="bold" aria-hidden="true" />
     </button>
@@ -155,7 +159,7 @@ function DropdownEnum(props: EnumControlProps) {
         data-enum-index="-1" tabIndex={activeIndex === -1 ? 0 : -1}
         className="schema-enum-select__option schema-enum-select__option--clear" onFocus={() => setActiveIndex(-1)}
         onClick={() => { onClear(); close(true); }}>
-        <span>请选择</span>{selectedIndex < 0 && <Check size={15} weight="bold" aria-hidden="true" />}
+        <span>{t("parameter.select")}</span>{selectedIndex < 0 && <Check size={15} weight="bold" aria-hidden="true" />}
       </button>}
       {options.map((option, index) => <button type="button" role="option" aria-selected={index === selectedIndex}
         data-enum-index={index} tabIndex={index === activeIndex ? 0 : -1}

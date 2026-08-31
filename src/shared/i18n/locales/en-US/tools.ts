@@ -1,0 +1,28 @@
+export const enUSTools = {
+  parameter: {
+    collapse: "Collapse parameters", expand: "Expand parameters", modes: "Parameter input mode", noArguments: "This Tool has no parameters",
+    execute: "Run", executing: "Running…", executeWorkflow: "Run workflow", executingWorkflow: "Running workflow…",
+    saveRequest: "Save request", copyArguments: "Copy parameters", required: "required", additional: " (additional)",
+    requiredPlaceholder: "Enter a required parameter", skipTitle: "Omit this field from request arguments", skipAria: "Skip parameter {{name}}", skipText: "Skip",
+    defaultValue: "Default: {{value}}", wholeArguments: "Complete arguments (complex Schema)", wholeJson: "Complete arguments JSON",
+    jsonObject: "JSON Object", jsonIncomplete: "JSON is incomplete", jsonSyntax: "Invalid JSON. Check brackets, quotes, and commas.",
+    jsonPosition: " (position {{offset}})", jsonObjectRequired: "A JSON object is required", validJsonRequired: "Enter valid JSON",
+    rawInvalidTitle: "Parameters do not satisfy the Tool Schema", rawInvalidHint: "Continue editing in Form or Raw JSON. Run becomes available after every constraint passes.",
+    rawDraftWarning: "The Raw JSON draft is invalid. Form is using the last valid parameters; return to Raw JSON to continue editing.",
+    deferredWarning: "A pre-script is enabled. Required parameters will be validated after the script runs.",
+    emptyTitle: "This Tool has no parameters", emptyHint: "It can be run directly.",
+    statusLabel: "Parameter status", requiredStatus: "Required {{completed}}/{{total}}", errorStatus: "Errors {{count}}",
+    focusError: "Focus the first of {{count}} errors", filterLabel: "Filter parameters",
+    filterAll: "All", filterRequired: "Required", filterFilled: "Filled", filterErrors: "Errors",
+    expandDescription: "Expand {{name}} description", collapseDescription: "Collapse {{name}} description", expandText: "More", collapseText: "Less",
+    formatJson: "Format {{name}} JSON", copyJson: "Copy {{name}} JSON", enlargeJson: "Enlarge {{name}} JSON editor",
+    format: "Format", copy: "Copy", enlarge: "Enlarge", jsonParameter: "JSON parameter", editJson: "Edit {{name}} JSON",
+    closeJson: "Close enlarged JSON editor", enlargedJsonEditor: "Enlarged {{name}} JSON editor",
+    booleanOn: "On", booleanOff: "Off", selectRequired: "Select a required value", select: "Select",
+  },
+  validation: {
+    required: "Enter a required parameter", type: "Parameter type does not match the Tool Schema", enum: "Select a value allowed by the Tool Schema",
+    format: "Parameter format does not match the Tool Schema", pattern: "Parameter does not match the required pattern", range: "Parameter is outside the allowed range",
+    length: "Parameter length is outside the allowed range", generic: "Parameter does not satisfy the {{keyword}} constraint",
+  },
+} as const;

@@ -5,8 +5,8 @@
 | 项目 | 内容 |
 |---|---|
 | 状态 | Active |
-| 版本 | 1.0 |
-| 生效日期 | 2026-08-28 |
+| 版本 | 1.1 |
+| 生效日期 | 2026-08-31 |
 | 适用对象 | 人工开发者、代码审查者和自动化开发 Agent |
 | 适用范围 | `src/client/**` 以及所有用户可见的服务端 HTML |
 | 版本规划 | [MCP Inspector 2.0.0 升级规划](./UPGRADE-2.0.0.md) |
@@ -46,6 +46,7 @@ MCP Inspector 是高密度、低干扰、可追溯的桌面调试工作台。设
 - Primer semantic tokens/primitives
 - Sonner Toast
 - `react-json-view-lite`，仅用于受控 JSON 展示
+- `i18next` + `react-i18next`，用于客户端国际化适配
 - Vitest、Testing Library、Playwright
 
 ### 3.2 新依赖准入
@@ -322,7 +323,7 @@ Badge 使用短文案。详细错误进入结果区或诊断详情，不把错�
 - 成功 Toast 默认 2 秒。
 - 失败 Toast 提供摘要；可操作详情留在当前页面。
 - 同一事件只显示一次反馈，不同时使用顶部文本、Toast 和结果区重复报错。
-- 用户文案使用中文，协议名、稳定 error code 和原始字段名可以保留英文。
+- 用户文案必须通过国际化资源输出；协议名、稳定 error code 和原始字段名保持原值。
 - 不直接显示 `Failed to fetch`、`Workflow execution failed` 等无上下文底层文本。
 
 ### 6.13 Empty、Loading 和 Error State
@@ -432,16 +433,134 @@ Loading 超过 300ms 才显示可见 loading，避免闪烁。长任务必须显
 ## 9. 文案规范
 
 - 页面名称可以使用稳定产品词：Servers、Tools、HTTP、RPC、OAuth。
-- 操作和说明优先中文。
+- 所有用户可见的操作、说明、状态和错误必须同时提供 `zh-CN` 与 `en-US` 文案。
 - 同一对象使用同一名称：Server、Tool、Tab、Run、测试用例、环境变量。
 - 不混用“链接”和“连接”；网络会话统一使用“连接”。
 - 不使用“当前”作为无意义标签。仅在需要与历史或其他对象区分时使用。
 - 错误文案回答三件事：发生了什么、可能原因、下一步操作。
 - 避免“未知错误”“操作失败”作为唯一信息。
 
-## 10. 可访问性
+## 10. 国际化（i18n）
 
-### 10.1 必须项
+### 10.1 支持范围与技术方案
+
+- 首批必须完整支持简体中文 `zh-CN` 和美式英文 `en-US`。
+- 客户端使用 `i18next` + `react-i18next`；不得在 Feature 内自建第二套翻译函数或 Context。
+- 翻译资源必须是无 React 依赖的纯 TypeScript 数据，使 Client、OAuth 回调页和其他用户可见服务端 HTML 可以复用。
+- 国际化入口统一放在 `src/client/i18n`；共享 locale 类型、解析器和资源契约放在 `src/shared/i18n`。
+- 新增语言不得要求修改 Feature 组件，只能增加资源、注册 locale，并补齐验证。
+
+建议目录：
+
+```text
+src/shared/i18n/
+├── locale.ts                 # SupportedLocale、解析与回退
+├── resources.ts              # 资源类型和共享 catalog
+└── locales/
+    ├── zh-CN/
+    │   ├── common.ts
+    │   ├── servers.ts
+    │   ├── tools.ts
+    │   ├── runs.ts
+    │   └── errors.ts
+    └── en-US/
+        ├── common.ts
+        ├── servers.ts
+        ├── tools.ts
+        ├── runs.ts
+        └── errors.ts
+src/client/i18n/
+├── index.ts                  # i18next 初始化
+├── I18nProvider.tsx
+└── LanguageSwitcher.tsx
+```
+
+### 10.2 Locale 解析、切换与持久化
+
+支持的 locale 必须经过白名单解析，不接受任意 locale 字符串：
+
+1. 用户显式选择的 locale。
+2. 浏览器 `navigator.languages` 中第一个受支持的 locale。
+3. 默认回退 `zh-CN`。
+
+规则：
+
+- `zh`、`zh-CN`、`zh-SG` 归一化为 `zh-CN`；`en` 和其他 `en-*` 归一化为 `en-US`。
+- 用户选择可以存入 `localStorage`，键名固定为 `mcp-inspector.locale`；该键只能保存受支持的 locale，不得保存任何身份或敏感数据。
+- 为让 OAuth 回调等服务端 HTML 使用相同语言，切换时同步写入非敏感的 `mcp_inspector_locale` Cookie；Server 按 Cookie、`Accept-Language`、`zh-CN` 的顺序解析。
+- Locale Cookie 必须使用 `Path=/`、`SameSite=Lax`；不得包含 session token、connection ID 或 OAuth 数据。
+- 切换语言即时生效，不刷新页面，不清空或重建 project、connection、Tool Tab、参数草稿、脚本、Run 和滚动位置。
+- 根 `<html>` 的 `lang` 必须同步为当前 locale。
+- 语言切换入口使用“简体中文 / English”自称，不使用旗帜图标；放在全局设置或侧边栏底部，与主题切换同级。
+
+### 10.3 翻译 Key 与资源组织
+
+- Key 必须表达稳定语义，不使用中文或英文原文作为 key，例如 `tools.actions.execute`，不得使用 `执行` 或 `executeButtonText`。
+- Namespace 按领域划分：`common`、`servers`、`tools`、`runs`、`errors`；不得为单个组件创建碎片化 namespace。
+- `zh-CN` 与 `en-US` 必须拥有完全相同的 key 集合；缺失、空字符串或多余 key 均视为测试失败。
+- 资源使用类型约束，使不存在的 namespace/key 在 TypeScript 或资源一致性测试中失败。
+- Feature 组件只调用 `t()` 或使用已翻译的展示 props；领域 Service、Repository 和数据库不得存储翻译后的文案。
+- 共用动作优先复用 `common.actions.save`、`common.actions.copy` 等 key，不在每个页面重复定义。
+- 不复用“意思相近但语境不同”的 key；同一中文在不同语境需要不同英文时必须拆分。
+
+示例：
+
+```ts
+// 正确：完整句子由译者控制语序和插值位置
+t("tools.validation.requiredRemaining", { count: 2 });
+
+// 错误：拼接片段使英文语序和复数不可控
+t("tools.validation.remainingPrefix") + count + t("tools.validation.remainingSuffix");
+```
+
+### 10.4 文案、插值、复数与格式化
+
+- 禁止通过字符串拼接组成用户可见句子；动态内容使用命名插值。
+- 数量文案使用库的复数规则并显式传入 `count`，不得用 `count === 1` 在组件中选择英文单复数。
+- 日期、时间、数字和持续时间通过 `Intl.DateTimeFormat`、`Intl.NumberFormat` 或统一 formatter 按当前 locale 格式化。
+- 持久化和 API 继续使用 ISO 时间、原始数值和稳定枚举；只在展示边界本地化。
+- Tool 名称、参数名、JSON key、Header、URL、Run ID、哈希、HTTP/RPC 字段、脚本代码和 MCP 原始内容不得翻译。
+- Tool/Server 提供的 `title`、`description`、错误 `data` 默认视为外部原文；可以在旁边提供产品解释，但不得篡改原始值。
+- Server 返回稳定 error code，Client 将 code 映射为本地化文案；未知错误显示本地化摘要，并在诊断区保留已脱敏的原始信息。
+- 不把原始底层英文异常直接用作 Toast、页面标题或唯一错误说明。
+- 翻译值按纯文本处理。需要 React 节点插值时使用受控 `Trans`，不得因此引入任意 HTML 或 `dangerouslySetInnerHTML`。
+
+### 10.5 布局与可访问性
+
+- 组件必须允许英文文案比中文长约 30–50%，不得用固定宽度裁掉操作含义。
+- Button、Tab、StatusBadge 和表头优先保持单行；空间不足时使用合理省略、Tooltip 或响应式收缩，不缩小到低于字体规范。
+- Dialog、Toast、Empty State 和错误区必须在两种语言下验证换行与操作可见性。
+- `aria-label`、`aria-description`、`aria-live`、Tooltip 和视觉隐藏文本同样必须国际化。
+- 快捷键、协议名和代码片段不翻译；围绕它们的说明必须翻译。
+- 切换语言后，焦点保留在触发控件或等价位置，屏幕阅读器通过简短 `aria-live` 通知语言已切换。
+
+### 10.6 开发与迁移规则
+
+- 新增或修改用户可见 UI 时，不得在 JSX/TS/CSS generated content 中新增硬编码中文或英文文案。
+- 例外仅限外部原始数据、协议常量、代码示例、测试 fixture 和不可翻译标识；例外必须从变量输入，不伪装成 UI 文案。
+- 迁移旧页面采用“按完整用户流程迁移”，不得出现同一页面一半中文、一半英文的中间状态。
+- PR 同时提交两种语言资源；不得先合并一种语言再补另一种。
+- 开发环境缺失 key 必须显式告警；生产环境使用 `zh-CN` 回退，不向用户显示裸 key。
+- Locale 是全局展示偏好，不写入 Project 导出、Server 导出、Run、请求快照或数据库业务记录。
+- 引入国际化依赖时必须遵循 3.2 的依赖准入要求，并记录包体变化。
+
+### 10.7 国际化测试门槛
+
+每次涉及用户文案的变更至少覆盖：
+
+- `zh-CN` 与 `en-US` key 集合严格一致，且无空翻译。
+- locale 解析、归一化、持久化和非法值回退。
+- 语言切换后不丢失当前 Server、Tool Tab、参数草稿和 Run 状态。
+- 插值、零/单数/复数、日期、数字和持续时间格式化。
+- 未知 error code 的本地化回退及原始诊断保留。
+- 两种语言下关键 Dialog、Toast、Tabs、参数区和结果区没有操作被裁剪。
+- OAuth 成功、失败和返回页遵循 Cookie/`Accept-Language` 解析结果。
+
+核心 E2E 至少以 `zh-CN` 完整运行一次，并以 `en-US` 覆盖 Server 连接、Tool 打开与执行、结果查看的 smoke journey。测试不得依赖文案作为唯一定位器；优先使用 role、可访问名称和稳定测试身份。
+
+## 11. 可访问性
+
+### 11.1 必须项
 
 - 所有表单都有可访问 label。
 - 所有图标按钮都有 `aria-label`。
@@ -452,7 +571,7 @@ Loading 超过 300ms 才显示可见 loading，避免闪烁。长任务必须显
 - focus-visible 清晰且不能被 overflow 裁剪。
 - 不使用正 tabindex。
 
-### 10.2 键盘基线
+### 11.2 键盘基线
 
 | 功能 | 键盘行为 |
 |---|---|
@@ -463,7 +582,7 @@ Loading 超过 300ms 才显示可见 loading，避免闪烁。长任务必须显
 | Split Pane | Arrow 调整 |
 | Tool 选择 | Enter 打开，双击或显式操作新建 Tab |
 
-## 11. React 与 TypeScript 规范
+## 12. React 与 TypeScript 规范
 
 - 禁止 `any`，使用 `unknown` 加运行时解码。
 - API client 对成功和失败响应都做边界处理。
@@ -482,7 +601,7 @@ Loading 超过 300ms 才显示可见 loading，避免闪烁。长任务必须显
 - 单个 feature 文件同时处理 API、领域状态和大量 JSX 时必须拆出 hook 或子组件。
 - 阈值不是机械门槛；拆分必须形成清晰边界，不能只移动代码。
 
-## 12. CSS 规范
+## 13. CSS 规范
 
 - 全局 token 和 reset 之外，feature CSS 不得使用裸元素选择器影响其他模块。
 - 类名使用稳定 feature 前缀，避免 `.header`、`.content` 等泛化名称。
@@ -494,7 +613,7 @@ Loading 超过 300ms 才显示可见 loading，避免闪烁。长任务必须显
 - 布局容器必须显式考虑 `min-width: 0`、`min-height: 0` 和 overflow owner。
 - sticky 元素必须有不透明背景和足够 z-index，内容不得从上方漏出。
 
-## 13. 安全与隐私
+## 14. 安全与隐私
 
 - 所有 Tool description、JSON、Header、日志和错误作为文本渲染。
 - 禁止 `dangerouslySetInnerHTML`，除非经过独立安全审查和严格 sanitizer。
@@ -504,9 +623,9 @@ Loading 超过 300ms 才显示可见 loading，避免闪烁。长任务必须显
 - 关闭脱敏必须是 Server 级显式配置，并在 UI 提示风险。
 - 导出功能必须区分变量引用和变量值。
 
-## 14. 测试规范
+## 15. 测试规范
 
-### 14.1 组件测试
+### 15.1 组件测试
 
 每个交互组件至少覆盖：
 
@@ -516,7 +635,7 @@ Loading 超过 300ms 才显示可见 loading，避免闪烁。长任务必须显
 - unmount cleanup（timer、listener、request）。
 - 浅色/深色中依赖 token，不测试具体色值除非是 token 本身。
 
-### 14.2 Feature 测试
+### 15.2 Feature 测试
 
 - 项目、Server、Tab、Run 身份隔离。
 - stale async response 不写入新上下文。
@@ -526,7 +645,7 @@ Loading 超过 300ms 才显示可见 loading，避免闪烁。长任务必须显
 - secret 和 redaction 行为。
 - 空、加载、成功、失败、取消和超大数据。
 
-### 14.3 E2E
+### 15.3 E2E
 
 关键用户旅程必须使用生产 build：
 
@@ -542,7 +661,7 @@ Loading 超过 300ms 才显示可见 loading，避免闪烁。长任务必须显
 
 E2E fixture 必须使用明确 barrier，不用长时间 sleep 证明并发顺序。
 
-### 14.4 合并门槛
+### 15.4 合并门槛
 
 前端变更至少通过：
 
@@ -558,7 +677,7 @@ npm run build
 npm run verify
 ```
 
-## 15. 新功能交付格式
+## 16. 新功能交付格式
 
 任何非简单修复的新功能必须包含：
 
@@ -573,11 +692,13 @@ npm run verify
 9. 自动化测试。
 10. 发布与回滚条件。
 
-## 16. Review Checklist
+## 17. Review Checklist
 
 ### UI
 
 - [ ] 使用现有 token、icon 和 primitive
+- [ ] 所有用户文案同时提供 `zh-CN` 与 `en-US`，没有硬编码 UI 文本
+- [ ] 中英文切换后布局、焦点和当前工作状态保持正确
 - [ ] 没有新增一次性颜色、阴影、圆角或间距
 - [ ] 浅色和深色均可读
 - [ ] loading、empty、error、disabled 已定义
@@ -602,11 +723,12 @@ npm run verify
 ### Verification
 
 - [ ] 新行为有先失败后通过的回归测试
+- [ ] 国际化 key 一致性、locale 回退和英文 smoke journey 通过
 - [ ] typecheck、focused tests、full tests 通过
 - [ ] 核心旅程变更通过生产 build E2E
 - [ ] 没有 open handle 和未清理 timer/listener
 
-## 17. 例外流程
+## 18. 例外流程
 
 如果需求必须偏离本规范：
 

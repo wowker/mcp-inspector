@@ -1,0 +1,28 @@
+export const zhCNTools = {
+  parameter: {
+    collapse: "收起参数", expand: "展开参数", modes: "参数输入模式", noArguments: "此 Tool 无需参数",
+    execute: "执行", executing: "执行中…", executeWorkflow: "执行流水线", executingWorkflow: "流水线执行中…",
+    saveRequest: "保存请求", copyArguments: "复制参数", required: "必填", additional: "（附加参数）",
+    requiredPlaceholder: "请输入必填参数", skipTitle: "跳过后，请求参数中不会包含此字段", skipAria: "跳过参数 {{name}}", skipText: "跳过",
+    defaultValue: "默认值：{{value}}", wholeArguments: "完整 arguments（复杂 Schema）", wholeJson: "完整 arguments JSON",
+    jsonObject: "JSON Object", jsonIncomplete: "JSON 尚未填写完整", jsonSyntax: "JSON 语法错误，请检查括号、引号和逗号",
+    jsonPosition: "（位置 {{offset}}）", jsonObjectRequired: "必须是 JSON 对象", validJsonRequired: "请输入有效 JSON",
+    rawInvalidTitle: "参数尚未满足 Tool Schema", rawInvalidHint: "可以继续在 Form 或 Raw JSON 中修改，满足全部约束后即可执行。",
+    rawDraftWarning: "Raw JSON 草稿暂时无效。Form 正在使用上一次有效参数，返回 Raw JSON 后可继续修改草稿。",
+    deferredWarning: "前置脚本已启用，必填参数将在脚本执行后校验。",
+    emptyTitle: "此 Tool 无需参数", emptyHint: "可以直接执行。",
+    statusLabel: "参数状态", requiredStatus: "必填 {{completed}}/{{total}}", errorStatus: "错误 {{count}}",
+    focusError: "定位到第一个错误，共 {{count}} 个", filterLabel: "筛选参数",
+    filterAll: "全部", filterRequired: "必填", filterFilled: "已填写", filterErrors: "有错误",
+    expandDescription: "展开 {{name}} 的说明", collapseDescription: "收起 {{name}} 的说明", expandText: "展开", collapseText: "收起",
+    formatJson: "格式化 {{name}} JSON", copyJson: "复制 {{name}} JSON", enlargeJson: "放大编辑 {{name}} JSON",
+    format: "格式化", copy: "复制", enlarge: "放大编辑", jsonParameter: "JSON 参数", editJson: "编辑 {{name}} JSON",
+    closeJson: "关闭 JSON 放大编辑器", enlargedJsonEditor: "{{name}} JSON 放大编辑器",
+    booleanOn: "已开启", booleanOff: "已关闭", selectRequired: "请选择必填参数", select: "请选择",
+  },
+  validation: {
+    required: "请输入必填参数", type: "参数类型不符合 Tool Schema", enum: "请选择 Tool Schema 允许的值",
+    format: "参数格式不符合 Tool Schema", pattern: "参数内容不符合格式约束", range: "参数数值超出允许范围",
+    length: "参数长度不符合约束", generic: "参数不符合 {{keyword}} 约束",
+  },
+} as const;

@@ -7,6 +7,7 @@ import { App } from "./app/App.js";
 import { AppToaster } from "./app/AppToaster.js";
 import { applyInitialTheme } from "./app/theme.js";
 import { JsonDocumentPage } from "./features/runs/JsonDocumentPage.js";
+import "./i18n/index.js";
 
 applyInitialTheme();
 

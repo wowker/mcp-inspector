@@ -377,7 +377,7 @@ describe("DebugWorkspace", () => {
     expect(input).toHaveAttribute("placeholder", "请输入必填参数");
     expect(input).toBeRequired();
     expect(input).toHaveAttribute("aria-invalid", "true");
-    expect(screen.queryByRole("checkbox", { name: "Skip parameter task_id" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "跳过参数 task_id" })).not.toBeInTheDocument();
     expect(screen.queryByRole("alert", { name: "请输入必填参数" })).not.toBeInTheDocument();
     expect(screen.queryByText("请输入必填参数")).not.toBeInTheDocument();
   });
@@ -387,10 +387,10 @@ describe("DebugWorkspace", () => {
     render(<ParameterEditor tab={tab("00000000-0000-4000-8000-000000000677", "search", {})}
       schema={{ type: "object", properties: { query: { type: "string", pattern: "^item-" } } }} onChange={onChange} />);
 
-    const skip = screen.getByRole("checkbox", { name: "Skip parameter query" });
+    const skip = screen.getByRole("checkbox", { name: "跳过参数 query" });
     expect(skip).toBeChecked();
-    expect(skip.closest("label")).toHaveAttribute("title", "Skip this field in request arguments");
-    expect(screen.getByText("Skip")).toBeVisible();
+    expect(skip.closest("label")).toHaveAttribute("title", "跳过后，请求参数中不会包含此字段");
+    expect(screen.getByText("跳过")).toBeVisible();
     expect(screen.getByRole("textbox", { name: "query" })).toBeDisabled();
     expect(screen.queryByText("参数内容不符合格式约束")).not.toBeInTheDocument();
     expect(onChange).not.toHaveBeenCalled();
@@ -408,9 +408,9 @@ describe("DebugWorkspace", () => {
     }
     render(<LinkedEditor />);
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Skip parameter query" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "跳过参数 query" }));
 
-    expect(screen.getByRole("checkbox", { name: "Skip parameter query" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "跳过参数 query" })).not.toBeChecked();
     expect(screen.getByRole("textbox", { name: "query" })).toBeEnabled();
     expect(screen.getByLabelText("当前 arguments")).toHaveTextContent('{"query":""}');
     expect(screen.getByRole("alert")).toHaveTextContent("参数内容不符合格式约束");
@@ -447,12 +447,12 @@ describe("DebugWorkspace", () => {
     }
     render(<LinkedEditor />);
 
-    expect(screen.getByRole("checkbox", { name: "Skip parameter query" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "跳过参数 query" })).not.toBeChecked();
     expect(screen.getByRole("textbox", { name: "query" })).toHaveValue("item-42");
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Skip parameter query" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "跳过参数 query" }));
 
-    expect(screen.getByRole("checkbox", { name: "Skip parameter query" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "跳过参数 query" })).toBeChecked();
     expect(screen.getByRole("textbox", { name: "query" })).toBeDisabled();
     expect(screen.getByLabelText("当前 arguments")).toHaveTextContent("{}");
     expect(screen.getByLabelText("当前 Raw JSON")).toHaveTextContent("{}");
@@ -472,7 +472,7 @@ describe("DebugWorkspace", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Raw JSON" }));
     expect(screen.getByLabelText("完整 arguments JSON")).toHaveValue('{\n  "query": "item-42"\n}');
     fireEvent.click(screen.getByRole("tab", { name: "Form" }));
-    expect(screen.getByRole("checkbox", { name: "Skip parameter query" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "跳过参数 query" })).not.toBeChecked();
     expect(screen.getByRole("textbox", { name: "query" })).toHaveValue("item-42");
   });
 
@@ -492,7 +492,7 @@ describe("DebugWorkspace", () => {
     fireEvent.blur(payload);
     expect(screen.getByRole("alert")).toHaveTextContent("请输入有效 JSON");
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Skip parameter payload" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "跳过参数 payload" }));
 
     expect(payload).toBeDisabled();
     expect(screen.queryByText("请输入有效 JSON")).not.toBeInTheDocument();

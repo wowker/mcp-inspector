@@ -39,10 +39,12 @@
     "ajv-formats": "3.0.1",
     "better-sqlite3": "12.10.0",
     "hono": "4.13.4",
+    "i18next": "^26.4.0",
     "open": "10.2.0",
     "quickjs-emscripten": "0.32.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
+    "react-i18next": "^17.0.12",
     "react-json-view-lite": "^2.5.0",
     "sonner": "2.0.7",
     "zod": "4.3.6"

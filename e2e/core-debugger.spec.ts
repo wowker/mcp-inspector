@@ -95,6 +95,9 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     await page.locator(".tool-row").filter({ has: echoTool }).dragTo(emptyFolder.locator("xpath=.."));
     const commerceFolder = page.getByRole("treeitem", { name: "Commerce 文件夹，1 个 Tool" });
     await expect(commerceFolder).toBeVisible();
+    await expect(commerceFolder).toHaveAttribute("aria-expanded", "false");
+    await commerceFolder.click();
+    await expect(commerceFolder).toHaveAttribute("aria-expanded", "true");
     await expect(page.locator(".tool-folder-group").filter({ has: commerceFolder }).getByRole("treeitem", { name: "echo" })).toBeVisible();
 
     const titles = ["sum", ...Array.from({ length: 7 }, (_, index) => `sum (${index + 2})`)];
@@ -267,6 +270,9 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     await expect(page.getByRole("tabpanel", { name: "Loopback MCP" })).toBeVisible();
     const restoredFolder = page.getByRole("treeitem", { name: "Commerce 文件夹，1 个 Tool" });
     await expect(restoredFolder).toBeVisible();
+    await expect(restoredFolder).toHaveAttribute("aria-expanded", "false");
+    await restoredFolder.click();
+    await expect(restoredFolder).toHaveAttribute("aria-expanded", "true");
     await expect(page.locator(".tool-folder-group").filter({ has: restoredFolder }).getByRole("treeitem", { name: "echo" })).toBeVisible();
     await expect(tabList.getByRole("tab")).toHaveCount(8);
     await expect(page.getByRole("tab", { name: titles[5], exact: true })).toHaveAttribute("aria-selected", "true");
