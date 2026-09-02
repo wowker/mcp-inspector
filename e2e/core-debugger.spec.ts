@@ -188,11 +188,12 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
         });
         await resultPane.evaluate((element) => { element.scrollTop = 80; });
         expect(await resultPane.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
-        const paneBox = await resultPane.boundingBox();
-        const stickyBox = await detail.locator(".run-result__sticky-header").boundingBox();
-        expect(paneBox).not.toBeNull();
-        expect(stickyBox).not.toBeNull();
-        expect(Math.abs(stickyBox!.y - paneBox!.y)).toBeLessThanOrEqual(1);
+        await expect.poll(async () => {
+          const paneBox = await resultPane.boundingBox();
+          const stickyBox = await detail.locator(".run-result__sticky-header").boundingBox();
+          if (paneBox === null || stickyBox === null) return Number.POSITIVE_INFINITY;
+          return Math.abs(stickyBox.y - paneBox.y);
+        }).toBeLessThanOrEqual(1);
         const split = page.locator(".request-result-split");
         const before = await split.getAttribute("style");
         const handle = await page.locator(".split-control").boundingBox();
