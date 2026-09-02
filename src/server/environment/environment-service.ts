@@ -33,6 +33,12 @@ export interface EnvironmentService {
     server: Record<string, JsonValue>;
     secretNames: string[];
   };
+  resolveDetailed(projectId: string, connectionId: string): {
+    project: Record<string, JsonValue>;
+    server: Record<string, JsonValue>;
+    projectSecretNames: string[];
+    serverSecretNames: string[];
+  };
   commit(projectId: string, connectionId: string, mutations: StagedEnvironmentMutation[]): void;
 }
 
@@ -82,6 +88,14 @@ export function createEnvironmentService(
     return { id: createId(), connectionId, name: variableName(name), ...variableInput(input) };
   }
 
+  function resolvedVariables(projectId: string, connectionId: string) {
+    const repo = repository(projectId, connectionId);
+    return {
+      projectVariables: repo.list(projectId, null),
+      serverVariables: repo.list(projectId, connectionId),
+    };
+  }
+
   return {
     list(projectId, connectionId) {
       return repository(projectId, connectionId).list(projectId, connectionId)
@@ -104,14 +118,24 @@ export function createEnvironmentService(
     },
 
     resolve(projectId, connectionId) {
-      const repo = repository(projectId, connectionId);
-      const projectVariables = repo.list(projectId, null);
-      const serverVariables = repo.list(projectId, connectionId);
+      const { projectVariables, serverVariables } = resolvedVariables(projectId, connectionId);
       return {
         project: Object.fromEntries(projectVariables.map((item) => [item.name, item.storedValue])),
         server: Object.fromEntries(serverVariables.map((item) => [item.name, item.storedValue])),
         secretNames: [...projectVariables, ...serverVariables]
           .filter(({ secret }) => secret).map(({ name }) => name).sort(),
+      };
+    },
+
+    resolveDetailed(projectId, connectionId) {
+      const { projectVariables, serverVariables } = resolvedVariables(projectId, connectionId);
+      return {
+        project: Object.fromEntries(projectVariables.map((item) => [item.name, item.storedValue])),
+        server: Object.fromEntries(serverVariables.map((item) => [item.name, item.storedValue])),
+        projectSecretNames: projectVariables.filter(({ secret }) => secret)
+          .map(({ name }) => name).sort(),
+        serverSecretNames: serverVariables.filter(({ secret }) => secret)
+          .map(({ name }) => name).sort(),
       };
     },
 

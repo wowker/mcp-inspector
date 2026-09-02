@@ -1,377 +1,245 @@
-# Implementation Plan: MCP Run History and Replay
+# Implementation Plan: Run History, Safe Replay, and Comparison
 
-## Overview
+## Document status
 
-Extend the shipped Core debugger with a deep history and replay slice: searchable and pinnable Run history, non-mutating replay preflight, explicit Schema/risk confirmation, replay through the existing isolated Run engine, and structured source-versus-replay comparison with safe project-level JSONPath ignore rules. The slice deliberately excludes saved test cases, import/export, OAuth, legacy SSE, retention jobs, and automatic retries.
+| Item | Value |
+|---|---|
+| Status | Complete; independent review approved, awaiting explicit release authorization |
+| Date | 2026-09-01 |
+| Current schema | migrations 001–015 |
+| Required new migrations | 014 and 015 |
+| Final gate | Vitest 826/826, production Playwright 7/7, independent review approved |
 
-This plan is grounded in the exercised seams now present in `RunRepository`/`RunService`, immutable Tool snapshots, `RunHistory`, `RunResultPanel`, `DebugWorkspace`, authenticated client decoders, and the production Playwright fixture.
+## 1. Goal
 
-## Architecture Decisions
+Add searchable and pinnable Run history, explicit safe replay, and bounded structural comparison without duplicating the automated-testing 1.5.0 domain or bypassing the existing Run/Workflow invocation paths.
 
-- Persist replay provenance on the new Run (`replayedFromRunId`) and keep the source Run immutable. Replay creates a normal Run with its own request, response, events, idempotency key, and terminal state.
-- Replay targets the source Run's connection and Tool name but resolves the current Tool snapshot at execution time. A missing/removed Tool or deleted connection blocks replay; preflight never connects or invokes the server.
-- Replay does not require the original debug Tab. It runs independently and opens as an in-memory read-only result Tab; an unchanged compatible origin Tab may be referenced for navigation but its draft is never overwritten.
-- Preflight returns source/current snapshot hashes, a deterministic Schema diff, Tool annotations, and two independent confirmation requirements: Schema drift and side-effect risk. Execution includes a preflight digest so catalog changes between confirmation and POST fail with a new preflight instead of racing silently.
-- Unknown side effects are treated as confirmation-required. MCP annotations are displayed as hints, not trusted guarantees. Replay never automatically retries and never silently adds, deletes, or coerces arguments.
-- History filtering is server-side. Every opaque cursor binds project ID plus the canonical filter set so a cursor cannot be reused with different filters or across projects.
-- Comparisons are computed on demand from immutable Run responses. Persist only replay lineage, pin state, and project ignore rules; do not duplicate result payloads.
-- JSONPath support is a documented, non-executable subset: root `$`, property segments (`.name` and bracket-quoted keys), numeric indexes, and `[*]`. Reject recursive descent, filters, scripts, unions, slices, prototype keys, excessive depth, and oversized rules.
-- A truncated or unavailable response is never treated as a complete comparable value. The comparison reports a non-comparable side with hash/size metadata.
+The existing “打开调试” action restores a historical request and response into a new Tool Tab. It is not replay: it does not call MCP. This plan keeps that behavior and introduces a separately named, explicitly confirmed “回放” action.
 
-## Existing Seams to Reuse
+## 2. Rebaseline decisions
 
-- `src/server/runs/run-repository.ts`: canonical Run ordering, project-bound cursor, immutable request/response/events, atomic terminal writes.
-- `src/server/runs/run-service.ts`: validation, idempotency, current Tool lookup, shared connection runtime, per-Run isolation, cancellation, and trace recording.
-- `src/server/tools/tool-repository.ts`: current Tool and historical snapshot lookup by connection/name/hash.
-- `src/client/features/runs/RunHistory.tsx`: project/Tab history surface and read-only Run opening.
-- `src/client/features/runs/RunResultPanel.tsx`: safe result/request/protocol rendering and copy behavior.
-- `src/client/features/tabs/DebugWorkspace.tsx`: active-versus-inspected Run separation and in-memory read-only result Tabs.
-- `e2e/core-debugger.spec.ts`: production-build fixture, deterministic concurrent-call barrier, reload and history assertions.
+The previous plan is superseded by this document for these reasons:
 
-## Task List
+1. Migration 006 is `saved_tool_items`; migration 007 is connection Headers. Replay lineage and pin state now use migration 014.
+2. Migrations 012–013 implement automated testing and historical suite-member identity. Comparison rules now use migration 015.
+3. Saved test cases, assertions, baseline updates, execution reports, and test-definition import/export are already delivered by automated testing 1.5.0 and are removed from replay scope.
+4. UI work must use the internal Foundation, shared `zh-CN/en-US` resources, Phosphor icons, and the existing single-scroll-owner rules.
+5. Replay must use connection ID and the existing Run/Workflow invocation seam. URL/domain matching and hidden debug Tabs remain prohibited.
 
-### Phase 1: Durable History Foundations
+## 3. Scope
 
-## Task 1: Persist replay lineage and Run pin state
+### Included
 
-**Description:** Add the minimum append-only schema and repository contract needed to identify replay descendants and protect user-selected history without changing existing Run execution.
+- Project Run-history filters, pinning, lineage, and stable pagination.
+- Read-only replay preflight with current Tool snapshot and risk/drift confirmation.
+- One explicit replay execution through the existing Run engine.
+- Source-versus-replay structural comparison and project ignore rules.
+- Production E2E, bilingual UI, migrations, packaging, and security review.
 
-**Acceptance criteria:**
-- [ ] Migration 006 adds nullable self-referencing `replayed_from_run_id` (`ON DELETE SET NULL`), a constrained `pinned` flag, and indexes needed for lineage/history lookup; existing databases migrate without rewriting Runs.
-- [ ] Run summary/detail decoding exposes lineage and pin state, rejects corrupt rows, and preserves foreign-key/project ownership rules.
-- [ ] Creating replay lineage atomically pins the source Run so future retention cannot orphan normal lineage; repository tests cover pin toggles, source deletion fallback, migration 1→6, duplicate migration, and source/dist byte equality.
+### Excluded
 
-**Verification:**
-- [ ] Tests pass: `npx vitest run src/server/runs src/server/projects`
-- [ ] Build succeeds: `npm run typecheck && npm run build`
-- [ ] Manual check: inspect an upgraded SQLite database and confirm existing Runs remain readable with `pinned = 0` and null lineage.
+- Creating test cases or updating test baselines from replay; existing automated-testing actions remain the only path.
+- Automated retries, schedules, retention jobs, headless CI, arbitrary workflow graphs, or replaying against another Server.
+- Import/export of Run history or comparison data.
+- Executable JSONPath, remote schema references, JavaScript expressions, or client-supplied response data.
 
-**Dependencies:** None
+## 4. Architecture contracts
 
-**Files likely touched:**
-- `src/server/projects/migrations/006_history_replay.sql`
-- `src/server/runs/run-types.ts`
-- `src/server/runs/run-repository.ts`
-- `src/server/runs/__tests__/run-service.test.ts`
-- `src/server/projects/__tests__/project-service.test.ts`
+### Identity
 
-**Estimated scope:** Medium
+- Every operation is fenced by `projectId` and stable Run IDs.
+- Replay always targets the source Run's exact `connectionId` and Tool name; it never resolves a connection by URL or name.
+- A replay Run receives its own ID, idempotency key, immutable Tool snapshot, request, response, events, and terminal state.
+- Source Runs remain immutable. Lineage is additive and can only point to a Run in the same project.
 
-## Task 2: Add filtered history and pin APIs
+### Safety
 
-**Description:** Extend Run history as one end-to-end server/client slice with stable filters and explicit pin mutation.
+- Preflight performs no connection, Tool call, Tab mutation, environment mutation, or Run insertion.
+- Unknown or destructive side effects require explicit confirmation. MCP annotations are hints, not trusted guarantees.
+- Schema drift and side-effect risk are separate confirmations.
+- Execution requires a digest over the source identity, exact canonical arguments, current Tool snapshot, annotations, and confirmation requirements. Catalog changes invalidate the digest before any call.
+- Replay does not coerce, add, delete, or “repair” arguments and never retries automatically.
 
-**Acceptance criteria:**
-- [ ] History filters support status, connection, exact Tool name, replay/original lineage, pinned state, and canonical UTC time bounds; ordering remains `createdAt DESC, id DESC`.
-- [ ] The opaque cursor cryptographically or canonically binds the full normalized filter set, project, and optional Tab; malformed/mismatched cursors receive the stable cursor error.
-- [ ] Authenticated API/client contracts defensively validate every returned Run and pin response, including project/Tab/filter identity and duplicate IDs.
+### Comparison
 
-**Verification:**
-- [ ] Tests pass: `npx vitest run src/server/runs src/client/api`
-- [ ] Build succeeds: `npm run typecheck`
-- [ ] Manual check: paginate two interleaved Tools with a status filter and confirm no skipped/duplicated Run after pinning.
+- Comparison reads stored project-owned Run results; the browser cannot submit result bodies to compare.
+- Truncated, missing, active, corrupt, or non-JSON responses are explicitly non-comparable.
+- JSONPath ignores use only `$`, property segments, bracket-quoted keys, numeric indexes, and `[*]`.
+- Recursive descent, filters, scripts, unions, slices, prototype keys, excessive depth/count, and ambiguous syntax are rejected.
+- Diff output is deterministic and bounded by node count and serialized byte size.
 
-**Dependencies:** Task 1
+## 5. Data model
 
-**Files likely touched:**
-- `src/server/runs/run-types.ts`
-- `src/server/runs/run-repository.ts`
-- `src/server/runs/run-service.ts`
-- `src/server/runs/routes.ts`
-- `src/client/api/api-client.ts`
+### Migration 014 — replay lineage and pin state
 
-**Estimated scope:** Medium
+- Add a constrained `pinned` flag to `runs`, default false.
+- Add nullable `replayed_from_run_id` with self-reference semantics and same-project enforcement.
+- Add indexes for project/pinned/history and source-to-descendant lookup.
+- Preserve every existing Run payload; new columns default safely.
+- Never rewrite migration 005 or any released migration.
 
-## Task 3: Turn Run History into a searchable explorer
+Implementation must prove SQLite behavior for connection cascade, source deletion, and lineage cleanup before selecting `SET NULL` versus explicit lineage cleanup. The chosen behavior must not make an existing Server undeletable as an accidental side effect.
 
-**Description:** Add accessible filter, lineage, and pin controls to the existing project and per-Tab history without changing read-only inspection semantics.
+### Migration 015 — comparison ignore rules
 
-**Acceptance criteria:**
-- [ ] Project history exposes filters with an explicit Apply/Reset model, stable pagination, loading/error recovery, and shareable copy of a Run ID; current-Tab history keeps its Tab fence.
-- [ ] Rows show original/replay lineage and pin state; opening or pinning a Run never executes a Tool or replaces an editable Tab draft.
-- [ ] Project/Tab/filter changes abort or fence stale pages and mutations; keyboard and screen-reader semantics are covered.
+- Store ordered project-scoped rules with stable IDs and timestamps.
+- Enforce project ownership and bounded unique normalized expressions.
+- Rules contain paths only, never response values or secrets.
+- Deleting a project cascades rules; deleting Runs does not mutate rules.
 
-**Verification:**
-- [ ] Tests pass: `npx vitest run src/client/features/runs src/client/features/tabs`
-- [ ] Build succeeds: `npm run typecheck && npm run build`
-- [ ] Manual check: filter, paginate, pin, open, and unpin a Run while another Tab is executing.
+## 6. Delivery tasks
 
-**Dependencies:** Task 2
+### Task 1: Lock shared contracts and migration 014
 
-**Files likely touched:**
-- `src/client/features/runs/RunHistory.tsx`
-- `src/client/features/runs/__tests__/RunHistory.test.tsx`
-- `src/client/features/tabs/DebugWorkspace.tsx`
-- `src/client/app/app.css`
+Deliver exhaustive runtime schemas for history filters, lineage, pin mutation, replay preflight, replay request, and stable errors. Add migration 014 with 001–013 byte-preservation and upgrade tests.
 
-**Estimated scope:** Medium
+Acceptance:
 
-### Checkpoint: History foundation
+- [x] Run summary/detail expose `pinned` and nullable replay source without weakening existing decoders.
+- [x] Same-project lineage is enforced in service and SQLite.
+- [x] Existing 1.0.x/1.5 data opens without data loss; migration is repeat-safe through the project migration runner.
+- [x] Source/dist migration bytes match after build.
 
-- [ ] Tasks 1–3 pass focused tests, full Vitest, typecheck, and build.
-- [ ] Existing Core Playwright vertical slice remains green.
-- [ ] Independent review finds no Critical or Required history/cursor/ownership issues.
+Verification: shared schema tests, migration upgrade/foreign-key tests, `npm run typecheck && npm run build`.
 
-### Phase 2: Safe Replay
+### Task 2: Deliver filtered history and pinning
 
-## Task 4: Build deterministic replay preflight
+Extend repository, API, client, and history page as one vertical slice.
 
-**Description:** Add a read-only preflight that compares the source snapshot with the current Tool and decides what the user must confirm before replay.
+Acceptance:
 
-**Acceptance criteria:**
-- [ ] Preflight returns immutable source arguments, source/current snapshot identity, deterministic Schema changes, current Tool annotations, blocking reasons, confirmation requirements, and a digest bound to all execution-relevant fields.
-- [ ] Missing project/source/connection/current Tool and removed Tool cases use stable errors; preflight performs no network I/O, Tab mutation, or Run creation.
-- [ ] Schema comparison handles boolean/object schemas and future valid JSON Schema fields without executing or resolving remote references.
+- [x] Filters cover status, connection ID, exact Tool name, original/replay, pinned state, and canonical UTC bounds.
+- [x] Cursor binds project, optional Tab, normalized filters, sort key, and limit; mismatches return a stable cursor error.
+- [x] Pin/unpin is explicit, project-fenced, idempotent, and never opens or executes a Tool.
+- [x] Project and current-Tab history keep separate fences; project/filter changes discard stale pages and mutations.
+- [x] UI supports Apply/Reset, pagination, keyboard operation, bilingual copy, and Foundation primitives.
 
-**Verification:**
-- [ ] Tests pass: `npx vitest run src/server/replay src/server/tools`
-- [ ] Build succeeds: `npm run typecheck`
-- [ ] Manual check: refresh a Tool to a changed Schema and inspect a preflight showing both hashes and confirmation reasons.
+Verification: Run repository/routes/API/UI tests and full existing Run-history regression.
 
-**Dependencies:** Task 1
+### Task 3: Deliver deterministic replay preflight
 
-**Files likely touched:**
-- `src/server/replay/replay-types.ts`
-- `src/server/replay/schema-diff.ts`
-- `src/server/replay/replay-service.ts`
-- `src/server/replay/routes.ts`
-- `src/server/replay/__tests__/replay-service.test.ts`
+Build a read-only service and endpoint over a source Run and the current Tool catalog.
 
-**Estimated scope:** Medium
+Acceptance:
 
-## Task 5: Execute replay through the existing Run engine
+- [x] Returns immutable source arguments, source/current snapshot IDs and hashes, deterministic schema changes, annotations, blockers, confirmations, and digest.
+- [x] Missing source/current Tool/connection and removed Tool use stable errors.
+- [x] Performs zero MCP calls and creates zero Runs/Tabs on every success and failure path.
+- [x] Boolean/object schemas and unknown valid JSON Schema fields are handled without remote-reference resolution.
 
-**Description:** Reuse the proven Run state machine for a confirmed replay while preserving exact arguments and recording lineage.
+Verification: pure schema-diff tests, service tests with no-call spies, adversarial payload tests.
 
-**Acceptance criteria:**
-- [ ] Replay POST requires a fresh idempotency key, the current preflight digest, and explicit required confirmations; stale digest or missing confirmation performs no Tool call.
-- [ ] The new Run uses byte-equivalent canonical source arguments, the current Tool snapshot, nullable/compatible Tab association, and `replayedFromRunId`; the source Run is unchanged.
-- [ ] Duplicate activation creates at most one Run, cancellation/timeout/`isError`/trace failures retain existing semantics, and replay never retries automatically.
+### Task 4: Execute replay through the existing Run engine
 
-**Verification:**
-- [ ] Tests pass: `npx vitest run src/server/replay src/server/runs src/server/connections`
-- [ ] Build succeeds: `npm run typecheck && npm run build`
-- [ ] Manual check: replay an orphaned source Run and inspect the descendant's exact request, new snapshot ID, and lineage.
+Add a replay start seam that reuses normal Run persistence, connection runtime, cancellation, trace, redaction, and terminal handling.
 
-**Dependencies:** Task 4
+Acceptance:
 
-**Files likely touched:**
-- `src/server/runs/run-repository.ts`
-- `src/server/runs/run-service.ts`
-- `src/server/replay/replay-service.ts`
-- `src/server/replay/routes.ts`
-- `src/server/replay/__tests__/replay-service.test.ts`
+- [x] Requires fresh idempotency key, current preflight digest, and every required confirmation.
+- [x] Stale digest or missing confirmation creates no Run and makes no network call.
+- [x] Uses exact canonical source arguments, source connection ID, current Tool snapshot, and nullable Tab association.
+- [x] Persists lineage atomically and pins the source only according to the reviewed pin contract.
+- [x] Duplicate activation creates at most one replay Run; cancellation and late completion preserve existing terminal CAS semantics.
 
-**Estimated scope:** Medium
+Verification: replay/Run/connection integration tests, same-URL different-connection authentication fixture.
 
-## Task 6: Add the replay confirmation workflow
+### Task 5: Deliver the replay confirmation UI
 
-**Description:** Let a tester initiate replay from any historical Run, understand drift/risk, explicitly confirm when necessary, and follow the new Run without disturbing existing drafts.
+Add replay to historical Run actions without changing the current “打开调试” restore flow.
 
-**Acceptance criteria:**
-- [ ] Replay is available for succeeded and failed historical Runs; preflight blockers, Schema changes, annotations, and exact immutable arguments are shown before execution.
-- [ ] Required drift and side-effect confirmations are separate, accessible controls; stale-preflight responses refresh the dialog instead of silently proceeding.
-- [ ] Starting replay opens/focuses an in-memory read-only descendant result, uses existing live observation, hard-gates rapid activation, and leaves all editable Tab drafts untouched.
+Acceptance:
 
-**Verification:**
-- [ ] Tests pass: `npx vitest run src/client/features/replay src/client/features/runs src/client/features/tabs`
-- [ ] Build succeeds: `npm run typecheck && npm run build`
-- [ ] Manual check: replay a changed, unknown-side-effect Tool from a deleted Tab and cancel the new Run.
+- [x] Dialog shows exact connection, Tool, immutable arguments, blockers, schema drift, and side-effect risk.
+- [x] Drift and risk confirmations are separate and accessible; stale responses refresh preflight rather than proceeding.
+- [x] Successful start opens a read-only observed replay result and leaves every editable Tab draft unchanged.
+- [x] Rapid activation is hard-gated; project/Run changes cancel or fence pending requests.
+- [x] Chinese/English, dark/light, focus return, Escape, and keyboard flow are tested.
 
-**Dependencies:** Task 5
+Verification: replay UI tests, DebugWorkspace/RunResultPanel regressions, production browser smoke.
 
-**Files likely touched:**
-- `src/client/features/replay/ReplayDialog.tsx`
-- `src/client/features/replay/__tests__/ReplayDialog.test.tsx`
-- `src/client/features/runs/RunResultPanel.tsx`
-- `src/client/features/tabs/DebugWorkspace.tsx`
-- `src/client/api/api-client.ts`
+### Task 6: Deliver bounded diff engine and migration 015
 
-**Estimated scope:** Medium
+Implement the pure comparison engine and persisted project ignore-rule CRUD.
 
-### Checkpoint: Replay safety
+Acceptance:
 
-- [ ] Original and replay Runs are independently persisted and observable.
-- [ ] Drift/risk confirmation and stale-digest rejection are proven with no network call on failure.
-- [ ] Same-Tool multi-Tab execution remains isolated under concurrent replay.
-- [ ] Independent security/code review passes.
+- [x] Added/removed/changed/type-changed nodes use deterministic JSON Pointer locations.
+- [x] Output limits return explicit truncation metadata instead of freezing or silently omitting changes.
+- [x] Safe JSONPath subset is parsed without `eval`; prototype and executable syntax are rejected.
+- [x] Ignore application is immutable and array wildcard behavior is deterministic.
+- [x] Rule CRUD validates the complete ordered set atomically; migration 015 passes upgrade and byte tests.
 
-### Phase 3: Structured Comparison
+Verification: property/adversarial diff tests, rules repository/routes/API tests, typecheck/build.
 
-## Task 7: Implement safe structural diff and JSONPath ignores
+### Task 7: Deliver comparison API and UI
 
-**Description:** Create a pure shared comparison engine for JSON-compatible Run results with a deliberately restricted JSONPath grammar.
+Compare a replay with its source using server-loaded results and a snapshot of current project rules.
 
-**Acceptance criteria:**
-- [ ] Diff reports added, removed, changed, and type-changed nodes with deterministic JSON Pointer locations and bounded output.
-- [ ] Ignore rules accept only the documented non-executable subset and reject dangerous prototype keys, recursive descent, filters/scripts, invalid escapes, excessive depth/count, and ambiguous syntax.
-- [ ] Applying ignores is immutable, handles arrays/wildcards predictably, and explicitly reports truncated/unavailable inputs as non-comparable.
+Acceptance:
 
-**Verification:**
-- [ ] Tests pass: `npx vitest run src/shared/__tests__/run-diff.test.ts`
-- [ ] Build succeeds: `npm run typecheck`
-- [ ] Manual check: compare nested object/array results with quoted property names and wildcard ignores.
+- [x] Both Runs must belong to the project and share direct replay lineage; unrelated arbitrary comparison is deferred.
+- [x] Response includes statuses/errors, comparability, rule snapshot, bounded changes, and source/replay metadata.
+- [x] Active, missing, truncated, corrupt, and failed Runs produce explicit states without mutation.
+- [x] UI clearly separates material and ignored changes, supports rule preview/save, and copies a deterministic summary.
+- [x] Rule/project/Run changes fence stale responses; JSON rendering uses existing safe viewer boundaries.
 
-**Dependencies:** None
+Verification: comparison service/API/UI tests and accessibility/identity-race regressions.
 
-**Files likely touched:**
-- `src/shared/run-diff.ts`
-- `src/shared/__tests__/run-diff.test.ts`
+### Task 8: Close production acceptance
 
-**Estimated scope:** Small
+Extend the production fixture through history → preflight → confirmed replay → comparison.
 
-## Task 8: Persist project comparison rules
+Acceptance:
 
-**Description:** Store and edit project-level ignore rules independently from Runs so future comparisons reuse a reviewed configuration.
+- [x] E2E changes a Tool schema, proves both confirmations and stale-digest rejection, then verifies exact arguments, lineage, traces, pin persistence, and one MCP call.
+- [x] E2E applies a safe ignore rule and verifies deterministic comparison after reload.
+- [x] Existing automated tests, reports, baseline updates, import/export, scripts, auth modes, and debug flows remain green.
+- [x] README/CHANGELOG describe only delivered behavior and limitations.
+- [x] Independent Spec/Quality/Security review has zero open Critical/Required.
+- [x] `npm run verify`, migration 001–015 byte checks, `npm pack --dry-run --json`, `git diff --check`, and process cleanup pass.
 
-**Acceptance criteria:**
-- [ ] Migration 007 stores ordered, validated project rules with timestamps and project cascade; migration upgrades and duplicate execution are safe.
-- [ ] Authenticated CRUD rejects invalid/duplicate/oversized rules atomically and returns a stable ordered representation.
-- [ ] Client decoding fences project identity and malformed rules; no rule string is ever evaluated as code.
-
-**Verification:**
-- [ ] Tests pass: `npx vitest run src/server/comparisons src/server/projects src/client/api`
-- [ ] Build succeeds: `npm run typecheck && npm run build`
-- [ ] Manual check: save, reorder, reload, and delete ignore rules containing quoted safe property names.
-
-**Dependencies:** Task 7
-
-**Files likely touched:**
-- `src/server/projects/migrations/007_comparison_rules.sql`
-- `src/server/comparisons/comparison-rule-repository.ts`
-- `src/server/comparisons/routes.ts`
-- `src/server/comparisons/__tests__/comparison-rule-repository.test.ts`
-- `src/client/api/api-client.ts`
-
-**Estimated scope:** Medium
-
-## Task 9: Expose source-versus-replay comparison
-
-**Description:** Provide an authenticated comparison endpoint that loads two project-owned Runs and applies the shared engine plus current project rules.
-
-**Acceptance criteria:**
-- [ ] Comparison validates both Run IDs belong to the project and either share replay lineage or require explicit arbitrary-compare mode; it never trusts client-supplied result data.
-- [ ] Response includes statuses/errors, result comparability, applied rule snapshot, deterministic bounded changes, and source/replay metadata needed by the UI.
-- [ ] Comparing active, missing, corrupt, or truncated Runs returns explicit stable states/errors without mutating or pinning either Run implicitly.
-
-**Verification:**
-- [ ] Tests pass: `npx vitest run src/server/comparisons src/server/runs src/client/api`
-- [ ] Build succeeds: `npm run typecheck`
-- [ ] Manual check: compare successful, failed, and truncated replay pairs with and without ignore rules.
-
-**Dependencies:** Tasks 5, 7, and 8
-
-**Files likely touched:**
-- `src/server/comparisons/comparison-types.ts`
-- `src/server/comparisons/comparison-service.ts`
-- `src/server/comparisons/routes.ts`
-- `src/server/comparisons/__tests__/comparison-service.test.ts`
-- `src/client/api/api-client.ts`
-
-**Estimated scope:** Medium
-
-## Task 10: Render accessible result comparison
-
-**Description:** Add a comparison view to Run details that defaults replay descendants against their source and clearly separates ignored from material changes.
-
-**Acceptance criteria:**
-- [ ] The UI renders source/replay identity, status/error differences, added/removed/changed/type-changed nodes, ignored paths, and non-comparable/truncated warnings without unsafe HTML.
-- [ ] Users can edit/save project ignore rules, preview their effect before saving, reset filters, and copy a deterministic comparison summary; clipboard/API failures are accessible.
-- [ ] Project/run/rule changes fence stale responses, preserve the selected result tab, and never trigger replay or alter a debug draft.
-
-**Verification:**
-- [ ] Tests pass: `npx vitest run src/client/features/comparisons src/client/features/runs`
-- [ ] Build succeeds: `npm run typecheck && npm run build`
-- [ ] Manual check: compare a replay, add an ignore rule, confirm the diff updates, reload, and confirm the rule persists.
-
-**Dependencies:** Task 9
-
-**Files likely touched:**
-- `src/client/features/comparisons/RunComparison.tsx`
-- `src/client/features/comparisons/__tests__/RunComparison.test.tsx`
-- `src/client/features/runs/RunResultPanel.tsx`
-- `src/client/app/app.css`
-
-**Estimated scope:** Medium
-
-### Checkpoint: Comparison
-
-- [ ] Pure diff property/fuzz tests and API ownership tests pass.
-- [ ] Replay descendants compare correctly across success, failure, and truncation states.
-- [ ] Full Vitest, typecheck, build, and existing production Playwright pass.
-- [ ] Independent review finds no unsafe JSONPath behavior or stale-response races.
-
-### Phase 4: Production Acceptance
-
-## Task 11: Prove History and Replay end to end
-
-**Description:** Extend the production-build Playwright fixture and documentation to prove the complete history→preflight→replay→comparison workflow.
-
-**Acceptance criteria:**
-- [ ] E2E executes a source Run, changes the Tool Schema, proves replay is blocked until drift/risk confirmations, then releases a deterministic replay and verifies lineage plus exact original arguments.
-- [ ] E2E proves source and replay protocol traces/results remain isolated, history filters/pins survive reload, comparison applies a persisted ignore rule, and no action sends a duplicate Tool call.
-- [ ] README documents only the delivered History/Replay/Diff behavior and its safety limits; package allowlist, shutdown, auth, migrations 001–007, and Core E2E remain green.
-
-**Verification:**
-- [ ] Tests pass: `npm run verify`
-- [ ] Package succeeds: `npm pack --dry-run --json`
-- [ ] Manual check: run the packaged CLI, complete one replay comparison, close it, and confirm no listener/process remains.
-
-**Dependencies:** Tasks 3, 6, and 10
-
-**Files likely touched:**
-- `e2e/history-replay.spec.ts`
-- `src/server/connections/__tests__/streamable-session.integration.test.ts`
-- `README.md`
-- `package.json`
-
-**Estimated scope:** Medium
-
-### Checkpoint: Complete
-
-- [ ] All task acceptance criteria and the standing Definition of Done are satisfied.
-- [ ] `npm run verify`, package allowlist, migration byte checks, diff checks, and open-handle checks pass.
-- [ ] Independent Spec/Quality/Security review returns no Critical or Required findings.
-- [ ] Human reviews and approves before merge or release.
-
-## Dependency Graph
+## 7. Dependency graph
 
 ```text
-Task 1 lineage/pin ──> Task 2 history API ──> Task 3 history UI ───────────────┐
-          │                                                                  │
-          └────────────> Task 4 preflight ─> Task 5 replay ─> Task 6 replay UI├─> Task 11 E2E
-                                                              │              │
-Task 7 diff engine ──> Task 8 rules ──> Task 9 compare API ─> Task 10 diff UI ┘
+Task 1 contracts + migration 014
+  ├─> Task 2 filtered history + pin
+  └─> Task 3 replay preflight -> Task 4 replay execution -> Task 5 replay UI
+
+Task 6 diff + migration 015 -> Task 7 comparison API/UI
+
+Tasks 2 + 5 + 7 -> Task 8 production acceptance
 ```
 
-Tasks 4 and 7 may proceed in parallel after Task 1's public Run lineage contract is fixed. Tasks 3 and 5 may also proceed in parallel because they share only the reviewed Run types/API contract. Migration tasks remain sequential (006 before 007).
+Migration work remains sequential: 014 must land before 015. No task may allocate another migration number without rebaselining this plan.
 
-## Risks and Mitigations
+## 8. Risks and mitigations
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Tool Schema changes after user confirms replay | High | Bind execution to a preflight digest over current snapshot, annotations, source arguments, and confirmation requirements; stale digest returns a new preflight without calling MCP. |
-| Destructive Tool replay | High | Treat destructive or unknown annotations as confirmation-required; show exact arguments and connection/Tool; never auto-retry. |
-| Replay bypasses proven Run isolation | High | Route replay into the existing Run state machine and observer path; add concurrent original/replay tests and deterministic E2E barriers. |
-| Cursor reuse leaks/mixes filters | High | Canonically bind project, Tab, and every normalized filter into the cursor; validate server and client identities. |
-| JSONPath becomes code execution or prototype mutation | High | Implement a small parser, never `eval`; reject unsupported syntax and prototype keys; immutable traversal with limits and adversarial tests. |
-| Large diffs freeze the browser | Medium | Bound server diff nodes/serialized bytes, report truncation, and progressively render/collapse UI sections. |
-| Source or replay result was already truncated | Medium | Mark non-comparable explicitly and show stored size/hash metadata; never compare previews as full values. |
-| Original Tab/Tool/connection disappears | Medium | Replay is Tab-independent but requires the source connection and current Tool; block with stable diagnostics and never create a partial Run. |
-| History/replay response races overwrite another project | High | Reuse project/run generation fences, AbortSignals, and strict runtime decoders at every client boundary. |
+| Catalog changes after confirmation | High | Digest every execution-relevant preflight field; reject stale digest before Run creation |
+| Replay causes destructive side effects | High | Separate risk confirmation, exact arguments, no retry, unknown means confirmation required |
+| Connection authentication crosses same URL | Critical | Reuse exact source `connectionId`; integration fixture with distinct authentication |
+| Replay bypasses Run isolation | Critical | Reuse existing Run state machine and observer; no hidden Tab or second MCP runtime |
+| Cursor/filter identity mixes projects | High | Canonical cursor binding plus strict server/client ownership validation |
+| JSONPath becomes executable | Critical | Small parser, no eval, reject prototype/expression syntax, adversarial tests |
+| Large diff blocks UI | High | Server node/byte limits, explicit truncated result, progressive Disclosure rendering |
+| Lineage changes Server delete behavior | High | Prove cascade semantics before migration approval; do not accidentally restrict existing deletion |
+| Stale UI overwrites current project | High | Request generation fences and AbortSignals at report, replay, and rules boundaries |
 
-## Open Questions
+## 9. Approval gate
 
-- Saved test cases should later reuse `ReplayPreflight` and comparison rules, but are intentionally excluded from this slice.
-- Retention cleanup should treat `pinned` Runs and replay/comparison references as protected; the cleanup job remains a separate hardening plan.
-- Arbitrary comparison between unrelated Runs is designed as an explicit mode; the first implementation may ship replay-lineage comparison only if UI scope needs to remain smaller.
+This rebaseline is documentation only. Implementation begins only after human confirmation of:
 
-## Definition of Done
+1. Migration allocation 014 for Run pin/lineage and 015 for comparison rules.
+2. Replay is limited to the source connection and current Tool; cross-Server replay is excluded.
+3. First comparison release only compares a replay with its direct source; unrelated arbitrary Run comparison is deferred.
+4. Pinning protects user-selected Runs from future retention, but must not accidentally block existing Server deletion behavior.
 
-- Every behavior change has a test that fails without it and passes with it.
-- Full existing and new tests, typecheck, production build, real MCP integration, and production Playwright pass.
-- Migration source/dist copies are byte-identical and upgrades are tested from every prior schema version.
-- Auth, project ownership, untrusted JSON/result rendering, replay side effects, and JSONPath parsing receive independent security review.
-- Public behavior and limitations are documented in timeless language; no deferred capability is claimed.
-- Package contents remain allowlisted, shutdown leaves no listener/open handles, and the worktree is clean.
-- Human approval is required before merge or release.
+## 10. Definition of done
+
+- Every behavior change has a regression test that fails without the change.
+- Shared runtime schemas validate every client/server and SQLite JSON boundary.
+- Existing project, connection, tab, Run, workflow, test, and authentication isolation remains intact.
+- No secret enters URLs, Toasts, ordinary logs, browser storage, comparison rules, or default exports.
+- UI follows `FRONTEND-DEVELOPMENT-STANDARDS.md` and provides matching `zh-CN/en-US` keys.
+- Full verify, package, migrations, diff checks, process cleanup, and independent review pass.

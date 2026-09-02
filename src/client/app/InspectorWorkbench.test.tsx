@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DebugTabSummary, InspectorApiClient, ProjectSummary, RunDetail, ToolDetailSummary } from "../api/api-client.js";
+import { i18n } from "../i18n/index.js";
 import { InspectorWorkbench } from "./InspectorWorkbench.js";
 
 const project: ProjectSummary = {
@@ -34,6 +35,7 @@ const connection = {
 
 const historyTool: ToolDetailSummary = {
   tool: { projectId: project.id, connectionId: connection.id, name: "sum", status: "current", folderId: null,
+    favorite: false, lastUsedAt: null,
     updatedAt: "2026-08-26T00:00:00.000Z", currentSnapshot: {
       id: "00000000-0000-4000-8000-000000000704", projectId: project.id, connectionId: connection.id,
       toolName: "sum", contentHash: "a".repeat(64), createdAt: "2026-08-26T00:00:00.000Z",
@@ -48,7 +50,8 @@ const historyRun: RunDetail = {
   toolSnapshotId: historyTool.tool.currentSnapshot.id, toolSnapshotHash: "a".repeat(64),
   idempotencyKey: "history-open", status: "succeeded", createdAt: "2026-08-26T00:00:00.000Z",
   startedAt: "2026-08-26T00:00:00.010Z", completedAt: "2026-08-26T00:00:00.020Z",
-  durationMs: 10, networkDurationMs: 8, protocolVersion: "2025-06-18", serverInfo: null,
+  durationMs: 10, networkDurationMs: 8, pinned: false, replayedFromRunId: null,
+  protocolVersion: "2025-06-18", serverInfo: null,
   clientInfo: { name: "mcp-inspector", version: "0.1.0" },
   request: { arguments: { a: 40, b: 2 }, jsonrpc: {}, http: null },
   response: { result: { structuredContent: { answer: 42 } }, error: null, truncated: false, originalBytes: 32 },
@@ -70,21 +73,54 @@ function api(): InspectorApiClient {
     disconnectConnection: vi.fn().mockResolvedValue(connection),
     listTools: vi.fn().mockResolvedValue([]), refreshTools: vi.fn().mockResolvedValue([]), getTool: vi.fn(), deleteTool: vi.fn(),
     listToolFolders: vi.fn().mockResolvedValue([]), createToolFolder: vi.fn(), renameToolFolder: vi.fn(),
-    deleteToolFolder: vi.fn(), moveToolToFolder: vi.fn(),
+    deleteToolFolder: vi.fn(), moveToolToFolder: vi.fn(), setToolFavorite: vi.fn(), markToolUsed: vi.fn(),
     getToolWorkflow: vi.fn(), updateToolWorkflow: vi.fn(), validateToolWorkflow: vi.fn(), debugToolWorkflow: vi.fn(),
     listEnvironmentVariables: vi.fn().mockResolvedValue([]), setEnvironmentVariable: vi.fn(), deleteEnvironmentVariable: vi.fn(),
+    listEnvironmentProfiles: vi.fn().mockResolvedValue([]), createEnvironmentProfile: vi.fn(), updateEnvironmentProfile: vi.fn(), deleteEnvironmentProfile: vi.fn(),
+    listEnvironmentProfileVariables: vi.fn().mockResolvedValue([]), setEnvironmentProfileVariable: vi.fn(), deleteEnvironmentProfileVariable: vi.fn(),
+    getConnectionEnvironmentProfile: vi.fn(), setConnectionEnvironmentProfile: vi.fn(), previewConnectionEnvironmentProfile: vi.fn(),
     listTabs: vi.fn().mockResolvedValue([]), openTab: vi.fn(), replaceTabTool: vi.fn(), updateTab: vi.fn(),
     duplicateTab: vi.fn(), reorderTabs: vi.fn(), closeTab: vi.fn(), closeOtherTabs: vi.fn(), closeTabsRight: vi.fn(),
     startRun: vi.fn(), startWorkflowExecution: vi.fn(), getActiveWorkflowExecution: vi.fn().mockResolvedValue(null), getWorkflowExecution: vi.fn(), cancelWorkflowExecution: vi.fn(),
     getRunSummary: vi.fn(), getRun: vi.fn(),
-    listRuns: vi.fn().mockResolvedValue({ runs: [], nextCursor: null }), openRunEventStream: vi.fn(),
+    listRuns: vi.fn().mockResolvedValue({ runs: [], nextCursor: null }), setRunPinned: vi.fn(), openRunEventStream: vi.fn(),
+    getReplayPreflight: vi.fn(), startReplay: vi.fn(),
+    listComparisonRules: vi.fn().mockResolvedValue({ rules: [] }), replaceComparisonRules: vi.fn(), getRunComparison: vi.fn(),
     listSavedItems: vi.fn(), getSavedItem: vi.fn(), createSavedItem: vi.fn(), deleteSavedItem: vi.fn(),
+    listTestCases: vi.fn().mockResolvedValue({ items: [], nextCursor: null }), getTestCase: vi.fn(), createTestCase: vi.fn(), updateTestCase: vi.fn(), deleteTestCase: vi.fn(),
+    previewTestCaseFromRun: vi.fn(), previewTestCaseFromSavedItem: vi.fn(),
+    listTestSuites: vi.fn(), getTestSuite: vi.fn(), createTestSuite: vi.fn(), updateTestSuite: vi.fn(), deleteTestSuite: vi.fn(),
+    startTestSuiteExecution: vi.fn(), getTestSuiteExecution: vi.fn(), cancelTestSuiteExecution: vi.fn(),
+    startTestExecution: vi.fn(), listTestExecutions: vi.fn(), updateTestExecutionBaseline: vi.fn(), getTestExecution: vi.fn(), cancelTestExecution: vi.fn(),
+    exportAutomatedTests: vi.fn(), importAutomatedTests: vi.fn(),
   };
 }
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); void i18n.changeLanguage("zh-CN"); });
 
 describe("InspectorWorkbench", () => {
+  it("switches locale in place without rebuilding the active Server workspace", async () => {
+    await i18n.changeLanguage("zh-CN");
+    const user = userEvent.setup();
+    const client = api();
+    vi.mocked(client.listConnections).mockResolvedValue([{ ...connection, status: "connected" }]);
+    render(<InspectorWorkbench api={client} project={project} version="0.1.0" />);
+
+    await user.click(await screen.findByRole("tab", { name: "Supplier MCP" }));
+    const language = screen.getByRole("combobox", { name: "界面语言" });
+    await user.selectOptions(language, "en-US");
+
+    expect(screen.getByRole("button", { name: "Environment" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Run history" })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "Supplier MCP" })).toHaveAttribute("aria-selected", "true");
+    expect(client.listTabs).toHaveBeenCalledTimes(1);
+    expect(document.documentElement).toHaveAttribute("lang", "en-US");
+    expect(localStorage.getItem("mcp-inspector.locale")).toBe("en-US");
+    expect(document.cookie).toContain("mcp_inspector_locale=en-US");
+
+    await i18n.changeLanguage("zh-CN");
+  });
+
   it("offers an accessible control for switching the application theme", async () => {
     const user = userEvent.setup();
     render(<InspectorWorkbench api={api()} project={project} version="0.1.0" />);
@@ -105,7 +141,7 @@ describe("InspectorWorkbench", () => {
     expect(container.querySelector(".project-identity")).not.toBeInTheDocument();
     expect(container.querySelector(".server-tabbar__actions")).not.toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "工作台导航" })).toBeVisible();
-    for (const label of ["Servers", "Tools", "环境变量", "运行历史"]) {
+    for (const label of ["Servers", "Tools", "环境变量", "自动化测试", "运行历史"]) {
       const icon = screen.getByRole("button", { name: label }).querySelector(".workbench-nav-icon");
       expect(icon).toBeVisible();
       expect(icon).toHaveAttribute("width", "18");
@@ -120,6 +156,8 @@ describe("InspectorWorkbench", () => {
     expect(screen.getByText("选择一个已连接的 Server 开始调试")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "环境变量" }));
     expect(await screen.findByRole("heading", { name: "环境变量", level: 1 })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "自动化测试" }));
+    expect(await screen.findByRole("heading", { name: "自动化测试", level: 1 })).toBeVisible();
     await user.click(screen.getByRole("button", { name: "运行历史" }));
     expect(await screen.findByRole("heading", { name: "运行历史", level: 1 })).toBeVisible();
     expect(screen.getByText("选择一条运行记录")).toBeVisible();
@@ -159,6 +197,49 @@ describe("InspectorWorkbench", () => {
     expect(await screen.findByRole("tabpanel", { name: "Supplier MCP" })).toBeVisible();
     expect(client.refreshTools).not.toHaveBeenCalled();
     expect(screen.queryByText("已连接，目录未就绪")).not.toBeInTheDocument();
+  });
+
+  it("opens a catalog Tool click in a new Tab instead of replacing the active Tab", async () => {
+    const user = userEvent.setup();
+    const client = api();
+    const connected = { ...connection, status: "connected" as const };
+    const existing = restoredTab({ toolName: "sum", title: "sum" });
+    const nextTool = {
+      ...historyTool.tool,
+      name: "get_price",
+      currentSnapshot: {
+        ...historyTool.tool.currentSnapshot,
+        toolName: "get_price",
+        definition: { ...historyTool.tool.currentSnapshot.definition, name: "get_price" },
+      },
+    };
+    const opened = restoredTab({
+      id: "00000000-0000-4000-8000-000000000709",
+      toolName: "get_price",
+      title: "get_price",
+      position: 1,
+    });
+    vi.mocked(client.listConnections).mockResolvedValue([connected]);
+    vi.mocked(client.listTools).mockResolvedValue([nextTool]);
+    vi.mocked(client.listTabs).mockResolvedValue([existing]);
+    vi.mocked(client.markToolUsed).mockResolvedValue(nextTool);
+    vi.mocked(client.openTab).mockResolvedValue(opened);
+    vi.mocked(client.getTool).mockImplementation(async (_projectId, _connectionId, toolName) => ({
+      ...historyTool,
+      tool: {
+        ...(toolName === "get_price" ? nextTool : historyTool.tool),
+        currentSnapshot: toolName === "get_price" ? nextTool.currentSnapshot : historyTool.tool.currentSnapshot,
+      },
+    }));
+    render(<InspectorWorkbench api={client} project={project} version="0.1.0" />);
+
+    await user.click(await screen.findByRole("tab", { name: "Supplier MCP" }));
+    await user.click(await screen.findByRole("button", { name: "get_price" }));
+
+    await screen.findByRole("tab", { name: "get_price" });
+    expect(client.openTab).toHaveBeenCalledWith(project.id, connection.id, "get_price");
+    expect(client.replaceTabTool).not.toHaveBeenCalled();
+    expect(screen.getByRole("tab", { name: "sum" })).toBeVisible();
   });
 
   it("returns to Servers after OAuth authorization and waits for a later connection before opening Tools", async () => {
@@ -254,7 +335,7 @@ describe("InspectorWorkbench", () => {
     await user.click(await screen.findByRole("tab", { name: "Supplier MCP" }));
     const catalog = await screen.findByRole("complementary", { name: "Tool 目录" });
     expect(catalog).not.toHaveAttribute("hidden");
-    expect(screen.getByRole("tree", { name: "MCP Tools" })).toBeVisible();
+    expect(screen.getByRole("list", { name: "MCP Tools" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "隐藏 Tool 目录" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "显示 Tool 目录" })).not.toBeInTheDocument();
   });

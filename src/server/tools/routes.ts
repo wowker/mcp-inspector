@@ -27,6 +27,7 @@ const errors = {
   invalidFolder: { error: { code: "TOOL_FOLDER_INVALID", message: "Tool folder name is invalid" } },
   folderConflict: { error: { code: "TOOL_FOLDER_CONFLICT", message: "Tool folder already exists" } },
   folderNotFound: { error: { code: "TOOL_FOLDER_NOT_FOUND", message: "Tool folder not found" } },
+  invalidFavorite: { error: { code: "TOOL_FAVORITE_INVALID", message: "Favorite must be a boolean" } },
 } as const;
 
 function resourceError(context: Context, error: unknown) {
@@ -132,6 +133,28 @@ export function createToolRoutes(tools: ToolService): Hono {
       if (error instanceof ToolFolderNotFoundError) return context.json(errors.folderNotFound, 404);
       return resourceError(context, error);
     }
+  });
+
+  routes.put("/:projectId/connections/:connectionId/tools/:toolName/favorite", async (context) => {
+    let body: unknown;
+    try { body = await context.req.json(); } catch { return context.json(errors.invalidFavorite, 400); }
+    const favorite = typeof body === "object" && body !== null && !Array.isArray(body)
+      ? (body as { favorite?: unknown }).favorite : undefined;
+    if (typeof favorite !== "boolean") return context.json(errors.invalidFavorite, 400);
+    try {
+      return context.json({ tool: tools.setFavorite(
+        context.req.param("projectId"), context.req.param("connectionId"),
+        context.req.param("toolName"), favorite,
+      ) });
+    } catch (error) { return resourceError(context, error); }
+  });
+
+  routes.post("/:projectId/connections/:connectionId/tools/:toolName/recent-use", (context) => {
+    try {
+      return context.json({ tool: tools.markUsed(
+        context.req.param("projectId"), context.req.param("connectionId"), context.req.param("toolName"),
+      ) });
+    } catch (error) { return resourceError(context, error); }
   });
 
   routes.get("/:projectId/connections/:connectionId/tools/:toolName", (context) => {

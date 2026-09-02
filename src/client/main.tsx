@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "@primer/primitives/dist/css/functional/themes/light.css";
 import "@primer/primitives/dist/css/functional/themes/dark.css";
-import "@primer/css/dist/core.css";
+import "@primer/css/dist/base.css";
 import { App } from "./app/App.js";
 import { AppToaster } from "./app/AppToaster.js";
 import { applyInitialTheme } from "./app/theme.js";

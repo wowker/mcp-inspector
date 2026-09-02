@@ -125,6 +125,42 @@ describe("connection routes", () => {
       (id, project_id, connection_id, tool_name, kind, name, payload_json, created_at, updated_at)
       VALUES (?, ?, ?, 'sum', 'request', 'Smoke request', '{"a":1}', ?, ?)`)
       .run(savedId, project.id, connectionId, timestamp, timestamp);
+    const profileId = "00000000-0000-4000-8000-000000000307";
+    store.database.prepare(`INSERT INTO environment_variables
+      (id, project_id, connection_id, name, value_json, secret, created_at, updated_at)
+      VALUES
+      ('00000000-0000-4000-8000-000000000308', ?, NULL, 'REGION', '"eu"', 0, ?, ?),
+      ('00000000-0000-4000-8000-000000000309', ?, ?, 'API_TOKEN', '"base-secret"', 1, ?, ?)`)
+      .run(project.id, timestamp, timestamp, project.id, connectionId, timestamp, timestamp);
+    store.database.prepare(`INSERT INTO environment_profiles
+      (id, project_id, name, description, parent_profile_id, revision, created_at, updated_at)
+      VALUES (?, ?, 'Staging', 'Staging overrides', NULL, 1, ?, ?)`)
+      .run(profileId, project.id, timestamp, timestamp);
+    store.database.prepare(`INSERT INTO environment_profile_variables
+      (id, project_id, profile_id, connection_id, name, mode, value_json, secret, created_at, updated_at)
+      VALUES
+      ('00000000-0000-4000-8000-000000000310', ?, ?, NULL, 'REGION', 'value', '"us"', 0, ?, ?),
+      ('00000000-0000-4000-8000-000000000311', ?, ?, ?, 'API_TOKEN', 'value', '"profile-secret"', 1, ?, ?)`)
+      .run(project.id, profileId, timestamp, timestamp,
+        project.id, profileId, connectionId, timestamp, timestamp);
+    store.database.prepare(`INSERT INTO connection_environment_profiles
+      (project_id, connection_id, profile_id, updated_at) VALUES (?, ?, ?, ?)`)
+      .run(project.id, connectionId, profileId, timestamp);
+    const otherConnectionId = "00000000-0000-4000-8000-000000000312";
+    store.database.prepare(`INSERT INTO connections
+      (id, project_id, name, url, transport, auth_mode, timeout_ms, created_at, updated_at)
+      VALUES (?, ?, 'Other MCP', 'https://other.example.test/mcp', 'streamable-http', 'none', 10000, ?, ?)`)
+      .run(otherConnectionId, project.id, timestamp, timestamp);
+    store.database.prepare(`INSERT INTO environment_variables
+      (id, project_id, connection_id, name, value_json, secret, created_at, updated_at)
+      VALUES ('00000000-0000-4000-8000-000000000313', ?, ?, 'OTHER_SERVER_VALUE', '"other-secret"', 1, ?, ?)`)
+      .run(project.id, otherConnectionId, timestamp, timestamp);
+    store.database.prepare(`INSERT INTO environment_profile_variables
+      (id, project_id, profile_id, connection_id, name, mode, value_json, secret, created_at, updated_at)
+      VALUES ('00000000-0000-4000-8000-000000000314', ?, ?, ?, 'OTHER_PROFILE_VALUE', 'value', '"other-public"', 0, ?, ?)`)
+      .run(project.id, profileId, otherConnectionId, timestamp, timestamp);
+    store.database.prepare("UPDATE connections SET url = ? WHERE id = ?")
+      .run("https://mcp.example.test/mcp?access_token=legacy-secret&cursor=next", connectionId);
 
     const response = await inspector.request(
       `/api/projects/${project.id}/connections/${connectionId}/export`, { headers });
@@ -132,25 +168,56 @@ describe("connection routes", () => {
     expect(response.headers.get("content-disposition")).toContain("attachment");
     const bundle: unknown = await response.json();
     expect(bundle).toMatchObject({
-      format: "mcp-inspector-server-export", version: 1,
+      format: "mcp-inspector-server-export", version: 2,
       project: { id: project.id, name: "Supplier Tools" },
       server: { id: connectionId, name: "Catalog MCP",
+        url: "https://mcp.example.test/mcp?cursor=next",
         authMode: "bearer", bearerToken: null,
         headers: [{ name: "X-API-Key", value: null, redacted: true }] },
-      security: { bearerTokenIncluded: false, customHeaderValuesIncluded: false },
+      security: {
+        containsSensitiveToolData: false,
+        omittedSensitiveToolData: ["tab-drafts", "run-requests", "run-responses", "run-events", "saved-items"],
+        bearerTokenIncluded: false,
+        customHeaderValuesIncluded: false,
+        environmentSecretValuesIncluded: false,
+      },
       data: {
         toolSnapshots: [{ id: snapshotId, toolName: "sum" }], tools: [{ name: "sum" }],
         folders: [{ id: folderId, name: "Smoke tests" }],
         folderAssignments: [{ folderId, toolName: "sum" }],
         tabs: [{ id: tabId }], runs: [{ id: runId }],
-        runRequests: [{ runId, arguments: { a: 1 } }],
-        runResponses: [{ runId, result: { content: [{ type: "text", text: "3" }] } }],
-        runEvents: [{ runId, sequence: 1 }],
-        savedItems: [{ id: savedId, name: "Smoke request", payload: { a: 1 } }],
+        runRequests: [], runResponses: [], runEvents: [], savedItems: [],
+        environment: {
+          activeProfileId: profileId,
+          baseVariables: [
+            { name: "REGION", scope: "project", secret: false, value: "eu" },
+            { name: "API_TOKEN", scope: "server", secret: true, redacted: true },
+          ],
+          profiles: [{
+            id: profileId,
+            name: "Staging",
+            parentProfileId: null,
+            variables: [
+              { name: "REGION", scope: "project", mode: "value", secret: false, value: "us" },
+              { name: "API_TOKEN", scope: "server", mode: "value", secret: true, redacted: true },
+            ],
+          }],
+        },
       },
     });
+    expect(JSON.stringify(bundle)).not.toContain("legacy-secret");
+    expect(JSON.stringify(bundle)).not.toContain('"arguments":{"a":1}');
+    expect(JSON.stringify(bundle)).not.toContain('"text":"3"');
+    expect(JSON.stringify(bundle)).not.toContain("Smoke request");
     expect(JSON.stringify(bundle)).not.toContain("local-secret");
     expect(JSON.stringify(bundle)).not.toContain("export-secret-token");
+    expect(JSON.stringify(bundle)).not.toContain("base-secret");
+    expect(JSON.stringify(bundle)).not.toContain("profile-secret");
+    expect(JSON.stringify(bundle)).not.toContain("OTHER_SERVER_VALUE");
+    expect(JSON.stringify(bundle)).not.toContain("OTHER_PROFILE_VALUE");
+    expect(JSON.stringify(bundle)).not.toContain("other-public");
+    expect((bundle as { data: { tabs: Array<Record<string, unknown>> } }).data.tabs[0])
+      .not.toHaveProperty("viewState");
   });
 
   it("inherits API authentication and returns stable validation errors", async () => {

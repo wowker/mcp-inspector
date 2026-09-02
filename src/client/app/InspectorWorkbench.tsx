@@ -1,22 +1,30 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useTranslation } from "react-i18next";
 import {
   BracketsCurly,
   ClockCounterClockwise,
+  ClipboardText,
   HardDrives,
   Moon,
+  Stack,
   SidebarSimple,
   Sun,
+  TestTube,
   Wrench,
 } from "@phosphor-icons/react";
-import type { ConnectionSummary, InspectorApiClient, ProjectSummary, RunDetail } from "../api/api-client.js";
+import type { ConnectionSummary, InspectorApiClient, ProjectSummary, RunDetail, SavedItemDetail } from "../api/api-client.js";
 import { ConnectionPanel } from "../features/connections/ConnectionPanel.js";
 import { DebugWorkspace, type ToolOpenIntent } from "../features/tabs/DebugWorkspace.js";
 import { applyInitialTheme, toggleTheme, type ThemeMode } from "./theme.js";
 import { isOAuthCompleteEvent, OAUTH_CHANNEL } from "../../shared/oauth-events.js";
 import { RunHistoryPage } from "../features/runs/RunHistoryPage.js";
 import { EnvironmentVariablesPage } from "../features/environment/EnvironmentVariablesPage.js";
+import { LanguageSwitcher } from "../i18n/LanguageSwitcher.js";
+import { TestCasesPage, type TestCaseSourceIntent } from "../features/testing/TestCasesPage.js";
+import { TestSuitesPage } from "../features/testing/TestSuitesPage.js";
+import { TestReportsPage } from "../features/testing/TestReportsPage.js";
 
-type WorkbenchPage = "servers" | "tools" | "environment" | "history";
+type WorkbenchPage = "servers" | "tools" | "environment" | "testing" | "suites" | "reports" | "history";
 
 interface InspectorWorkbenchProps {
   api: InspectorApiClient;
@@ -39,17 +47,14 @@ function NavIcon({ type, active }: { type: WorkbenchPage; active: boolean }) {
   if (type === "servers") return <HardDrives {...iconProps} />;
   if (type === "tools") return <Wrench {...iconProps} />;
   if (type === "environment") return <BracketsCurly {...iconProps} />;
+  if (type === "testing") return <TestTube {...iconProps} />;
+  if (type === "suites") return <Stack {...iconProps} />;
+  if (type === "reports") return <ClipboardText {...iconProps} />;
   return <ClockCounterClockwise {...iconProps} />;
 }
 
-function pageLabel(page: WorkbenchPage): string {
-  if (page === "servers") return "Servers";
-  if (page === "tools") return "Tools";
-  if (page === "environment") return "环境变量";
-  return "运行历史";
-}
-
 export function InspectorWorkbench({ api, project, version }: InspectorWorkbenchProps) {
+  const { t } = useTranslation("app");
   const [page, setPage] = useState<WorkbenchPage>("servers");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [catalogWidth, setCatalogWidth] = useState(300);
@@ -58,7 +63,13 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
   const [toolIntent, setToolIntent] = useState<ToolOpenIntent | null>(null);
   const [activeTool, setActiveTool] = useState<{ connectionId: string; name: string } | null>(null);
   const [oauthConnectionUpdate, setOauthConnectionUpdate] = useState<ConnectionSummary | null>(null);
+  const [testCaseSourceIntent, setTestCaseSourceIntent] = useState<TestCaseSourceIntent | null>(null);
   const serversRef = useRef(servers); serversRef.current = servers;
+  const pageLabels: Record<WorkbenchPage, string> = {
+    servers: t("workbench.nav.servers"), tools: t("workbench.nav.tools"),
+    environment: t("workbench.nav.environment"), history: t("workbench.nav.history"),
+    testing: t("workbench.nav.testing"), suites: t("workbench.nav.suites"), reports: t("workbench.nav.reports"),
+  };
 
   useEffect(() => {
     let channel: BroadcastChannel | null = null;
@@ -115,19 +126,19 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
   }
 
   async function openRunInDebug(run: RunDetail): Promise<void> {
-    if (run.projectId !== project.id) throw new Error("运行记录不属于当前项目");
+    if (run.projectId !== project.id) throw new Error(t("workbench.errors.runProjectMismatch"));
     let connection = serversRef.current.tabs.find(({ id }) => id === run.connectionId);
     if (connection === undefined) {
       const connections = await api.listConnections(project.id);
       connection = connections.find(({ id }) => id === run.connectionId);
     }
-    if (connection === undefined) throw new Error("运行记录所属 Server 已不存在");
+    if (connection === undefined) throw new Error(t("workbench.errors.runServerMissing"));
 
     const detail = await api.getTool(project.id, run.connectionId, run.toolName);
     if (detail.tool.projectId !== project.id || detail.tool.connectionId !== run.connectionId || detail.tool.name !== run.toolName) {
-      throw new Error("Tool 数据与运行记录不匹配");
+      throw new Error(t("workbench.errors.runToolMismatch"));
     }
-    if (detail.tool.status === "removed") throw new Error("该运行记录的 Tool 已移除，无法打开调试");
+    if (detail.tool.status === "removed") throw new Error(t("workbench.errors.runToolRemoved"));
 
     setServers((current) => ({
       tabs: current.tabs.some(({ id }) => id === connection.id) ? current.tabs : [...current.tabs, connection],
@@ -140,6 +151,18 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
       restoreRun: run,
     }));
     setPage("tools");
+  }
+
+  function createTestFromRun(run: RunDetail): void {
+    if (run.projectId !== project.id) return;
+    setTestCaseSourceIntent((current) => ({ sequence: (current?.sequence ?? 0) + 1, source: { kind: "run", run } }));
+    setPage("testing");
+  }
+
+  function createTestFromSaved(item: SavedItemDetail): void {
+    if (item.projectId !== project.id) return;
+    setTestCaseSourceIntent((current) => ({ sequence: (current?.sequence ?? 0) + 1, source: { kind: "saved-item", item } }));
+    setPage("testing");
   }
 
   function navigateServerTabs(event: KeyboardEvent<HTMLButtonElement>, index: number): void {
@@ -165,14 +188,14 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
 
   return (
     <div className={`workbench${sidebarCollapsed ? " workbench--sidebar-collapsed" : ""}`}>
-      <a className="skip-link" href="#workbench-content">跳到主要内容</a>
+      <a className="skip-link" href="#workbench-content">{t("workbench.skipMain")}</a>
       <aside className="workbench-sidebar">
         <div className="workbench-brand" aria-label="MCP Inspector">
           <span className="workbench-brand__mark" aria-hidden="true">M</span>
           <span className="workbench-brand__text"><strong>MCP</strong><small>Inspector</small></span>
         </div>
-        <nav aria-label="工作台导航">
-          {(["servers", "tools", "environment", "history"] as const).map((item) => (
+        <nav aria-label={t("workbench.navigation")}>
+          {(["servers", "tools", "environment", "testing", "suites", "reports", "history"] as const).map((item) => (
             <button
               key={item}
               type="button"
@@ -180,23 +203,24 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
               onClick={() => setPage(item)}
             >
               <NavIcon type={item} active={page === item} />
-              <span>{pageLabel(item)}</span>
+              <span>{pageLabels[item]}</span>
             </button>
           ))}
         </nav>
         <div className="workbench-sidebar__footer">
-          <span className="service-indicator"><i aria-hidden="true" /> <span>本地服务 v{version}</span></span>
+          <span className="service-indicator"><i aria-hidden="true" /> <span>{t("workbench.localService", { version })}</span></span>
           {!sidebarCollapsed && <div className="sidebar-controls">
+            <LanguageSwitcher />
             <button
               type="button"
               className="theme-toggle"
-              aria-label={theme === "light" ? "切换到深色主题" : "切换到浅色主题"}
+              aria-label={theme === "light" ? t("workbench.themeDark") : t("workbench.themeLight")}
               onClick={() => setTheme((current) => toggleTheme(current))}
             >{theme === "light" ? <Moon size={17} aria-hidden="true" /> : <Sun size={17} aria-hidden="true" />}</button>
             <button
               type="button"
               className="sidebar-toggle"
-              aria-label="收起侧边栏"
+              aria-label={t("workbench.collapseSidebar")}
               onClick={() => setSidebarCollapsed(true)}
             ><SidebarSimple size={17} aria-hidden="true" /></button>
           </div>}
@@ -208,12 +232,12 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
           <button
             type="button"
             className="sidebar-restore"
-            aria-label="展开侧边栏"
+            aria-label={t("workbench.expandSidebar")}
             onClick={() => setSidebarCollapsed(false)}
           ><SidebarSimple size={19} aria-hidden="true" /></button>
         )}
         <header className="server-tabbar">
-          <div className="server-tabs" role="tablist" aria-label="已连接 Servers">
+          <div className="server-tabs" role="tablist" aria-label={t("workbench.connectedServers")}>
             {servers.tabs.map((connection, index) => (
               <button
                 key={connection.id}
@@ -234,7 +258,7 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
                 <span>{connection.name}</span>
               </button>
             ))}
-            {servers.tabs.length === 0 && <span className="server-tabs__empty">尚未连接 Server</span>}
+            {servers.tabs.length === 0 && <span className="server-tabs__empty">{t("workbench.noConnectedServers")}</span>}
           </div>
         </header>
 
@@ -242,7 +266,7 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
           {page === "servers" ? (
             <section className="servers-page" aria-labelledby="servers-page-title">
               <header className="page-heading">
-                <div><h1 id="servers-page-title">Servers</h1><p>管理 MCP Server 连接、认证方式和运行状态。</p></div>
+                <div><h1 id="servers-page-title">{t("workbench.serversTitle")}</h1><p>{t("workbench.serversSummary")}</p></div>
               </header>
               <ConnectionPanel
                 api={api}
@@ -255,33 +279,36 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
               />
             </section>
           ) : page === "environment" ? <EnvironmentVariablesPage api={api} projectId={project.id} />
-            : page === "history" ? <RunHistoryPage api={api} projectId={project.id} onOpenDebug={openRunInDebug} /> : (
+            : page === "testing" ? <TestCasesPage api={api} projectId={project.id} sourceIntent={testCaseSourceIntent} />
+            : page === "suites" ? <TestSuitesPage api={api} projectId={project.id} />
+            : page === "reports" ? <TestReportsPage api={api} projectId={project.id} />
+            : page === "history" ? <RunHistoryPage api={api} projectId={project.id} onOpenDebug={openRunInDebug} onCreateTest={createTestFromRun} /> : (
             <section
               id="server-tool-panel"
               className="tools-page"
               role="tabpanel"
-              aria-label={servers.activeId === null ? "Tools" : undefined}
+              aria-label={servers.activeId === null ? t("workbench.toolsPanel") : undefined}
               aria-labelledby={servers.activeId === null ? undefined : `server-tab-${servers.activeId}`}
             >
               {servers.activeId === null ? (
                 <div className="workbench-empty" role="status">
-                  <strong>选择一个已连接的 Server 开始调试</strong>
-                  <p>前往 Servers 页面建立连接，连接成功后会自动创建 Server 页签。</p>
-                  <button type="button" onClick={() => setPage("servers")}>前往 Servers</button>
+                  <strong>{t("workbench.emptyToolsTitle")}</strong>
+                  <p>{t("workbench.emptyToolsHint")}</p>
+                  <button type="button" onClick={() => setPage("servers")}>{t("workbench.openServers")}</button>
                 </div>
               ) : (
                 <div
                   className="tools-layout"
                   style={{ "--tool-catalog-width": `${catalogWidth}px` } as CSSProperties}
                 >
-                  <aside id="tool-catalog" className="tools-catalog" aria-label="Tool 目录">
+                  <aside id="tool-catalog" className="tools-catalog" aria-label={t("workbench.catalog")}>
                     <ConnectionPanel
                       api={api}
                       projectId={project.id}
                       mode="tools"
                       connectionFilterId={servers.activeId}
                       selectedTool={activeTool}
-                      onSelectTool={(tool) => setToolIntent((current) => ({ sequence: (current?.sequence ?? 0) + 1, tool, newTab: false }))}
+                      onSelectTool={(tool) => setToolIntent((current) => ({ sequence: (current?.sequence ?? 0) + 1, tool, newTab: true }))}
                       onOpenTool={(tool) => setToolIntent((current) => ({ sequence: (current?.sequence ?? 0) + 1, tool, newTab: true }))}
                     />
                   </aside>
@@ -289,7 +316,7 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
                     className="catalog-resize-handle"
                     role="separator"
                     tabIndex={0}
-                    aria-label="调整 Tool 目录宽度"
+                    aria-label={t("workbench.resizeCatalog")}
                     aria-orientation="vertical"
                     aria-valuemin={260}
                     aria-valuemax={380}
@@ -303,7 +330,7 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
                     }}
                   ><span aria-hidden="true" /></div>
                   <DebugWorkspace api={api} projectId={project.id} connectionId={servers.activeId}
-                    toolIntent={toolIntent} onActiveToolChange={setActiveTool} />
+                    toolIntent={toolIntent} onActiveToolChange={setActiveTool} onCreateTestFromSaved={createTestFromSaved} />
                 </div>
               )}
             </section>

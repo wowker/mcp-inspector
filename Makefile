@@ -125,8 +125,8 @@ release-check:
 		npm_user=$$($(NPM) whoami --registry=$(NPM_REGISTRY)); \
 		[ "$$npm_user" = "$(NPM_USER)" ] || { echo "npm login must use $(NPM_USER) on $(NPM_REGISTRY)"; exit 1; }
 	$(NPM) run verify
+	$(NPM) run verify:release-artifacts
 	$(NPM) audit --omit=dev --audit-level=high --registry=$(NPM_REGISTRY)
-	$(NPM) pack --dry-run --registry=$(NPM_REGISTRY)
 
 publish:
 	@if [ "$(CONFIRM)" != "publish" ]; then \
@@ -134,7 +134,7 @@ publish:
 		exit 1; \
 	fi
 	@$(MAKE) --no-print-directory release-check
-	$(NPM) publish --access public --tag latest --registry=$(NPM_REGISTRY)
+	$(NPM) publish .release/package.tgz --access public --tag latest --registry=$(NPM_REGISTRY)
 
 help:
 	@echo "make / make restart  Install missing dependencies, rebuild, and restart"

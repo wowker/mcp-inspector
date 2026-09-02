@@ -6,7 +6,8 @@ const connectionId = "00000000-0000-4000-8000-000000000702";
 const tabId = "00000000-0000-4000-8000-000000000703";
 const tab = { id: tabId, projectId, connectionId, toolName: "sum", title: "sum", position: 0,
   pinned: false, inputMode: "form", arguments: { a: 1 }, rawText: '{"a":1}',
-  viewState: { editorScrollTop: 0, resultScrollTop: 0, splitRatio: 0.5 }, lastRunId: null };
+  viewState: { editorScrollTop: 0, resultScrollTop: 0, splitRatio: 0.5,
+    requestExpanded: true, responseExpanded: true }, lastRunId: null };
 
 describe("Tab API client", () => {
   const fetchMock = vi.fn();
@@ -28,6 +29,7 @@ describe("Tab API client", () => {
     ["long Raw", { ...tab, rawText: "x".repeat(2_000_001) }],
     ["negative scroll", { ...tab, viewState: { ...tab.viewState, editorScrollTop: -1 } }],
     ["large split", { ...tab, viewState: { ...tab.viewState, splitRatio: 0.81 } }],
+    ["bad request expansion", { ...tab, viewState: { ...tab.viewState, requestExpanded: "yes" } }],
     ["bad last Run", { ...tab, lastRunId: "bad" }],
   ])("rejects list response with %s", async (_label, invalid) => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ tabs: [invalid] }), { status: 200,
@@ -52,7 +54,7 @@ describe("Tab API client", () => {
       headers: { "Content-Type": "application/json" } }));
     await createApiClient("session").updateTab(projectId, tabId, { pinned: true });
     expect(fetchMock).toHaveBeenCalledWith(`/api/projects/${projectId}/tabs/${tabId}`,
-      expect.objectContaining({ method: "PATCH", headers: expect.objectContaining({ "X-MCP-Inspector-Session": "session" }),
+      expect.objectContaining({ method: "PATCH", headers: expect.not.objectContaining({ "X-MCP-Inspector-Session": expect.anything() }),
         body: JSON.stringify({ pinned: true }) }));
   });
 

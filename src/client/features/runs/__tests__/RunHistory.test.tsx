@@ -4,12 +4,14 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { InspectorApiClient, RunSummary } from "../../../api/api-client.js";
 import { RunHistory } from "../RunHistory.js";
+import "../../../i18n/index.js";
 
 const projectId = "00000000-0000-4000-8000-000000000811";
 function item(id: string, createdAt: string, tabId: string | null): RunSummary {
   return { id, projectId, connectionId: "00000000-0000-4000-8000-000000000812", tabId, toolName: "sum",
     toolSnapshotId: "00000000-0000-4000-8000-000000000813", idempotencyKey: id, status: "succeeded",
-    createdAt, startedAt: createdAt, completedAt: createdAt, durationMs: 12, networkDurationMs: 8 };
+    createdAt, startedAt: createdAt, completedAt: createdAt, durationMs: 12, networkDurationMs: 8,
+    pinned: false, replayedFromRunId: null };
 }
 
 describe("RunHistory", () => {
@@ -60,5 +62,18 @@ describe("RunHistory", () => {
     resolveOld({ runs: [stale], nextCursor: null });
     await waitFor(() => expect(screen.queryByText(stale.id)).not.toBeInTheDocument());
     expect(listRuns).toHaveBeenLastCalledWith(projectId, undefined, { tabId, connectionId, toolName: "current_tool" });
+  });
+
+  it("pins a project Run without opening it and reflects the authoritative response", async () => {
+    const run = item("00000000-0000-4000-8000-000000000821", "2026-08-17T00:00:00.000Z", null);
+    const onOpen = vi.fn();
+    const setRunPinned = vi.fn(async () => ({ ...run, pinned: true }));
+    const api = { listRuns: vi.fn(async () => ({ runs: [run], nextCursor: null })), setRunPinned } as unknown as InspectorApiClient;
+    render(<RunHistory api={api} projectId={projectId} allowPinning onOpen={onOpen} />);
+    const pin = await screen.findByRole("button", { name: `固定运行 ${run.id}` });
+    fireEvent.click(pin);
+    await waitFor(() => expect(setRunPinned).toHaveBeenCalledWith(projectId, run.id, true));
+    expect(screen.getByRole("button", { name: `取消固定运行 ${run.id}` })).toHaveAttribute("aria-pressed", "true");
+    expect(onOpen).not.toHaveBeenCalled();
   });
 });

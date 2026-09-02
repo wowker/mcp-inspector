@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import { createApp } from "../app.js";
+import { createApp, createSessionBootstrap } from "../app.js";
 import { createRuntimeConfig } from "../config/runtime-config.js";
 import { APP_VERSION } from "../config/app-version.js";
 
@@ -39,6 +39,40 @@ describe("createApp", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, version: "0.1.0" });
+  });
+
+  test("exchanges a single-use bootstrap ticket for an HttpOnly session cookie", async () => {
+    const sessionBootstrap = createSessionBootstrap();
+    const app = createApp({
+      sessionToken: "test-session",
+      sessionBootstrap,
+      allowedOrigin: "http://127.0.0.1:5173",
+      version: "0.1.0",
+    });
+    const ticket = sessionBootstrap.issue();
+
+    const bootstrap = await app.request(`/bootstrap/${ticket}`);
+
+    expect(bootstrap.status).toBe(302);
+    expect(bootstrap.headers.get("Location")).toBe("http://127.0.0.1:5173/");
+    expect(bootstrap.headers.get("Cache-Control")).toBe("no-store");
+    const cookie = bootstrap.headers.get("Set-Cookie") ?? "";
+    expect(cookie).toContain("mcp_inspector_session=test-session");
+    expect(cookie).toContain("HttpOnly");
+    expect(cookie).toContain("SameSite=Strict");
+    expect(cookie).toContain("Path=/api");
+
+    const authenticated = await app.request("/api/health", {
+      headers: {
+        Origin: "http://127.0.0.1:5173",
+        Cookie: cookie.split(";", 1)[0],
+      },
+    });
+    expect(authenticated.status).toBe(200);
+
+    const replay = await app.request(`/bootstrap/${ticket}`);
+    expect(replay.status).toBe(400);
+    expect(replay.headers.get("Set-Cookie")).toBeNull();
   });
 
   test("rejects an invalid session token", async () => {
@@ -125,8 +159,10 @@ describe("OAuth callback", () => {
     expect(returnResponse.headers.get("Cache-Control")).toBe("no-store");
     expect(returnResponse.headers.get("Referrer-Policy")).toBe("no-referrer");
     expect(returnResponse.headers.get("Location")).toBe(
-      "http://127.0.0.1:5173/?session=test-session#servers",
+      "http://127.0.0.1:5173/#servers",
     );
+    expect(returnResponse.headers.get("Set-Cookie")).toContain("mcp_inspector_session=test-session");
+    expect(returnResponse.headers.get("Set-Cookie")).toContain("HttpOnly");
 
     const replayResponse = await app.request(returnPath!);
     expect(replayResponse.status).toBe(400);
@@ -147,6 +183,30 @@ describe("OAuth callback", () => {
     expect(html).toContain("oauth-status--error");
     expect(html).toContain("返回 Inspector 后重新连接");
     expect(response.headers.get("Content-Security-Policy")).toContain("style-src 'nonce-");
+  });
+
+  test("uses the shared locale preference for OAuth callback pages", async () => {
+    const completeOAuth = vi.fn(async () => "connection-1");
+    const app = createApp({
+      sessionToken: "test-session", allowedOrigin: "http://127.0.0.1:5173", version: "0.1.0",
+      connections: { completeOAuth } as never,
+    });
+
+    const preferred = await app.request("/oauth/callback?state=state-1&code=code-1", {
+      headers: { Cookie: "mcp_inspector_locale=en-US", "Accept-Language": "zh-CN,zh;q=0.9" },
+    });
+    const preferredHtml = await preferred.text();
+    expect(preferredHtml).toContain('<html lang="en-US">');
+    expect(preferredHtml).toContain("OAuth authorization complete");
+    expect(preferredHtml).toContain("Return to MCP Inspector");
+
+    vi.mocked(completeOAuth).mockRejectedValueOnce(new Error("denied"));
+    const negotiated = await app.request("/oauth/callback?state=bad&error=access_denied", {
+      headers: { "Accept-Language": "en-GB,en;q=0.8" },
+    });
+    const negotiatedHtml = await negotiated.text();
+    expect(negotiatedHtml).toContain('<html lang="en-US">');
+    expect(negotiatedHtml).toContain("OAuth authorization failed");
   });
 });
 

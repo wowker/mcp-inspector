@@ -9,11 +9,13 @@ const projectId = "00000000-0000-4000-8000-000000000841"; const connectionId = "
 const tabId = "00000000-0000-4000-8000-000000000843"; const runId = "00000000-0000-4000-8000-000000000844";
 const tab: DebugTabSummary = { id: tabId, projectId, connectionId, toolName: "sum", title: "sum", position: 0, pinned: false,
   inputMode: "form", arguments: { a: 1 }, rawText: '{\n  "a": 1\n}', viewState: { editorScrollTop: 0, resultScrollTop: 0, splitRatio: 0.5 }, lastRunId: null };
-const tool: ToolDetailSummary = { tool: { projectId, connectionId, name: "sum", status: "current", folderId: null, updatedAt: "2026-08-17T00:00:00.000Z",
+const tool: ToolDetailSummary = { tool: { projectId, connectionId, name: "sum", status: "current", folderId: null,
+  favorite: false, lastUsedAt: null, updatedAt: "2026-08-17T00:00:00.000Z",
   currentSnapshot: { id: "00000000-0000-4000-8000-000000000845", projectId, connectionId, toolName: "sum", contentHash: "a".repeat(64),
     createdAt: "2026-08-17T00:00:00.000Z", definition: { name: "sum", inputSchema: { type: "object", properties: { a: { type: "number" } } } } } }, snapshots: [] };
 const summary: RunSummary = { id: runId, projectId, connectionId, tabId, toolName: "sum", toolSnapshotId: tool.tool.currentSnapshot.id,
-  idempotencyKey: "once", status: "queued", createdAt: "2026-08-17T00:00:00.000Z", startedAt: null, completedAt: null, durationMs: null, networkDurationMs: null };
+  idempotencyKey: "once", status: "queued", createdAt: "2026-08-17T00:00:00.000Z", startedAt: null, completedAt: null,
+  durationMs: null, networkDurationMs: null, pinned: false, replayedFromRunId: null };
 function detail(owner: string | null = tabId): RunDetail { return { ...summary, tabId: owner, status: "succeeded", startedAt: "2026-08-17T00:00:00.000Z",
   completedAt: "2026-08-17T00:00:00.010Z", durationMs: 10, networkDurationMs: 5, toolSnapshotHash: "a".repeat(64), protocolVersion: "2025-06-18",
   serverInfo: { name: "fixture" }, clientInfo: { name: "Inspector" }, request: { arguments: { a: 2 }, jsonrpc: {}, http: null },

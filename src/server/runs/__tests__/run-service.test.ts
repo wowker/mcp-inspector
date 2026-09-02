@@ -516,7 +516,7 @@ describe("RunService", () => {
       projects.open(projectId).database.prepare("UPDATE run_requests SET arguments_json = 'not-json' WHERE run_id = ?").run(runs[0].id);
       expect(() => service.get(projectId, runs[0].id)).toThrow(/corrupt/i);
       expect(projects.open(projectId).database.prepare("SELECT version FROM schema_migrations ORDER BY version").all())
-        .toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((version) => ({ version })));
+        .toEqual(Array.from({ length: 18 }, (_, index) => ({ version: index + 1 })));
       const store = projects.open(projectId); const snapshotId = store.database.prepare("SELECT id FROM tool_snapshots LIMIT 1").get() as { id: string };
       const insert = store.database.prepare(`INSERT INTO runs
         (id, project_id, connection_id, tab_id, tool_name, tool_snapshot_id, idempotency_key, status, created_at, client_info_json)
@@ -550,11 +550,52 @@ describe("RunService", () => {
       expect(currentTool.runs.every((run) => run.tabId === tabA.id && run.connectionId === connectionId && run.toolName === "sum")).toBe(true);
       expect(() => service.list(projectId, undefined, { tabId: "00000000-0000-4000-8000-000000000799" })).toThrow(/Tab not found/i);
       const repository = new RunRepository(projects.open(projectId), service.eventBus);
-      const small = repository.list(projectId, undefined, 10, { tabId: tabA.id, connectionId, toolName: "sum" });
+      const small = repository.list(projectId, undefined, { tabId: tabA.id, connectionId, toolName: "sum", limit: 10 });
       expect(small.runs).toHaveLength(10); expect(small.nextCursor).not.toBeNull();
-      expect(repository.list(projectId, small.nextCursor!, 10, { tabId: tabA.id, connectionId, toolName: "sum" }).runs).toHaveLength(10);
-      expect(() => repository.list(projectId, small.nextCursor!, 10, { tabId: tabA.id, connectionId, toolName: "previous_sum" })).toThrow(/cursor/i);
-      expect(() => repository.list(projectId, small.nextCursor!, 10, { tabId: tabB.id, connectionId, toolName: "sum" })).toThrow(/cursor/i);
+      expect(repository.list(projectId, small.nextCursor!, { tabId: tabA.id, connectionId, toolName: "sum", limit: 10 }).runs).toHaveLength(10);
+      expect(() => repository.list(projectId, small.nextCursor!, { tabId: tabA.id, connectionId, toolName: "previous_sum", limit: 10 })).toThrow(/cursor/i);
+      expect(() => repository.list(projectId, small.nextCursor!, { tabId: tabB.id, connectionId, toolName: "sum", limit: 10 })).toThrow(/cursor/i);
+    } finally { projects.close(); }
+  });
+
+  it("filters history deterministically and pins Runs without opening or executing a Tool", () => {
+    const { projects, service, tabA, session } = fixture();
+    try {
+      const original = service.start({ projectId, tabId: tabA.id, idempotencyKey: "filter-original", arguments: { a: 1 } });
+      service.cancel(projectId, original.id);
+      const replay = service.start({ projectId, tabId: tabA.id, idempotencyKey: "filter-replay", arguments: { a: 2 } });
+      service.cancel(projectId, replay.id);
+      const store = projects.open(projectId);
+      store.database.prepare("UPDATE runs SET replayed_from_run_id = ?, created_at = ? WHERE id = ?")
+        .run(original.id, "2026-09-01T00:00:02.000Z", replay.id);
+      store.database.prepare("UPDATE runs SET created_at = ? WHERE id = ?")
+        .run("2026-09-01T00:00:01.000Z", original.id);
+
+      expect(service.setPinned(projectId, replay.id, true)).toMatchObject({ id: replay.id, pinned: true });
+      expect(service.setPinned(projectId, replay.id, true)).toMatchObject({ id: replay.id, pinned: true });
+      expect(service.list(projectId, undefined, {
+        status: "cancelled", origin: "REPLAY", pinned: true,
+        createdFrom: "2026-09-01T00:00:02.000Z", createdTo: "2026-09-01T00:00:02.000Z",
+      }).runs.map(({ id }) => id)).toEqual([replay.id]);
+      expect(service.list(projectId, undefined, { origin: "ORIGINAL" }).runs.map(({ id }) => id))
+        .toContain(original.id);
+      expect(session.calls).toHaveLength(0);
+    } finally { projects.close(); }
+  });
+
+  it("binds history cursors to the complete normalized filter and page limit", () => {
+    const { projects, service, tabA } = fixture();
+    try {
+      for (let index = 0; index < 3; index += 1) {
+        const run = service.start({ projectId, tabId: tabA.id, idempotencyKey: `bounded-${index}`, arguments: { a: index } });
+        service.cancel(projectId, run.id);
+      }
+      const first = service.list(projectId, undefined, { status: "cancelled", limit: 2 });
+      expect(first.runs).toHaveLength(2);
+      expect(first.nextCursor).not.toBeNull();
+      expect(service.list(projectId, first.nextCursor!, { status: "cancelled", limit: 2 }).runs).toHaveLength(1);
+      expect(() => service.list(projectId, first.nextCursor!, { status: "failed", limit: 2 })).toThrow(/cursor/i);
+      expect(() => service.list(projectId, first.nextCursor!, { status: "cancelled", limit: 3 })).toThrow(/cursor/i);
     } finally { projects.close(); }
   });
 });

@@ -69,4 +69,18 @@ describe("EnvironmentService", () => {
       expect(service.list(projectId, null)).toEqual([]);
     } finally { projects.close(); }
   });
+
+  it("keeps project and Server secret provenance separate", () => {
+    const { projects, projectId, connectionId, service } = fixture();
+    try {
+      service.set(projectId, null, "TOKEN", { value: "project-secret", secret: true });
+      service.set(projectId, connectionId, "TOKEN", { value: "server-public", secret: false });
+      expect(service.resolveDetailed(projectId, connectionId)).toEqual({
+        project: { TOKEN: "project-secret" },
+        server: { TOKEN: "server-public" },
+        projectSecretNames: ["TOKEN"],
+        serverSecretNames: [],
+      });
+    } finally { projects.close(); }
+  });
 });

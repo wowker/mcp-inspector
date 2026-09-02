@@ -9,7 +9,8 @@ import { TabRepository, type DebugTab, type TabViewState } from "./tab-repositor
 
 const uuid = z.string().uuid();
 const viewState = z.object({ editorScrollTop: z.number().finite().min(0), resultScrollTop: z.number().finite().min(0),
-  splitRatio: z.number().finite().min(0.2).max(0.8) }).strict();
+  splitRatio: z.number().finite().min(0.2).max(0.8), requestExpanded: z.boolean().optional(),
+  responseExpanded: z.boolean().optional() }).strict();
 export class TabNotFoundError extends Error { constructor() { super("Tab not found"); this.name = "TabNotFoundError"; } }
 export class InvalidTabError extends Error { constructor(message = "Tab payload is invalid") { super(message); this.name = "InvalidTabError"; } }
 
@@ -74,7 +75,8 @@ export function createTabService(projects: ProjectService, connections: Connecti
     const scopedTabs = repo(projectId).list(projectId, connectionId);
     return { id, projectId, connectionId, toolName, title: titleFor(projectId, connectionId, toolName),
       position: (scopedTabs.at(-1)?.position ?? -1) + 1, pinned: false, inputMode: "form", arguments: {}, rawText: "",
-      viewState: { editorScrollTop: 0, resultScrollTop: 0, splitRatio: 0.5 }, lastRunId: null };
+      viewState: { editorScrollTop: 0, resultScrollTop: 0, splitRatio: 0.5,
+        requestExpanded: true, responseExpanded: true }, lastRunId: null };
   }
   return {
     list(projectId, connectionId) { connections.get(projectId, connectionId); return repo(projectId).list(projectId, connectionId); },

@@ -9,7 +9,8 @@ const uuid = z.string().uuid();
 const openBody = z.object({ connectionId: uuid, toolName: z.string().max(512).refine((value) => value.trim().length > 0) }).strict();
 const replaceBody = openBody;
 const viewState = z.object({ editorScrollTop: z.number().finite().min(0), resultScrollTop: z.number().finite().min(0),
-  splitRatio: z.number().finite().min(0.2).max(0.8) }).strict();
+  splitRatio: z.number().finite().min(0.2).max(0.8), requestExpanded: z.boolean().optional(),
+  responseExpanded: z.boolean().optional() }).strict();
 const patchBody = z.object({ title: z.string().min(1).max(180).optional(), pinned: z.boolean().optional(),
   inputMode: z.enum(["form", "raw"]).optional(), arguments: z.record(z.string(), z.unknown()).optional(),
   rawText: z.string().max(2_000_000).optional(), viewState: viewState.optional(),

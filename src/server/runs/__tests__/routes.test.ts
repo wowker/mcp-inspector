@@ -12,7 +12,7 @@ const tabId = "00000000-0000-4000-8000-000000000704";
 const summary: RunSummary = { id: runId, projectId, connectionId: "00000000-0000-4000-8000-000000000702",
   tabId, toolName: "sum", toolSnapshotId: "00000000-0000-4000-8000-000000000705", idempotencyKey: "submit",
   status: "queued", createdAt: "2026-08-17T00:00:00.000Z", startedAt: null, completedAt: null,
-  durationMs: null, networkDurationMs: null };
+  durationMs: null, networkDurationMs: null, pinned: false, replayedFromRunId: null };
 const detail: RunDetail = { ...summary, toolSnapshotHash: "a".repeat(64), protocolVersion: null, serverInfo: null, clientInfo: {},
   request: { arguments: { a: 1 }, jsonrpc: {}, http: null }, response: null, events: [] };
 
@@ -22,7 +22,8 @@ function fake(overrides: Partial<RunServiceWithEvents> = {}): RunServiceWithEven
     list: () => ({ runs: [summary], nextCursor: null }), getSummary: () => summary, get: () => detail,
     assertExists: () => summary,
     startInvocation: () => summary,
-    waitForTerminal: async () => detail,
+    startReplayInvocation: () => summary,
+    waitForTerminal: async () => detail, setPinned: () => summary,
     events: () => [], close: async () => undefined, ...overrides,
   };
 }
@@ -59,6 +60,30 @@ describe("run routes", () => {
     expect(list).toHaveBeenCalledWith(projectId, "opaque", { tabId, connectionId: summary.connectionId, toolName: "sum" });
     expect((await createRunRoutes(fake()).request(`/${projectId}/runs?connectionId=bad`)).status).toBe(400);
     expect((await createRunRoutes(fake()).request(`/${projectId}/runs?toolName=%20sum`)).status).toBe(400);
+  });
+
+  it("validates extended filters and exposes an idempotent project-fenced pin mutation", async () => {
+    const list = vi.fn(() => ({ runs: [summary], nextCursor: null }));
+    const response = await createRunRoutes(fake({ list })).request(
+      `/${projectId}/runs?status=failed&origin=REPLAY&pinned=true&createdFrom=2026-09-01T00%3A00%3A00.000Z&limit=25`);
+    expect(response.status).toBe(200);
+    expect(list).toHaveBeenCalledWith(projectId, undefined, {
+      status: "failed", origin: "REPLAY", pinned: true,
+      createdFrom: "2026-09-01T00:00:00.000Z", limit: 25,
+    });
+    expect((await createRunRoutes(fake()).request(`/${projectId}/runs?pinned=yes`)).status).toBe(400);
+    expect((await createRunRoutes(fake()).request(`/${projectId}/runs?limit=101`)).status).toBe(400);
+
+    const setPinned = vi.fn(() => ({ ...summary, pinned: true }));
+    const pinned = await createRunRoutes(fake({ setPinned })).request(`/${projectId}/runs/${runId}/pin`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pinned: true }),
+    });
+    expect(pinned.status).toBe(200);
+    expect(await pinned.json()).toEqual({ run: { ...summary, pinned: true } });
+    expect(setPinned).toHaveBeenCalledWith(projectId, runId, true);
+    expect((await createRunRoutes(fake()).request(`/${projectId}/runs/${runId}/pin`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pinned: "yes" }),
+    })).status).toBe(400);
   });
 
   it("returns only the lightweight project-scoped Run summary for status observation", async () => {

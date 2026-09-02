@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState,
+  type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { X } from "@phosphor-icons/react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import type {
   CatalogToolSummary,
@@ -13,16 +15,24 @@ import type {
 } from "../../api/api-client.js";
 import { formatRawArguments, parseRawArguments } from "../../../shared/json.js";
 import { confirmToast } from "../../app/AppToaster.js";
+import { SplitPanePresets, type SplitPanePreset } from "../../components/layout/SplitPanePresets.js";
 import { RunHistory } from "../runs/RunHistory.js";
 import { EmptyRunResultPanel, RunResultPanel } from "../runs/RunResultPanel.js";
 import { useRunEvents, useRunPolling } from "../runs/use-run-events.js";
 import { ParameterEditor } from "./ParameterEditor.js";
 import { TabStrip } from "./TabStrip.js";
-import { ToolDefinitionView } from "./ToolDefinitionView.js";
 import { SavedItemDialog } from "../saved-items/SavedItemDialog.js";
 import { SavedItemsView } from "../saved-items/SavedItemsView.js";
-import { schemaHasEditableArguments } from "./schema-form.js";
-import { ScriptWorkflowView } from "./ScriptWorkflowView.js";
+import { schemaHasEditableArguments, valueAtJsonPointer } from "./schema-form.js";
+
+const ToolDefinitionView = lazy(async () => {
+  const module = await import("./ToolDefinitionView.js");
+  return { default: module.ToolDefinitionView };
+});
+const ScriptWorkflowView = lazy(async () => {
+  const module = await import("./ScriptWorkflowView.js");
+  return { default: module.ScriptWorkflowView };
+});
 
 export interface ToolOpenIntent {
   sequence: number;
@@ -34,6 +44,7 @@ interface Props {
   api: InspectorApiClient; projectId: string; connectionId?: string; toolIntent?: ToolOpenIntent | null;
   onExecute?: (tab: DebugTabSummary) => void;
   onActiveToolChange?: (tool: { connectionId: string; name: string } | null) => void;
+  onCreateTestFromSaved?: (item: import("../../api/api-client.js").SavedItemDetail) => void;
 }
 
 type WorkspaceView = "debug" | "definition" | "script" | "history" | "saved";
@@ -49,6 +60,16 @@ interface SaveIntent {
   kind: "request" | "response"; payload: unknown; sourceRunId: string | null;
 }
 const terminalRunStatuses = new Set(["succeeded", "failed", "cancelled", "interrupted"]);
+const splitPaneRatios: Record<SplitPanePreset, number> = {
+  request: 0.65,
+  balanced: 0.5,
+  result: 0.35,
+};
+
+function splitPanePreset(ratio: number): SplitPanePreset | "custom" {
+  return (Object.entries(splitPaneRatios) as Array<[SplitPanePreset, number]>)
+    .find(([, presetRatio]) => Math.abs(presetRatio - ratio) < 0.001)?.[0] ?? "custom";
+}
 
 function ActiveRunObserver({ api, projectId, tabId, runId, selected, onUpdate }: {
   api: InspectorApiClient; projectId: string; tabId: string; runId: string; selected: boolean;
@@ -66,7 +87,8 @@ export function DebugWorkspace(props: Props) {
   return <ProjectWorkspace key={`${props.projectId}:${props.connectionId ?? "test"}`} {...props} />;
 }
 
-function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null, onExecute, onActiveToolChange }: Props) {
+function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null, onExecute, onActiveToolChange, onCreateTestFromSaved }: Props) {
+  const { t } = useTranslation("tools");
   const [tabs, setTabs] = useState<DebugTabSummary[] | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [boundDetail, setBoundDetail] = useState<BoundToolDetail | null>(null);
@@ -81,8 +103,6 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
   const [activeObservations, setActiveObservations] = useState<Record<string, ActiveObservation>>({});
   const [saveIntent, setSaveIntent] = useState<SaveIntent | null>(null);
   const [savedRevision, setSavedRevision] = useState(0);
-  const [parameterExpansion, setParameterExpansion] = useState<Record<string, boolean>>({});
-  const [responseExpansion, setResponseExpansion] = useState<Record<string, boolean>>({});
   const [workflowExecutions, setWorkflowExecutions] = useState<Record<string, WorkflowExecutionDetail>>({});
   const tabsRef = useRef<DebugTabSummary[]>([]);
   const activeRef = useRef<string | null>(null);
@@ -102,6 +122,8 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
   const settledLastRuns = useRef(new Map<string, string>());
   const requestPaneRef = useRef<HTMLDivElement>(null);
   const resultPaneRef = useRef<HTMLDivElement>(null);
+  const saveTabFallbackRef = useRef(t("workspace.errors.saveTab"));
+  saveTabFallbackRef.current = t("workspace.errors.saveTab");
 
   function assign(next: DebugTabSummary[]): void {
     tabsRef.current = next; setTabs(next);
@@ -110,8 +132,7 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
       for (const [tabId, drafts] of Object.entries(current)) {
         const tab = next.find((item) => item.id === tabId); if (tab === undefined) continue;
         const valid = Object.fromEntries(Object.entries(drafts).filter(([path, draft]) => {
-          const key = path.slice(1).replaceAll("~1", "/").replaceAll("~0", "~");
-          const canonical = path === "" ? tab.arguments : tab.arguments[key];
+          const canonical = valueAtJsonPointer(tab.arguments, path);
           return draft.base === (canonical === undefined ? "" : JSON.stringify(canonical, null, 2));
         }));
         if (Object.keys(valid).length > 0) retained[tabId] = valid;
@@ -132,9 +153,9 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
       if (navigator.clipboard === undefined) throw new Error("Clipboard is unavailable");
       await navigator.clipboard.writeText(toolName);
       setMessage(null);
-      toast.success("Tool 名称已复制");
+      toast.success(t("workspace.copiedName"));
     } catch {
-      setMessage("无法复制 Tool 名称，请检查浏览器剪贴板权限。");
+      setMessage(t("workspace.copyNameFailed"));
     }
   }
 
@@ -158,7 +179,7 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
             pending.current.set(id, { revision: Math.max(captured.revision, newer?.revision ?? 0),
               patch: { ...captured.patch, ...(newer?.patch ?? {}) } });
             renderDirtyState((value) => value + 1);
-            setMessage(error instanceof Error ? error.message : "保存 Tab 失败");
+            setMessage(error instanceof Error ? error.message : saveTabFallbackRef.current);
             throw error;
           }
         });
@@ -191,12 +212,12 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
     void api.listTabs(projectId, connectionId).then((loaded) => {
       if (loadGeneration.current !== generation) return;
       if (connectionId !== "" && loaded.some((tab) => tab.connectionId !== connectionId)) {
-        throw new Error("Tab 列表与当前 Server 不匹配");
+        throw new Error(t("workspace.errors.tabConnectionMismatch"));
       }
       let stored: string | null = null;
       try { stored = sessionStorage.getItem(`${ACTIVE_TAB_KEY_PREFIX}${projectId}:${connectionId}`); } catch { /* Ignore unavailable storage. */ }
       assign(loaded); activate(loaded.some(({ id }) => id === stored) ? stored : loaded[0]?.id ?? null);
-    }).catch((error: unknown) => { if (loadGeneration.current === generation) setMessage(error instanceof Error ? error.message : "加载 Tabs 失败"); });
+    }).catch((error: unknown) => { if (loadGeneration.current === generation) setMessage(error instanceof Error ? error.message : t("workspace.errors.loadTabs")); });
     const scope = ++workspaceGeneration.current;
     return () => { loadGeneration.current += 1; if (workspaceGeneration.current === scope) workspaceGeneration.current += 1;
       for (const controller of workflowControllers.current.values()) controller.abort(); workflowControllers.current.clear(); activeWorkflows.current.clear();
@@ -252,14 +273,14 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
       if (loadGeneration.current === generation && activeRef.current === active.id) {
         setBoundDetail({ tabId: active.id, connectionId: active.connectionId, toolName: active.toolName, value });
       }
-    }).catch((error: unknown) => { if (loadGeneration.current === generation) { setBoundDetail(null); setMessage(error instanceof Error ? error.message : "加载 Tool 失败"); } });
+    }).catch((error: unknown) => { if (loadGeneration.current === generation) { setBoundDetail(null); setMessage(error instanceof Error ? error.message : t("workspace.errors.loadTool")); } });
     if (typeof api.getToolWorkflow === "function") {
       void Promise.resolve(api.getToolWorkflow(projectId, active.connectionId, active.toolName)).then((workflow) => {
         if (workflow === undefined) return;
         if (loadGeneration.current === generation && activeRef.current === active.id) {
           setBoundWorkflow({ tabId: active.id, connectionId: active.connectionId, toolName: active.toolName, value: workflow });
         }
-      }).catch((error: unknown) => { if (loadGeneration.current === generation) setMessage(error instanceof Error ? error.message : "加载脚本配置失败"); });
+      }).catch((error: unknown) => { if (loadGeneration.current === generation) setMessage(error instanceof Error ? error.message : t("workspace.errors.loadWorkflow")); });
     }
   }, [active?.connectionId, active?.id, active?.toolName, api, projectId]);
 
@@ -282,7 +303,7 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
     }).catch((error: unknown) => {
       if (query.signal.aborted || workspaceGeneration.current !== scope) return;
       setStartingIds((current) => { const next = new Set(current); next.delete(tabId); return next; });
-      setMessage(error instanceof Error ? error.message : "恢复流水线状态失败");
+      setMessage(error instanceof Error ? error.message : t("workspace.errors.restoreWorkflow"));
     });
     return () => {
       query.abort();
@@ -303,7 +324,7 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
       const restoreRun = intent.restoreRun;
       if (restoreRun !== undefined && (restoreRun.projectId !== projectId ||
         restoreRun.connectionId !== intent.tool.connectionId || restoreRun.toolName !== intent.tool.name)) {
-        throw new Error("历史记录与目标 Tool 不匹配");
+        throw new Error(t("workspace.errors.historyTargetMismatch"));
       }
       const current = tabsRef.current.find(({ id }) => id === activeRef.current);
       let opened = intent.newTab || current === undefined || current.pinned
@@ -325,7 +346,7 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
         setSelectedRuns((selected) => ({ ...selected, [opened.id]: restoreRun.id }));
       }
       activate(opened.id); setView("debug");
-    }).catch((error: unknown) => { if (workspaceGeneration.current === scope) setMessage(error instanceof Error ? error.message : "无法打开 Tool Tab"); });
+    }).catch((error: unknown) => { if (workspaceGeneration.current === scope) setMessage(error instanceof Error ? error.message : t("workspace.errors.openTab")); });
   }, [api, connectionId, flush, projectId, tabs, toolIntent]);
 
   async function reconcileLaunch(id: string): Promise<boolean> {
@@ -341,7 +362,7 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
         setStartingIds((current) => { const next = new Set(current); next.delete(id); return next; });
       }
       return true;
-    } catch (error) { setMessage(error instanceof Error ? error.message : "检查运行状态失败"); return false; }
+    } catch (error) { setMessage(error instanceof Error ? error.message : t("workspace.errors.checkRun")); return false; }
   }
   async function select(id: string): Promise<void> {
     if (!(await flush(activeRef.current ?? undefined))) return; await reconcileLaunch(id); activate(id); setView("debug");
@@ -357,13 +378,13 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
         const currentOrigin = tabsRef.current.find(({ id }) => id === origin.id);
         if (currentOrigin === undefined || detail.tabId !== currentOrigin.id || detail.connectionId !== currentOrigin.connectionId
           || detail.toolName !== currentOrigin.toolName) {
-          setMessage("历史记录与当前 Tool 不匹配"); return;
+          setMessage(t("workspace.errors.historyToolMismatch")); return;
         }
         schedule(currentOrigin.id, { arguments: detail.request.arguments, rawText: formatRawArguments(detail.request.arguments) });
         setSelectedRuns((current) => ({ ...current, [currentOrigin.id]: detail.id }));
         activate(currentOrigin.id); setView("debug");
       } catch (error) {
-        if (workspaceGeneration.current === scope) setMessage(error instanceof Error ? error.message : "加载运行历史失败");
+        if (workspaceGeneration.current === scope) setMessage(error instanceof Error ? error.message : t("workspace.errors.loadHistory"));
       }
       return;
     }
@@ -374,7 +395,7 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
     setReadOnlyTabs((current) => current.filter(({ id }) => id !== runId));
     if (activeReadOnlyId === runId) { const fallback = tabsRef.current[0]?.id ?? null; setActiveReadOnlyId(null); activate(fallback); }
   }
-  function actionError(error: unknown): void { setMessage(error instanceof Error ? error.message : "Tab 操作失败"); }
+  function actionError(error: unknown): void { setMessage(error instanceof Error ? error.message : t("workspace.errors.tabAction")); }
   async function close(id: string): Promise<void> {
     try {
       if (tabsRef.current.find((tab) => tab.id === id)?.pinned === true) return;
@@ -412,7 +433,7 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
       if (!(await flush(active.id))) return;
       const latest = tabsRef.current.find(({ id }) => id === active.id); if (latest === undefined) return;
       if (connectionId !== "" && latest.connectionId !== connectionId) {
-        setMessage("当前 Tab 不属于所选 Server，已阻止执行"); return;
+        setMessage(t("workspace.errors.activeConnectionMismatch")); return;
       }
       const parsed = latest.inputMode === "raw" ? parseRawArguments(latest.rawText) : { ok: true as const, value: latest.arguments };
       if (!parsed.ok) { setMessage(parsed.message); return; }
@@ -426,10 +447,10 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
         const callsHelpers = sources.includes("tools.call");
         if (callsHelpers && !destructiveHelpersApproved) {
           confirmToast({
-            message: "流水线脚本会调用辅助 Tool，其中可能包含有副作用的操作。",
-            description: "是否允许本次执行调用破坏性辅助 Tool？",
-            actionLabel: "允许执行",
-            cancelLabel: "取消",
+            message: t("workspace.destructiveMessage"),
+            description: t("workspace.destructiveDescription"),
+            actionLabel: t("workspace.allowExecution"),
+            cancelLabel: t("workspace.cancel"),
             onAction: () => void execute(true),
           });
           return;
@@ -450,7 +471,7 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
         schedule(latest.id, { lastRunId: run.id });
       }
       setView("debug");
-    } catch (error) { setMessage(error instanceof Error ? error.message : "启动运行失败"); }
+    } catch (error) { setMessage(error instanceof Error ? error.message : t("workspace.errors.startRun")); }
     finally { starts.current.delete(active.id); if (markedStarting && !launched) setStartingIds((current) => { const next = new Set(current); next.delete(active.id); return next; }); }
   }
 
@@ -458,7 +479,7 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
     try {
       while (!signal.aborted && workspaceGeneration.current === scope && activeWorkflows.current.get(tabId) === executionId) {
         const execution = await api.getWorkflowExecution(projectId, executionId, signal);
-        if (execution.tabId !== tabId) throw new Error("流水线与当前 Tab 不匹配");
+        if (execution.tabId !== tabId) throw new Error(t("workspace.errors.workflowTabMismatch"));
         setWorkflowExecutions((current) => ({ ...current, [tabId]: execution }));
         const mainRunId = execution.runs.find(({ phase }) => phase === "main")?.runId;
         if (mainRunId !== undefined && activeRuns.current.get(tabId) !== mainRunId) {
@@ -486,7 +507,7 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
       if (signal.aborted || workspaceGeneration.current !== scope) return;
       activeWorkflows.current.delete(tabId); workflowControllers.current.delete(tabId);
       setStartingIds((current) => { const next = new Set(current); next.delete(tabId); return next; });
-      setMessage(error instanceof Error ? error.message : "观察流水线失败");
+      setMessage(error instanceof Error ? error.message : t("workspace.errors.observeWorkflow"));
     }
   }
 
@@ -498,8 +519,8 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
   const resultWorkflowExecution = activeWorkflowEnabled ? activeWorkflowExecution : undefined;
   const noEditableParameters = active !== null && detail !== null && active.inputMode === "form" &&
     !schemaHasEditableArguments(detail.tool.currentSnapshot.definition.inputSchema, active.arguments);
-  const parametersExpanded = active === null ? true : parameterExpansion[active.id] ?? true;
-  const responseExpanded = active === null ? true : responseExpansion[active.id] ?? true;
+  const parametersExpanded = active?.viewState.requestExpanded ?? true;
+  const responseExpanded = active?.viewState.responseExpanded ?? true;
 
   useLayoutEffect(() => {
     if (view !== "debug" || detail === null) return;
@@ -510,23 +531,38 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
     if (resultPaneRef.current !== null) resultPaneRef.current.scrollTop = tab.viewState.resultScrollTop;
   }, [activeId, detail, view]);
 
-  function resizeSplit(event: ReactPointerEvent<HTMLLabelElement>): void {
+  function updateSplitRatio(ratio: number, expandBoth = false): void {
     if (active === null) return;
+    schedule(active.id, { viewState: { ...active.viewState, splitRatio: Math.round(ratio * 1000) / 1000,
+      ...(expandBoth ? { requestExpanded: true, responseExpanded: true } : {}) } });
+  }
+
+  function resizeSplit(event: ReactPointerEvent<HTMLDivElement>): void {
+    if (active === null) return;
+    event.preventDefault();
     const split = event.currentTarget.parentElement;
     if (split === null) return;
     const bounds = split.getBoundingClientRect();
     if (bounds.height <= 0) return;
     const ratio = Math.min(0.8, Math.max(0.2, (event.clientY - bounds.top) / bounds.height));
-    schedule(active.id, { viewState: { ...active.viewState, splitRatio: Math.round(ratio * 1000) / 1000 } });
+    updateSplitRatio(ratio);
+  }
+
+  function resizeSplitByKeyboard(event: ReactKeyboardEvent<HTMLDivElement>): void {
+    if (active === null || !["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const ratio = event.key === "Home" ? 0.2 : event.key === "End" ? 0.8
+      : Math.min(0.8, Math.max(0.2, active.viewState.splitRatio + (event.key === "ArrowDown" ? 0.02 : -0.02)));
+    updateSplitRatio(ratio);
   }
 
   function cancelWorkflow(execution: WorkflowExecutionDetail): void {
     void api.cancelWorkflowExecution(projectId, execution.id).catch((error: unknown) =>
-      setMessage(error instanceof Error ? error.message : "取消流水线失败"));
+      setMessage(error instanceof Error ? error.message : t("workspace.errors.cancelWorkflow")));
   }
 
-  if (tabs === null) return <p role="status">正在恢复调试 Tabs…</p>;
-  return <section className="debug-workspace" aria-label="Tool 调试工作台">
+  if (tabs === null) return <p role="status">{t("workspace.loadingTabs")}</p>;
+  return <section className="debug-workspace" aria-label={t("workspace.label")}>
     {[...startingIds].map((tabId) => { const runId = activeRuns.current.get(tabId); return runId === undefined ? null
       : <ActiveRunObserver key={`${tabId}:${runId}`} api={api} projectId={projectId} tabId={tabId} runId={runId}
           selected={tabId === activeId} onUpdate={handleActiveObservation} />; })}
@@ -538,13 +574,13 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
         onDuplicate={(id) => void duplicate(id)} onPin={(id, pinned) => schedule(id, { pinned })}
         onMove={(id, offset) => void move(id, offset)}
         onCloseOthers={(id) => void bulk(id, "others")} onCloseRight={(id) => void bulk(id, "right")} />
-      {activeReadOnlyId === null && active !== null && <nav className="workspace-nav" aria-label="当前 Tab 视图">
+      {activeReadOnlyId === null && active !== null && <nav className="workspace-nav" aria-label={t("workspace.currentViews")}>
         {(["debug", "definition", "script", "saved", "history"] as const).map((item) => <button type="button" key={item}
           aria-current={view === item ? "page" : undefined} onClick={() => setView(item)}>
-          {item === "debug" ? "调试" : item === "definition" ? "Tool 定义" : item === "script" ? "脚本" : item === "saved" ? "已保存" : "当前 Tab 历史"}</button>)}
+          {t(`workspace.views.${item}`)}</button>)}
       </nav>}
     </div>
-    {readOnlyTabs.length > 0 && <div className="history-tabs" role="tablist" aria-label="只读运行 Tabs" onKeyDown={(event) => {
+    {readOnlyTabs.length > 0 && <div className="history-tabs" role="tablist" aria-label={t("workspace.readOnlyTabs")} onKeyDown={(event) => {
       if (!(event.target instanceof HTMLElement) || event.target.getAttribute("role") !== "tab" ||
           !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
       const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')]; const index = buttons.indexOf(event.target as HTMLButtonElement);
@@ -554,12 +590,12 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
     }}>{readOnlyTabs.map((run, index) => <span key={run.id}>
       <button id={`history-tab-${run.id}`} aria-controls={`history-panel-${run.id}`} type="button" role="tab"
         tabIndex={activeReadOnlyId === run.id || (activeReadOnlyId === null && index === 0) ? 0 : -1}
-        aria-selected={activeReadOnlyId === run.id} onClick={() => { activeRef.current = null; setActiveId(null); setActiveReadOnlyId(run.id); setView("debug"); }}>只读 · {run.toolName} · {run.id.slice(0, 8)}</button>
-      <button type="button" aria-label={`关闭只读运行 ${run.id}`} onClick={() => closeReadOnly(run.id)}><X size={15} aria-hidden="true" /></button></span>)}</div>}
-    {activeReadOnlyId !== null ? <section id={`history-panel-${activeReadOnlyId}`} role="tabpanel" aria-labelledby={`history-tab-${activeReadOnlyId}`} className="read-only-run"><p role="status">只读历史结果，不会重新调用 Tool。</p>
-        {observed.error !== null && <p role="alert">{observed.error}</p>}{observed.run === null ? <p role="status">正在加载运行详情…</p> : <RunResultPanel run={observed.run} />}</section>
-      : active === null ? <div className="workspace-empty"><h2>选择一个 Tool 开始调试</h2><p>单击复用当前未固定 Tab，双击打开新 Tab。</p></div> : <div className="workspace-tab-panel" id={`tabpanel-${active.id}`} role="tabpanel" aria-labelledby={`tab-${active.id}`}>
-      {view === "debug" && detail === null && <p role="status">正在加载 Tool 定义…</p>}
+        aria-selected={activeReadOnlyId === run.id} onClick={() => { activeRef.current = null; setActiveId(null); setActiveReadOnlyId(run.id); setView("debug"); }}>{t("workspace.readOnlyTab", { toolName: run.toolName, runId: run.id.slice(0, 8) })}</button>
+      <button type="button" aria-label={t("workspace.closeReadOnly", { runId: run.id })} onClick={() => closeReadOnly(run.id)}><X size={15} aria-hidden="true" /></button></span>)}</div>}
+    {activeReadOnlyId !== null ? <section id={`history-panel-${activeReadOnlyId}`} role="tabpanel" aria-labelledby={`history-tab-${activeReadOnlyId}`} className="read-only-run"><p role="status">{t("workspace.readOnlyNotice")}</p>
+        {observed.error !== null && <p role="alert">{observed.error}</p>}{observed.run === null ? <p role="status">{t("workspace.loadingRun")}</p> : <RunResultPanel run={observed.run} />}</section>
+      : active === null ? <div className="workspace-empty"><h2>{t("workspace.emptyTitle")}</h2><p>{t("workspace.emptyHint")}</p></div> : <div className="workspace-tab-panel" id={`tabpanel-${active.id}`} role="tabpanel" aria-labelledby={`tab-${active.id}`}>
+      {view === "debug" && detail === null && <p role="status">{t("workspace.loadingTool")}</p>}
       {view === "debug" && detail !== null && <div className={`request-result-split${selectedRunId === null ? " request-result-split--empty" : ""}${noEditableParameters ? " request-result-split--no-parameters" : ""}`}
         style={{ gridTemplateRows: !responseExpanded
           ? "minmax(0, 1fr) 10px auto"
@@ -570,7 +606,15 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
           <ParameterEditor tab={active} schema={detail.tool.currentSnapshot.definition.inputSchema} executing={startingIds.has(active.id)}
             workflowEnabled={boundWorkflow?.tabId === active.id && (boundWorkflow.value.before.enabled || boundWorkflow.value.after.enabled)}
             deferRequiredValidation={boundWorkflow?.tabId === active.id && boundWorkflow.value.before.enabled}
-            expanded={parametersExpanded} onExpandedChange={(expanded) => setParameterExpansion((current) => ({ ...current, [active.id]: expanded }))}
+            expanded={parametersExpanded} onExpandedChange={(expanded) => schedule(active.id, {
+              viewState: { ...active.viewState, requestExpanded: expanded },
+            })}
+            layoutControls={<SplitPanePresets label={t("workspace.layoutPresets.label")}
+              value={parametersExpanded && responseExpanded ? splitPanePreset(active.viewState.splitRatio) : "custom"}
+              options={(["request", "balanced", "result"] as const).map((preset) => ({
+                value: preset, label: t(`workspace.layoutPresets.${preset}`),
+              }))}
+              onChange={(preset) => updateSplitRatio(splitPaneRatios[preset], true)} />}
             subtreeDrafts={subtreeDrafts[active.id]}
             onSubtreeDraftChange={(path, text, base) => setSubtreeDrafts((current) => ({ ...current,
               [active.id]: { ...(current[active.id] ?? {}), [path]: { text, base } } }))}
@@ -578,44 +622,57 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
             onSaveRequest={(payload) => setSaveIntent({ tabId: active.id, connectionId: active.connectionId,
               toolName: active.toolName, kind: "request", payload, sourceRunId: null })} />
         </div>
-        <label className="split-control" onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); resizeSplit(event); }}
+        <div className="split-control" role="separator" aria-orientation="horizontal"
+          aria-label={t("workspace.requestHeight")} aria-valuemin={20} aria-valuemax={80}
+          aria-valuenow={Math.round(active.viewState.splitRatio * 100)} tabIndex={0}
+          onKeyDown={resizeSplitByKeyboard}
+          onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); resizeSplit(event); }}
           onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) resizeSplit(event); }}>
-          <span className="sr-only">请求区高度</span>
-          <input aria-label="请求区高度" type="range" min="20" max="80" value={active.viewState.splitRatio * 100}
-            onChange={(event) => schedule(active.id, { viewState: { ...active.viewState, splitRatio: Number(event.target.value) / 100 } })} />
-        </label>
+          <span className="sr-only">{t("workspace.requestHeight")}</span>
+        </div>
         <div className={`result-placeholder${responseExpanded ? "" : " result-placeholder--collapsed"}`} ref={resultPaneRef}
           onScroll={(event) => schedule(active.id, { viewState: { ...active.viewState, resultScrollTop: event.currentTarget.scrollTop } })}>
           {observed.error !== null && <p role="alert">{observed.error}</p>}
           {selectedRunId === null ? <EmptyRunResultPanel expanded={responseExpanded}
               workflowExecution={resultWorkflowExecution} onCancelWorkflow={cancelWorkflow}
-              onExpandedChange={(expanded) => setResponseExpansion((current) => ({ ...current, [active.id]: expanded }))} />
+              onExpandedChange={(expanded) => schedule(active.id, {
+                viewState: { ...active.viewState, responseExpanded: expanded },
+              })} />
             : observed.run === null ? resultWorkflowExecution !== undefined
               ? <EmptyRunResultPanel expanded={responseExpanded} workflowExecution={resultWorkflowExecution}
                   onCancelWorkflow={cancelWorkflow}
-                  onExpandedChange={(expanded) => setResponseExpansion((current) => ({ ...current, [active.id]: expanded }))} />
-              : <p role="status">正在加载运行详情…</p> : <RunResultPanel run={observed.run}
+                  onExpandedChange={(expanded) => schedule(active.id, {
+                    viewState: { ...active.viewState, responseExpanded: expanded },
+                  })} />
+              : <p role="status">{t("workspace.loadingRun")}</p> : <RunResultPanel run={observed.run}
               workflowExecution={resultWorkflowExecution} onCancelWorkflow={cancelWorkflow}
               expanded={responseExpanded}
-              onExpandedChange={(expanded) => setResponseExpansion((current) => ({ ...current, [active.id]: expanded }))}
+              onExpandedChange={(expanded) => schedule(active.id, {
+                viewState: { ...active.viewState, responseExpanded: expanded },
+              })}
               onSaveResponse={(payload) => setSaveIntent({ tabId: active.id, connectionId: active.connectionId,
                 toolName: active.toolName, kind: "response", payload, sourceRunId: observed.run!.id })} />}</div>
       </div>}
-      {view === "definition" && detail !== null && <ToolDefinitionView detail={detail} />}
-      {view === "script" && <ScriptWorkflowView api={api} projectId={projectId} connectionId={active.connectionId}
-        toolName={active.toolName} argumentsValue={active.arguments}
-        onApplyArguments={(argumentsValue) => schedule(active.id, { arguments: argumentsValue, rawText: formatRawArguments(argumentsValue) })}
-        onWorkflowChange={(value) => setBoundWorkflow({ tabId: active.id,
-          connectionId: active.connectionId, toolName: active.toolName, value })} />}
+      {view === "definition" && detail !== null && <Suspense fallback={<p role="status">{t("view.loadingDefinition")}</p>}>
+        <ToolDefinitionView detail={detail} />
+      </Suspense>}
+      {view === "script" && <Suspense fallback={<p role="status">{t("view.loadingScript")}</p>}>
+        <ScriptWorkflowView api={api} projectId={projectId} connectionId={active.connectionId}
+          toolName={active.toolName} argumentsValue={active.arguments}
+          onApplyArguments={(argumentsValue) => schedule(active.id, { arguments: argumentsValue, rawText: formatRawArguments(argumentsValue) })}
+          onWorkflowChange={(value) => setBoundWorkflow({ tabId: active.id,
+            connectionId: active.connectionId, toolName: active.toolName, value })} />
+      </Suspense>}
       {view === "saved" && <SavedItemsView api={api} projectId={projectId} connectionId={active.connectionId} toolName={active.toolName}
-        refreshKey={savedRevision} onLoadRequest={(payload) => { schedule(active.id, { arguments: payload, rawText: formatRawArguments(payload) }); setView("debug"); }} />}
+        refreshKey={savedRevision} onCreateTest={onCreateTestFromSaved}
+        onLoadRequest={(payload) => { schedule(active.id, { arguments: payload, rawText: formatRawArguments(payload) }); setView("debug"); }} />}
       {view === "history" && <RunHistory api={api} projectId={projectId} tabId={active.id} connectionId={active.connectionId}
         toolName={active.toolName} hideHeading onOpen={(run) => void openHistory(run)} />}
     </div>}
     {saveIntent !== null && <SavedItemDialog api={api} projectId={projectId} connectionId={saveIntent.connectionId}
       toolName={saveIntent.toolName} kind={saveIntent.kind} payload={saveIntent.payload} sourceRunId={saveIntent.sourceRunId}
       onClose={() => setSaveIntent(null)} onSaved={() => { const saved = saveIntent; setSaveIntent(null); setSavedRevision((value) => value + 1);
-        toast.success(`${saved.kind === "request" ? "请求" : "响应"}保存成功`); }} />}
-    <span className="sr-only" role="status" aria-live="polite">{queues.current.size > 0 ? "正在保存 Tab" : pending.current.size > 0 ? "Tab 有待保存更改" : "Tab 已保存"}</span>
+        toast.success(t("workspace.saveSuccess", { kind: t(saved.kind === "request" ? "workspace.request" : "workspace.response") })); }} />}
+    <span className="sr-only" role="status" aria-live="polite">{queues.current.size > 0 ? t("workspace.savingTab") : pending.current.size > 0 ? t("workspace.tabPending") : t("workspace.tabSaved")}</span>
   </section>;
 }

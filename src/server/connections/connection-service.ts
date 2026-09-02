@@ -18,6 +18,7 @@ import { normalizeCustomHeaders } from "../../shared/custom-headers.js";
 import { createServerExport, type ServerExportBundle } from "./connection-export.js";
 import { isValidBearerTokenConfiguration, MAX_BEARER_TOKEN_LENGTH } from "../../shared/connection-auth.js";
 import type { EnvironmentTemplateValues } from "../../shared/environment-template.js";
+import { hasSensitiveUrlQuery, sanitizeSensitiveUrl } from "../../shared/sensitive-url.js";
 
 const connectionIdSchema = z.string().uuid();
 const bearerTokenSchema = z.string().min(1).max(MAX_BEARER_TOKEN_LENGTH)
@@ -77,6 +78,12 @@ function normalizeUrl(raw: string): string {
   }
   if (url.username.length > 0 || url.password.length > 0) {
     throw new InvalidConnectionError("Connection URL must not contain credentials");
+  }
+  if (url.hash.length > 0) {
+    throw new InvalidConnectionError("Connection URL must not contain a fragment");
+  }
+  if (hasSensitiveUrlQuery(url.toString())) {
+    throw new InvalidConnectionError("Connection URL must not contain a credential query parameter; use authentication or Headers");
   }
   return url.toString();
 }
@@ -139,6 +146,7 @@ export function createConnectionService(projects: ProjectService, options: {
   function present(connection: ConnectionRecord, status: ConnectionRecord["status"]): ConnectionRecord {
     return {
       ...connection,
+      url: sanitizeSensitiveUrl(connection.url),
       status,
       authorizationStatus: connection.authMode === "oauth"
         ? oauth.authorizationStatus(connection.id)

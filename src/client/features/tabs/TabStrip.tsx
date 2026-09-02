@@ -1,5 +1,6 @@
 import { useEffect, useRef, type MouseEvent } from "react";
 import { DotsThree, PushPin, X } from "@phosphor-icons/react";
+import { useTranslation } from "react-i18next";
 import type { DebugTabSummary } from "../../api/api-client.js";
 
 interface Props {
@@ -13,6 +14,7 @@ interface Props {
 
 export function TabStrip({ tabs, activeId, onSelect, onCopyName, onClose, onDuplicate, onPin, onCloseOthers, onCloseRight, onMove,
   dirtyIds = new Set(), runningIds = new Set() }: Props) {
+  const { t } = useTranslation("tools");
   const strip = useRef<HTMLDivElement>(null);
   const previousActive = useRef<string | null>(activeId);
   useEffect(() => {
@@ -57,7 +59,7 @@ export function TabStrip({ tabs, activeId, onSelect, onCopyName, onClose, onDupl
     details.style.setProperty("--tab-menu-top", `${rect.bottom + 4}px`);
     details.style.setProperty("--tab-menu-left", `${left}px`);
   }
-  return <div ref={strip} className="debug-tabs" role="tablist" aria-label="Tool 调试 Tabs" onKeyDown={(event) => {
+  return <div ref={strip} className="debug-tabs" onKeyDown={(event) => {
     if (!(event.target instanceof HTMLElement) || event.target.getAttribute("role") !== "tab") return;
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
     const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
@@ -66,26 +68,28 @@ export function TabStrip({ tabs, activeId, onSelect, onCopyName, onClose, onDupl
       : event.key === "ArrowRight" ? (current + 1) % buttons.length : (current - 1 + buttons.length) % buttons.length;
     const next = buttons[index]; if (next !== undefined) { event.preventDefault(); next.focus(); next.click(); }
   }}>
+    <div className="sr-only" role="tablist" aria-label={t("workspace.tabs.label")}
+      aria-owns={tabs.map((tab) => `tab-${tab.id}`).join(" ")} />
     {tabs.map((tab) => <div className="debug-tab" key={tab.id}>
-      <button id={`tab-${tab.id}`} aria-label={tab.pinned ? `${tab.title}，已固定` : undefined} aria-controls={`tabpanel-${tab.id}`} type="button" role="tab" aria-selected={tab.id === activeId} tabIndex={tab.id === activeId ? 0 : -1}
+      <button id={`tab-${tab.id}`} aria-label={tab.pinned ? t("workspace.tabs.pinnedAria", { title: tab.title }) : undefined} aria-controls={`tabpanel-${tab.id}`} type="button" role="tab" aria-selected={tab.id === activeId} tabIndex={tab.id === activeId ? 0 : -1}
         onClick={() => onSelect(tab.id)}>{tab.title}
-        {tab.pinned && <span className="tab-pin-indicator" title="已固定"><PushPin size={13} weight="fill" aria-hidden="true" /></span>}
-        {dirtyIds.has(tab.id) && <span aria-label="未保存"> *</span>}
-        {runningIds.has(tab.id) && <span aria-label="运行中"> ⟳</span>}</button>
-      <details className="tab-menu" onToggle={(event) => { if (event.currentTarget.open) positionMenu(event.currentTarget); }}><summary aria-label={`${tab.title} 操作`} onKeyDown={(event) => {
+        {tab.pinned && <span className="tab-pin-indicator" title={t("workspace.tabs.pinned")}><PushPin size={13} weight="fill" aria-hidden="true" /></span>}
+        {dirtyIds.has(tab.id) && <span aria-label={t("workspace.tabs.unsaved")}> *</span>}
+        {runningIds.has(tab.id) && <span aria-label={t("workspace.tabs.running")}> ⟳</span>}</button>
+      <details className="tab-menu" onToggle={(event) => { if (event.currentTarget.open) positionMenu(event.currentTarget); }}><summary aria-label={t("workspace.tabs.actions", { title: tab.title })} onKeyDown={(event) => {
         if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault(); const details = event.currentTarget.parentElement;
         if (details instanceof HTMLDetailsElement) { details.open = !details.open; if (details.open) positionMenu(details); }
-      }}><DotsThree size={18} weight="bold" aria-hidden="true" /></summary><div aria-label={`${tab.title} Tab 操作菜单`}>
-        <button type="button" onClick={(event) => finishMenuAction(event, () => onCopyName(tab.toolName))}>复制名称</button>
-        <button type="button" onClick={(event) => finishMenuAction(event, () => onDuplicate(tab.id))}>复制 Tab</button>
-        <button type="button" onClick={(event) => finishMenuAction(event, () => onPin(tab.id, !tab.pinned))}>{tab.pinned ? "取消固定" : "固定"}</button>
-        <button type="button" disabled={tab.position === 0} onClick={(event) => finishMenuAction(event, () => onMove(tab.id, -1))}>左移</button>
-        <button type="button" disabled={tab.position === tabs.length - 1} onClick={(event) => finishMenuAction(event, () => onMove(tab.id, 1))}>右移</button>
-        <button type="button" onClick={(event) => finishMenuAction(event, () => onCloseOthers(tab.id))}>关闭其他</button>
-        <button type="button" onClick={(event) => finishMenuAction(event, () => onCloseRight(tab.id))}>关闭右侧</button>
+      }}><DotsThree size={18} weight="bold" aria-hidden="true" /></summary><div aria-label={t("workspace.tabs.menu", { title: tab.title })}>
+        <button type="button" onClick={(event) => finishMenuAction(event, () => onCopyName(tab.toolName))}>{t("workspace.tabs.copyName")}</button>
+        <button type="button" onClick={(event) => finishMenuAction(event, () => onDuplicate(tab.id))}>{t("workspace.tabs.duplicate")}</button>
+        <button type="button" onClick={(event) => finishMenuAction(event, () => onPin(tab.id, !tab.pinned))}>{t(tab.pinned ? "workspace.tabs.unpin" : "workspace.tabs.pin")}</button>
+        <button type="button" disabled={tab.position === 0} onClick={(event) => finishMenuAction(event, () => onMove(tab.id, -1))}>{t("workspace.tabs.moveLeft")}</button>
+        <button type="button" disabled={tab.position === tabs.length - 1} onClick={(event) => finishMenuAction(event, () => onMove(tab.id, 1))}>{t("workspace.tabs.moveRight")}</button>
+        <button type="button" onClick={(event) => finishMenuAction(event, () => onCloseOthers(tab.id))}>{t("workspace.tabs.closeOthers")}</button>
+        <button type="button" onClick={(event) => finishMenuAction(event, () => onCloseRight(tab.id))}>{t("workspace.tabs.closeRight")}</button>
       </div></details>
-      <button type="button" aria-label={`关闭 ${tab.title}`} disabled={tab.pinned} onClick={() => onClose(tab.id)}><X size={15} aria-hidden="true" /></button>
+      <button type="button" aria-label={t("workspace.tabs.close", { title: tab.title })} disabled={tab.pinned} onClick={() => onClose(tab.id)}><X size={15} aria-hidden="true" /></button>
     </div>)}
   </div>;
 }

@@ -19,6 +19,8 @@ export interface CatalogTool {
   name: string;
   status: ToolStatus;
   folderId: string | null;
+  favorite: boolean;
+  lastUsedAt: string | null;
   updatedAt: string;
   currentSnapshot: ToolSnapshot;
 }

@@ -112,6 +112,18 @@ describe("ToolService", () => {
     expect(tools.moveToFolder(projectId, connectionId, "sum", null).folderId).toBeNull();
   });
 
+  it("preserves favorite and recent-use metadata across catalog refreshes", async () => {
+    const tools = service();
+    await tools.refresh(projectId, connectionId);
+    expect(tools.setFavorite(projectId, connectionId, "sum", true))
+      .toEqual(expect.objectContaining({ name: "sum", favorite: true, lastUsedAt: null }));
+    const used = tools.markUsed(projectId, connectionId, "sum");
+    expect(used).toEqual(expect.objectContaining({ favorite: true, lastUsedAt: "2026-08-17T12:00:00.000Z" }));
+    await tools.refresh(projectId, connectionId);
+    expect(tools.list(projectId, connectionId).find(({ name }) => name === "sum"))
+      .toEqual(expect.objectContaining({ favorite: true, lastUsedAt: "2026-08-17T12:00:00.000Z" }));
+  });
+
   it("canonicalizes object keys recursively, preserves array order, and rejects non-JSON values", () => {
     expect(canonicalJson({ z: 1, a: { y: 2, x: [3, { b: 2, a: 1 }] } }))
       .toBe('{"a":{"x":[3,{"a":1,"b":2}],"y":2},"z":1}');

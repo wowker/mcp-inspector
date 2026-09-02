@@ -6,6 +6,7 @@ test-results/
 playwright-report/
 blob-report/
 .run/
+.release/
 *.log
 .env
 .env.*

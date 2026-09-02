@@ -227,6 +227,20 @@ describe("ConnectionService", () => {
     })).toThrow(/credentials/i);
     expect(() => service.create(project.id, {
       ...valid,
+      url: "https://mcp.example.test/mcp?access_token=do-not-store&cursor=next",
+    })).toThrow(/query parameter/i);
+    for (const name of ["auth", "key", "sig", "access_key", "tenantCredential"]) {
+      expect(() => service.create(project.id, {
+        ...valid,
+        url: `https://mcp.example.test/mcp?${name}=do-not-store`,
+      })).toThrow(/query parameter/i);
+    }
+    expect(() => service.create(project.id, {
+      ...valid,
+      url: "https://mcp.example.test/mcp#api_key=do-not-store",
+    })).toThrow(/fragment/i);
+    expect(() => service.create(project.id, {
+      ...valid,
       transport: "sse" as "streamable-http",
     })).toThrow(/invalid/i);
     expect(() => service.create(project.id, {

@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type KeyboardEvent } from "react";
 import { ArrowDown, ArrowUp, CaretRight, Plus, Trash } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import type { SchemaField } from "./schema-form.js";
@@ -99,22 +99,37 @@ export function ArrayObjectEditor({ id, fieldName, itemSchema, value, disabled =
       onChange(parsed);
     } catch { setRawInvalid(true); }
   }
+  const formTabId = `${id}-form-tab`;
+  const rawTabId = `${id}-raw-tab`;
+  const formPanelId = `${id}-form-panel`;
+  const rawPanelId = `${id}-raw-panel`;
+  function moveMode(event: KeyboardEvent<HTMLDivElement>): void {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const next = event.key === "ArrowRight" || event.key === "End" ? "raw" : "form";
+    setMode(next);
+    queueMicrotask(() => document.getElementById(next === "form" ? formTabId : rawTabId)?.focus());
+  }
 
   return <div className="array-object-editor">
     <div className="array-object-editor__toolbar">
-      <div role="tablist" aria-label={t("parameter.fieldModes", { name: fieldName })}>
-        <button type="button" role="tab" aria-selected={mode === "form"} onClick={() => setMode("form")}>Form</button>
-        <button type="button" role="tab" aria-selected={mode === "raw"} onClick={() => setMode("raw")}>Raw JSON</button>
+      <div role="tablist" aria-label={t("parameter.fieldModes", { name: fieldName })} onKeyDown={moveMode}>
+        <button id={formTabId} type="button" role="tab" tabIndex={mode === "form" ? 0 : -1}
+          aria-selected={mode === "form"} aria-controls={formPanelId}
+          onClick={() => setMode("form")}>{t("parameter.formMode")}</button>
+        <button id={rawTabId} type="button" role="tab" tabIndex={mode === "raw" ? 0 : -1}
+          aria-selected={mode === "raw"} aria-controls={rawPanelId}
+          onClick={() => setMode("raw")}>{t("parameter.rawMode")}</button>
       </div>
       {mode === "form" && <button type="button" disabled={disabled} onClick={add}>
         <Plus size={15} aria-hidden="true" />{t("parameter.addArrayItem")}
       </button>}
     </div>
-    {mode === "raw" ? <div className="array-object-editor__raw">
+    {mode === "raw" ? <div id={rawPanelId} role="tabpanel" aria-labelledby={rawTabId} className="array-object-editor__raw">
       <textarea id={id} aria-label={t("parameter.arrayRawLabel", { name: fieldName })} value={rawText}
         disabled={disabled} aria-invalid={rawInvalid} onChange={(event) => rawChanged(event.target.value)} />
       {rawInvalid && <p role="alert">{t("parameter.arrayObjectRequired")}</p>}
-    </div> : <div className="array-object-editor__items">
+    </div> : <div id={formPanelId} role="tabpanel" aria-labelledby={formTabId} className="array-object-editor__items">
       {value.length === 0 && <p className="array-object-editor__empty">{t("parameter.arrayEmpty")}</p>}
       {value.map((candidate, index) => {
         const item = isRecord(candidate) ? candidate : {};

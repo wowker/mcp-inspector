@@ -383,6 +383,21 @@
   word-break: break-word;
 }
 
+.json-viewer-large {
+  display: flex;
+  margin: 4px 0 8px;
+  padding: 8px 10px;
+  gap: 4px;
+  flex-direction: column;
+  color: var(--ui-text-muted);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-control-radius);
+  background: var(--ui-surface-muted);
+  font-size: 0.78rem;
+}
+
+.json-viewer-large strong { color: var(--ui-text); }
+
 .result-content-flow > .json-block,
 .result-content-flow > .content-block,
 .raw-disclosure__content > .json-block,

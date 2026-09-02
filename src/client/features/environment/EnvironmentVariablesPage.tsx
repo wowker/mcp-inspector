@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { EyeSlash, PencilSimple, Plus, Trash } from "@phosphor-icons/react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { confirmToast } from "../../app/AppToaster.js";
 import type { ConnectionSummary, EnvironmentVariable, InspectorApiClient } from "../../api/api-client.js";
@@ -12,13 +13,21 @@ interface Props {
 
 type Scope = "project" | "server";
 type ValueMode = "text" | "json";
+type View = "variables" | "profiles";
+
+const EnvironmentProfilesPanel = lazy(async () => import("./EnvironmentProfilesPanel.js")
+  .then((module) => ({ default: module.EnvironmentProfilesPanel })));
 
 function visibleValue(variable: EnvironmentVariable): string {
   return variable.secret ? "••••••••" : JSON.stringify(variable.value);
 }
 
 export function EnvironmentVariablesPage({ api, projectId }: Props) {
+  const { t, i18n } = useTranslation("environment");
+  const loadErrors = useRef({ environment: t("feedback.loadFailed"), server: t("feedback.loadServerFailed") });
+  loadErrors.current = { environment: t("feedback.loadFailed"), server: t("feedback.loadServerFailed") };
   const [scope, setScope] = useState<Scope>("project");
+  const [view, setView] = useState<View>("variables");
   const [connections, setConnections] = useState<ConnectionSummary[]>([]);
   const [connectionId, setConnectionId] = useState("");
   const [projectVariables, setProjectVariables] = useState<EnvironmentVariable[]>([]);
@@ -41,7 +50,7 @@ export function EnvironmentVariablesPage({ api, projectId }: Props) {
           : safeConnections[0]?.id ?? "");
         setProjectVariables(Array.isArray(variables) ? variables : []);
       })
-      .catch((error: unknown) => { if (active) toast.error(error instanceof Error ? error.message : "加载环境变量失败"); });
+      .catch((error: unknown) => { if (active) toast.error(error instanceof Error ? error.message : loadErrors.current.environment); });
     return () => { active = false; };
   }, [api, projectId]);
 
@@ -50,7 +59,7 @@ export function EnvironmentVariablesPage({ api, projectId }: Props) {
     let active = true;
     void api.listEnvironmentVariables(projectId, connectionId).then((variables) => {
       if (active) setServerVariables(Array.isArray(variables) ? variables : []);
-    }).catch((error: unknown) => { if (active) toast.error(error instanceof Error ? error.message : "加载 Server 变量失败"); });
+    }).catch((error: unknown) => { if (active) toast.error(error instanceof Error ? error.message : loadErrors.current.server); });
     return () => { active = false; };
   }, [api, connectionId, projectId]);
 
@@ -70,11 +79,11 @@ export function EnvironmentVariablesPage({ api, projectId }: Props) {
 
   async function save(): Promise<void> {
     const normalizedName = name.trim();
-    if (normalizedName === "") { toast.error("请输入变量名称"); return; }
-    if (scope === "server" && connectionId === "") { toast.error("请先选择 Server"); return; }
+    if (normalizedName === "") { toast.error(t("feedback.nameRequired")); return; }
+    if (scope === "server" && connectionId === "") { toast.error(t("feedback.serverRequired")); return; }
     let parsed: unknown = value;
     if (valueMode === "json") {
-      try { parsed = JSON.parse(value); } catch { toast.error("变量值不是有效 JSON"); return; }
+      try { parsed = JSON.parse(value); } catch { toast.error(t("feedback.invalidJson")); return; }
     }
     setBusy(true);
     try {
@@ -83,25 +92,25 @@ export function EnvironmentVariablesPage({ api, projectId }: Props) {
       if (scope === "project") setProjectVariables((items) => [...items.filter((item) => item.name !== saved.name), saved]);
       else setServerVariables((items) => [...items.filter((item) => item.name !== saved.name), saved]);
       resetEditor();
-      toast.success("环境变量已保存");
+      toast.success(t("feedback.saved"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "保存环境变量失败");
+      toast.error(error instanceof Error ? error.message : t("feedback.saveFailed"));
     } finally { setBusy(false); }
   }
 
   function remove(variable: EnvironmentVariable): void {
     confirmToast({
-      message: `删除环境变量 ${variable.name}？`,
-      description: "引用此变量的连接或脚本可能无法继续执行。",
-      actionLabel: "删除",
-      cancelLabel: "取消",
+      message: t("feedback.deletePrompt", { name: variable.name }),
+      description: t("feedback.deleteDescription"),
+      actionLabel: t("feedback.deleteAction"),
+      cancelLabel: t("feedback.cancelAction"),
       onAction: () => {
         setBusy(true);
         void api.deleteEnvironmentVariable(projectId, variable.connectionId, variable.name).then(() => {
           if (variable.connectionId === null) setProjectVariables((items) => items.filter(({ id }) => id !== variable.id));
           else setServerVariables((items) => items.filter(({ id }) => id !== variable.id));
-          toast.success("环境变量已删除");
-        }).catch((error: unknown) => toast.error(error instanceof Error ? error.message : "删除环境变量失败"))
+          toast.success(t("feedback.deleted"));
+        }).catch((error: unknown) => toast.error(error instanceof Error ? error.message : t("feedback.deleteFailed")))
           .finally(() => setBusy(false));
       },
     });
@@ -109,37 +118,45 @@ export function EnvironmentVariablesPage({ api, projectId }: Props) {
 
   return <section className="environment-page" aria-labelledby="environment-page-title">
     <header className="page-heading environment-page__heading">
-      <div><h1 id="environment-page-title">环境变量</h1><p>集中管理连接认证与脚本可复用的配置值。</p></div>
+      <div><h1 id="environment-page-title">{t("title")}</h1><p>{t("description")}</p></div>
     </header>
-    <div className="environment-page__scope" role="tablist" aria-label="变量作用域">
-      <button type="button" role="tab" aria-selected={scope === "project"} onClick={() => setScope("project")}>项目变量</button>
-      <button type="button" role="tab" aria-selected={scope === "server"} onClick={() => setScope("server")}>Server 变量</button>
-      {scope === "server" && <label>Server
-        <select className="ui-input" aria-label="选择 Server" value={connectionId} onChange={(event) => setConnectionId(event.target.value)}>
-          {connections.length === 0 && <option value="">暂无 Server</option>}
+    <div className="environment-page__view" role="tablist" aria-label={t("view.label")}>
+      <button type="button" role="tab" aria-selected={view === "variables"} onClick={() => setView("variables")}>{t("view.variables")}</button>
+      <button type="button" role="tab" aria-selected={view === "profiles"} onClick={() => setView("profiles")}>{t("view.profiles")}</button>
+    </div>
+    {view === "profiles" ? <Suspense fallback={<p className="environment-profiles__empty" role="status">{t("profiles.loading")}</p>}>
+      <EnvironmentProfilesPanel api={api} projectId={projectId} connections={connections} />
+    </Suspense> : <>
+    <div className="environment-page__scope" role="tablist" aria-label={t("scope.label")}>
+      <button type="button" role="tab" aria-selected={scope === "project"} onClick={() => setScope("project")}>{t("scope.project")}</button>
+      <button type="button" role="tab" aria-selected={scope === "server"} onClick={() => setScope("server")}>{t("scope.server")}</button>
+      {scope === "server" && <label>{t("scope.serverLabel")}
+        <select className="ui-input" aria-label={t("scope.selectServer")} value={connectionId} onChange={(event) => setConnectionId(event.target.value)}>
+          {connections.length === 0 && <option value="">{t("scope.noServers")}</option>}
           {connections.map((connection) => <option key={connection.id} value={connection.id}>{connection.name}</option>)}
         </select>
       </label>}
     </div>
-    <p className="environment-page__hint">在 Header 或 Bearer Token 中使用 <code>{"{{VARIABLE_NAME}}"}</code>；也可保留直接值。Server 同名变量会覆盖项目变量，解析后的值不会写回连接配置。</p>
+    <p className="environment-page__hint">{t("hint.beforeReference")} <code>{"{{VARIABLE_NAME}}"}</code>{t("hint.afterReference")}</p>
     <div className="environment-editor">
-      <label>名称<input className="ui-input" aria-label="环境变量名称" placeholder="例如 API_TOKEN" value={name} onChange={(event) => setName(event.target.value)} /></label>
-      <label>值<input className="ui-input" aria-label="环境变量值" type={secret ? "password" : "text"} placeholder={secret ? "输入敏感值" : "输入变量值"} value={value} onChange={(event) => setValue(event.target.value)} /></label>
-      <label>类型<select className="ui-input" aria-label="变量值类型" value={valueMode} onChange={(event) => setValueMode(event.target.value as ValueMode)}>
-        <option value="text">文本</option><option value="json">JSON</option>
+      <label>{t("editor.name")}<input className="ui-input" aria-label={t("editor.nameAria")} placeholder={t("editor.namePlaceholder")} value={name} onChange={(event) => setName(event.target.value)} /></label>
+      <label>{t("editor.value")}<input className="ui-input" aria-label={t("editor.valueAria")} type={secret ? "password" : "text"} placeholder={secret ? t("editor.secretValuePlaceholder") : t("editor.valuePlaceholder")} value={value} onChange={(event) => setValue(event.target.value)} /></label>
+      <label>{t("editor.type")}<select className="ui-input" aria-label={t("editor.typeAria")} value={valueMode} onChange={(event) => setValueMode(event.target.value as ValueMode)}>
+        <option value="text">{t("editor.text")}</option><option value="json">{t("editor.json")}</option>
       </select></label>
-      <label className="environment-editor__secret"><input type="checkbox" checked={secret} onChange={(event) => setSecret(event.target.checked)} />敏感值</label>
-      <button className="ui-button ui-button--primary" type="button" disabled={busy} onClick={() => void save()}><Plus size={15} aria-hidden="true" />保存变量</button>
+      <label className="environment-editor__secret"><input type="checkbox" checked={secret} onChange={(event) => setSecret(event.target.checked)} />{t("editor.secret")}</label>
+      <button className="ui-button ui-button--primary" type="button" disabled={busy} onClick={() => void save()}><Plus size={15} aria-hidden="true" />{t("editor.save")}</button>
     </div>
     <div className="environment-table-wrap">
-      <table className="environment-table"><thead><tr><th>名称</th><th>值</th><th>作用域</th><th>更新时间</th><th><span className="sr-only">操作</span></th></tr></thead>
-        <tbody>{variables.map((variable) => <tr key={variable.id}><th><code>{variable.name}</code>{scope === "server" && projectNames.has(variable.name) && <small>覆盖项目值</small>}</th>
-          <td><code>{visibleValue(variable)}</code>{variable.secret && <EyeSlash size={15} aria-label="敏感值已隐藏" />}</td>
-          <td>{variable.connectionId === null ? "项目" : connections.find(({ id }) => id === variable.connectionId)?.name ?? "Server"}</td>
-          <td>{new Date(variable.updatedAt).toLocaleString()}</td>
-          <td><button type="button" aria-label={`编辑变量 ${variable.name}`} onClick={() => edit(variable)}><PencilSimple size={16} /></button>
-            <button type="button" aria-label={`删除变量 ${variable.name}`} disabled={busy} onClick={() => remove(variable)}><Trash size={16} /></button></td></tr>)}</tbody></table>
-      {variables.length === 0 && <p className="environment-table__empty">当前作用域尚未配置变量。</p>}
+      <table className="environment-table"><thead><tr><th>{t("table.name")}</th><th>{t("table.value")}</th><th>{t("table.scope")}</th><th>{t("table.updatedAt")}</th><th><span className="sr-only">{t("table.actions")}</span></th></tr></thead>
+        <tbody>{variables.map((variable) => <tr key={variable.id}><th><code>{variable.name}</code>{scope === "server" && projectNames.has(variable.name) && <small>{t("table.overridesProject")}</small>}</th>
+          <td><code>{visibleValue(variable)}</code>{variable.secret && <EyeSlash size={15} aria-label={t("table.hiddenSecret")} />}</td>
+          <td>{variable.connectionId === null ? t("table.project") : connections.find(({ id }) => id === variable.connectionId)?.name ?? t("table.server")}</td>
+          <td>{new Date(variable.updatedAt).toLocaleString(i18n.language)}</td>
+          <td><button type="button" aria-label={t("table.edit", { name: variable.name })} onClick={() => edit(variable)}><PencilSimple size={16} /></button>
+            <button type="button" aria-label={t("table.delete", { name: variable.name })} disabled={busy} onClick={() => remove(variable)}><Trash size={16} /></button></td></tr>)}</tbody></table>
+      {variables.length === 0 && <p className="environment-table__empty">{t("table.empty")}</p>}
     </div>
+    </>}
   </section>;
 }

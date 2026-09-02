@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ToolDetailSummary } from "../../../api/api-client.js";
 import { AppToaster } from "../../../app/AppToaster.js";
+import { i18n } from "../../../i18n/index.js";
 import { ToolDefinitionView } from "../ToolDefinitionView.js";
 
 const detail: ToolDetailSummary = {
@@ -14,6 +15,8 @@ const detail: ToolDetailSummary = {
     name: "apply_product_mapping",
     status: "current",
     folderId: null,
+    favorite: false,
+    lastUsedAt: null,
     updatedAt: "2026-08-24T09:27:36.623Z",
     currentSnapshot: {
       id: "00000000-0000-4000-8000-000000000803",
@@ -44,9 +47,21 @@ const detail: ToolDetailSummary = {
   snapshots: [],
 };
 
-afterEach(() => { cleanup(); vi.useRealTimers(); });
+afterEach(async () => { cleanup(); vi.useRealTimers(); await i18n.changeLanguage("zh-CN"); });
 
 describe("ToolDefinitionView", () => {
+  it("renders definition metadata, annotations, and actions in English", async () => {
+    await i18n.changeLanguage("en-US");
+    render(<ToolDefinitionView detail={detail} />);
+
+    expect(screen.getByRole("article", { name: "apply_product_mapping Tool definition" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Copy complete definition" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Behavior" })).toBeVisible();
+    expect(screen.getByText("Destructive")).toBeVisible();
+    expect(screen.getByRole("table", { name: "Input Schema fields" })).toHaveTextContent("Required");
+    expect(screen.getByRole("button", { name: "About snapshot history" })).toBeVisible();
+  });
+
   it("exposes the complete definition as a keyboard-scrollable content region", () => {
     render(<ToolDefinitionView detail={detail} />);
 
@@ -73,6 +88,10 @@ describe("ToolDefinitionView", () => {
     expect(input).toHaveTextContent("必填");
     expect(input).toHaveTextContent("Exact DSers product ID.");
     expect(screen.getByRole("table", { name: "Output Schema 字段" })).toHaveTextContent("message");
+    expect(screen.getByText("当前")).toHaveAttribute("data-status", "success");
+    const rawJsonButtons = screen.getAllByRole("button", { name: "查看 Raw JSON" });
+    expect(rawJsonButtons).toHaveLength(2);
+    rawJsonButtons.forEach((button) => expect(button).toHaveAttribute("aria-expanded", "false"));
   });
 
   it("explains historical snapshots and dismisses the explanation when clicking elsewhere", () => {

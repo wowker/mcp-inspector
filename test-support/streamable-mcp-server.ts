@@ -12,12 +12,23 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
   return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
 }
 
-export async function startStreamableMcpServer(options: { controlCalls?: boolean; includeChoiceTool?: boolean } = {}): Promise<{
+export async function startStreamableMcpServer(options: {
+  controlCalls?: boolean;
+  includeChoiceTool?: boolean;
+  comparisonMode?: boolean;
+  catalogToolCount?: number;
+  largeResponseBytes?: number;
+  expectedRequestHeaders?: Record<string, string>;
+  forbiddenRequestHeaders?: string[];
+  closeResponseConnection?: boolean;
+  port?: number;
+} = {}): Promise<{
   url: string;
   receivedRequestHeaders: Array<Record<string, string | string[] | undefined>>;
   enteredTotals: number[];
   completedTotals: number[];
   readonly maxConcurrentCalls: number;
+  updateSumSchema(): void;
   release(total: number): void;
   releaseAll(): void;
   stop(): Promise<void>;
@@ -28,7 +39,16 @@ export async function startStreamableMcpServer(options: { controlCalls?: boolean
   const pendingCalls = new Map<number, () => void>();
   let concurrentCalls = 0;
   let maxConcurrentCalls = 0;
+  let callSequence = 0;
   const mcp = new McpServer({ name: "loopback-fixture", version: "1.0.0" });
+  const catalogToolCount = Math.max(0, Math.min(1_000, Math.trunc(options.catalogToolCount ?? 0)));
+  for (let index = 0; index < catalogToolCount; index += 1) {
+    const name = `load_test_tool_${String(index).padStart(4, "0")}`;
+    mcp.registerTool(name, {
+      description: `Performance fixture Tool ${index}`,
+      inputSchema: {},
+    }, async () => ({ content: [{ type: "text", text: name }] }));
+  }
   mcp.registerTool("echo", {
     description: "Echo a message",
     inputSchema: { message: z.string() },
@@ -47,10 +67,23 @@ export async function startStreamableMcpServer(options: { controlCalls?: boolean
       },
     }, async ({ selection_mode }) => ({ content: [{ type: "text", text: selection_mode }] }));
   }
-  mcp.registerTool("sum", {
+  const largeResponseBytes = Math.max(0, Math.trunc(options.largeResponseBytes ?? 0));
+  if (largeResponseBytes > 0) {
+    mcp.registerTool("large_payload", {
+      description: "Return a deterministic large structured response",
+      inputSchema: {},
+      outputSchema: { payload: z.string() },
+    }, async () => ({
+      content: [{ type: "text", text: `Generated ${largeResponseBytes} bytes` }],
+      structuredContent: { payload: "x".repeat(largeResponseBytes) },
+    }));
+  }
+  const sumTool = mcp.registerTool("sum", {
     description: "Add two numbers",
     inputSchema: { a: z.number(), b: z.number() },
-    outputSchema: { total: z.number() },
+    outputSchema: options.comparisonMode === true
+      ? { total: z.number(), requestId: z.string() }
+      : { total: z.number() },
   }, async ({ a, b }) => {
     concurrentCalls += 1;
     maxConcurrentCalls = Math.max(maxConcurrentCalls, concurrentCalls);
@@ -64,9 +97,12 @@ export async function startStreamableMcpServer(options: { controlCalls?: boolean
         });
       }
       completedTotals.push(total);
+      callSequence += 1;
       return {
         content: [{ type: "text", text: String(total) }],
-        structuredContent: { total },
+        structuredContent: options.comparisonMode === true
+          ? { total, requestId: `call-${callSequence}` }
+          : { total },
       };
     } finally { concurrentCalls -= 1; }
   });
@@ -75,12 +111,29 @@ export async function startStreamableMcpServer(options: { controlCalls?: boolean
 
   const handle = async (request: IncomingMessage, response: ServerResponse) => {
     try {
+      if (options.closeResponseConnection === true) response.setHeader("connection", "close");
       const url = new URL(request.url ?? "/", "http://127.0.0.1");
       if (url.pathname !== "/mcp") {
         response.writeHead(404).end();
         return;
       }
       receivedRequestHeaders.push({ ...request.headers });
+      const rejectedHeader = Object.entries(options.expectedRequestHeaders ?? {}).find(
+        ([name, value]) => request.headers[name.toLowerCase()] !== value,
+      );
+      if (rejectedHeader !== undefined) {
+        response.writeHead(401, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: "unauthorized" }));
+        return;
+      }
+      const forbiddenHeader = (options.forbiddenRequestHeaders ?? []).find(
+        (name) => request.headers[name.toLowerCase()] !== undefined,
+      );
+      if (forbiddenHeader !== undefined) {
+        response.writeHead(401, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: "unexpected credential header" }));
+        return;
+      }
       const body = request.method === "POST" ? await readJson(request) : undefined;
       await transport.handleRequest(request, response, body);
     } catch (error) {
@@ -90,7 +143,7 @@ export async function startStreamableMcpServer(options: { controlCalls?: boolean
     }
   };
   const server = createServer((request, response) => { void handle(request, response); });
-  server.listen(0, "127.0.0.1");
+  server.listen(options.port ?? 0, "127.0.0.1");
   await once(server, "listening");
   const address = server.address();
   if (address === null || typeof address === "string") throw new Error("Fixture did not bind TCP");
@@ -111,6 +164,9 @@ export async function startStreamableMcpServer(options: { controlCalls?: boolean
     receivedRequestHeaders,
     completedTotals,
     get maxConcurrentCalls() { return maxConcurrentCalls; },
+    updateSumSchema() {
+      sumTool.update({ paramsSchema: { a: z.number(), b: z.number(), label: z.string().optional() } });
+    },
     release,
     releaseAll,
     async stop() {

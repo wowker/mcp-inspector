@@ -1,51 +1,57 @@
-# MCP Run History and Replay — Task Checklist
+# Run History, Replay, and Comparison — Rebaselined Checklist
 
-## Phase 1: Durable History Foundations
+> Source: [plan.md](./plan.md). Implementation is blocked until the approval gate is confirmed.
 
-- [ ] Task 1: Persist replay lineage and Run pin state
-- [ ] Task 2: Add filtered history and pin APIs
-- [ ] Task 3: Turn Run History into a searchable explorer
+## Approval gate
 
-### Checkpoint: History foundation
+- [x] Approve migration 014 for Run pin/lineage
+- [x] Approve migration 015 for project comparison ignore rules
+- [x] Approve replay only on the source connection and current Tool
+- [x] Approve direct source-versus-replay comparison only; defer arbitrary comparison
+- [x] Approve pin behavior that does not accidentally block Server deletion
 
-- [ ] Focused and full tests pass
-- [ ] Existing Core Playwright remains green
-- [ ] Independent history/cursor/ownership review passes
+## Phase 1: History foundation
 
-## Phase 2: Safe Replay
+- [x] Task 1: Lock shared contracts and migration 014
+- [x] Task 2: Deliver filtered history and pinning
 
-- [ ] Task 4: Build deterministic replay preflight
-- [ ] Task 5: Execute replay through the existing Run engine
-- [ ] Task 6: Add the replay confirmation workflow
+### Checkpoint
 
-### Checkpoint: Replay safety
+- [x] Existing Runs survive 001–013 → 014 unchanged
+- [x] Cursor/filter/project/Tab identity tests pass
+- [x] Existing Run history and debug restore behavior remain unchanged
 
-- [ ] Original and replay Runs remain isolated
-- [ ] Drift/risk confirmations and stale-digest rejection are proven
-- [ ] Independent security/code review passes
+## Phase 2: Safe replay
 
-## Phase 3: Structured Comparison
+- [x] Task 3: Deliver deterministic replay preflight
+- [x] Task 4: Execute replay through the existing Run engine
+- [x] Task 5: Deliver replay confirmation UI
 
-- [ ] Task 7: Implement safe structural diff and JSONPath ignores
-- [ ] Task 8: Persist project comparison rules
-- [ ] Task 9: Expose source-versus-replay comparison
-- [ ] Task 10: Render accessible result comparison
+### Checkpoint
 
-### Checkpoint: Comparison
+- [x] Preflight performs no network or persistence mutation
+- [x] Drift/risk confirmations and stale-digest rejection are proven
+- [x] Same-URL connections cannot share authentication
+- [x] Editable Tool Tab drafts remain untouched
 
-- [ ] Diff and JSONPath adversarial tests pass
-- [ ] API ownership and stale-response fences pass
-- [ ] Full regression and independent review pass
+## Phase 3: Structured comparison
 
-## Phase 4: Production Acceptance
+- [x] Task 6: Deliver bounded diff engine and migration 015
+- [x] Task 7: Deliver comparison API and UI
 
-- [ ] Task 11: Prove History and Replay end to end
+### Checkpoint
 
-### Checkpoint: Complete
+- [x] JSONPath adversarial and output-bound tests pass
+- [x] Only direct source/replay lineage can be compared
+- [x] Truncated/unavailable inputs are explicitly non-comparable
+- [x] Rule/project/Run stale-response fences pass
 
-- [ ] `npm run verify` passes
-- [ ] `npm pack --dry-run --json` remains allowlisted
-- [ ] Migrations 001–007 match source/dist and upgrade safely
-- [ ] No listener, timer, reader, database, or browser process remains
-- [ ] Spec/Quality/Security review has no Critical or Required findings
-- [ ] Human approval received before merge or release
+## Phase 4: Production acceptance
+
+- [x] Task 8: Close production acceptance
+- [x] `npm run verify` passes
+- [x] migrations 001–015 source/dist byte-match
+- [x] `npm pack --dry-run --json` passes
+- [x] `git diff --check` passes
+- [x] Independent Spec/Quality/Security review has no Critical/Required
+- [ ] Human approves merge or release

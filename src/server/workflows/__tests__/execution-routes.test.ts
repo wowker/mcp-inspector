@@ -17,7 +17,8 @@ describe("workflow execution routes", () => {
   it("binds the URL project, returns 202, and exposes get/cancel", async () => {
     const start = vi.fn().mockReturnValue(detail); const get = vi.fn().mockReturnValue(detail);
     const cancel = vi.fn().mockReturnValue(true);
-    const service = { start, get, activeForTab: vi.fn().mockReturnValue(null), cancel, close: vi.fn() } satisfies WorkflowExecutionService;
+    const service = { start, startInvocation: vi.fn(), get, waitForTerminal: vi.fn(),
+      activeForTab: vi.fn().mockReturnValue(null), cancel, close: vi.fn() } satisfies WorkflowExecutionService;
     const app = createWorkflowExecutionRoutes(service);
 
     const started = await app.request(`/${projectId}/workflow-executions`, { method: "POST",
@@ -34,7 +35,8 @@ describe("workflow execution routes", () => {
   });
 
   it("rejects invalid JSON without invoking the service", async () => {
-    const service = { start: vi.fn(), get: vi.fn(), activeForTab: vi.fn(), cancel: vi.fn(), close: vi.fn() } satisfies WorkflowExecutionService;
+    const service = { start: vi.fn(), startInvocation: vi.fn(), get: vi.fn(), waitForTerminal: vi.fn(),
+      activeForTab: vi.fn(), cancel: vi.fn(), close: vi.fn() } satisfies WorkflowExecutionService;
     const response = await createWorkflowExecutionRoutes(service).request(`/${projectId}/workflow-executions`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: "{",
     });

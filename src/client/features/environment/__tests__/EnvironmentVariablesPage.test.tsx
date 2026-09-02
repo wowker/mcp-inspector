@@ -5,14 +5,16 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { InspectorApiClient } from "../../../api/api-client.js";
 import { AppToaster } from "../../../app/AppToaster.js";
+import { i18n } from "../../../i18n/index.js";
 import { EnvironmentVariablesPage } from "../EnvironmentVariablesPage.js";
 
 const projectId = "00000000-0000-4000-8000-000000000901";
 const connectionId = "00000000-0000-4000-8000-000000000902";
 
+beforeEach(async () => { await i18n.changeLanguage("zh-CN"); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("EnvironmentVariablesPage", () => {
@@ -51,5 +53,63 @@ describe("EnvironmentVariablesPage", () => {
     expect(await screen.findByText("TOKEN")).toBeVisible();
     expect(screen.getByText("••••••••")).toBeVisible();
     expect(screen.queryByText(/secret/i)).not.toBeInTheDocument();
+  });
+
+  it("renders the environment-variable workflow in English", async () => {
+    const api = {
+      listConnections: vi.fn().mockResolvedValue([{ id: connectionId, projectId, name: "OAuth Server" }]),
+      listEnvironmentVariables: vi.fn().mockResolvedValue([]),
+      setEnvironmentVariable: vi.fn(),
+      deleteEnvironmentVariable: vi.fn(),
+    } as unknown as InspectorApiClient;
+
+    await i18n.changeLanguage("en-US");
+    render(<EnvironmentVariablesPage api={api} projectId={projectId} />);
+
+    expect(await screen.findByRole("heading", { name: "Environment variables" })).toBeVisible();
+    expect(screen.getByRole("tablist", { name: "Variable scope" })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "Project variables" })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "Server variables" })).toBeVisible();
+    expect(screen.getByLabelText("Environment variable name")).toBeVisible();
+    expect(screen.getByLabelText("Environment variable value")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Save variable" })).toBeVisible();
+  });
+
+  it("manages connection-scoped profiles and renders a secret-safe preview", async () => {
+    const profileId = "00000000-0000-4000-8000-000000000905";
+    const profile = {
+      id: profileId, projectId, name: "staging", description: "Staging", parentProfileId: null,
+      revision: 1, createdAt: "2026-09-02T00:00:00.000Z", updatedAt: "2026-09-02T00:00:00.000Z",
+    };
+    const preview = {
+      profileId, chain: [profile], references: [], variables: [{
+        name: "TOKEN", scope: "server" as const, secret: true,
+        source: "profile" as const, sourceProfileId: profileId,
+      }],
+    };
+    const setConnectionEnvironmentProfile = vi.fn().mockResolvedValue({ profileId, preview });
+    const api = {
+      listConnections: vi.fn().mockResolvedValue([{
+        id: connectionId, projectId, name: "OAuth Server", status: "disconnected",
+      }]),
+      listEnvironmentVariables: vi.fn().mockResolvedValue([]),
+      listEnvironmentProfiles: vi.fn().mockResolvedValue([profile]),
+      listEnvironmentProfileVariables: vi.fn().mockResolvedValue([]),
+      getConnectionEnvironmentProfile: vi.fn().mockResolvedValue({ profileId, preview }),
+      previewConnectionEnvironmentProfile: vi.fn().mockResolvedValue(preview),
+      setConnectionEnvironmentProfile,
+      createEnvironmentProfile: vi.fn(), updateEnvironmentProfile: vi.fn(), deleteEnvironmentProfile: vi.fn(),
+      setEnvironmentProfileVariable: vi.fn(), deleteEnvironmentProfileVariable: vi.fn(),
+    } as unknown as InspectorApiClient;
+    const user = userEvent.setup();
+    render(<><AppToaster /><EnvironmentVariablesPage api={api} projectId={projectId} /></>);
+
+    await user.click(await screen.findByRole("tab", { name: "环境 Profile" }));
+    expect(await screen.findByRole("heading", { name: "Profile 详情" })).toBeVisible();
+    expect(screen.getAllByText("staging").length).toBeGreaterThan(0);
+    expect(await screen.findByText("••••••••")).toBeVisible();
+    expect(screen.queryByText(/never-return/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "用于此连接" }));
+    await waitFor(() => expect(setConnectionEnvironmentProfile).toHaveBeenCalledWith(projectId, connectionId, profileId));
   });
 });

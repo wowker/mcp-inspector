@@ -1,20 +1,20 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { ArrowsOutSimple, CaretRight, Check, CopySimple, Play, X } from "@phosphor-icons/react";
-import { createPortal } from "react-dom";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { CaretRight, Play } from "@phosphor-icons/react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import "../../i18n/index.js";
 import type { DebugTabSummary } from "../../api/api-client.js";
 import { formatRawArguments, parseRawArguments } from "../../../shared/json.js";
 import { validateJsonSchema, type SchemaIssue } from "../../../shared/json-schema.js";
-import { arrayObjectItemSchema, fieldsFromSchema, requiresWholeArgumentsFallback, valueFromInput, type SchemaField } from "./schema-form.js";
+import { arrayObjectItemSchema, discriminatedObjectBranches, fieldsFromSchema, objectValueIsSafe, requiresWholeArgumentsFallback, safeObjectEditorSchema, valueFromInput, type SchemaField } from "./schema-form.js";
 import { BooleanSwitch, EnumControl } from "./ParameterControls.js";
 import { ArrayObjectEditor } from "./ArrayObjectEditor.js";
+import { JsonSubtreeEditor } from "./JsonSubtreeEditor.js";
+import { BranchObjectEditor, ObjectFieldEditor } from "./ObjectFieldEditor.js";
 import {
   fieldMatchesFilter,
   parameterStatus,
   summarizeConstraints,
-  summarizeJsonValue,
   type ParameterFilter,
 } from "./parameter-editor-model.js";
 
@@ -22,7 +22,9 @@ interface Props {
   tab: DebugTabSummary; schema: Record<string, unknown>;
   onChange: (patch: Partial<DebugTabSummary>) => void; onExecute?: () => void;
   onSaveRequest?: (argumentsValue: Record<string, unknown>) => void;
+  layoutControls?: ReactNode;
   executing?: boolean;
+  showExecute?: boolean;
   workflowEnabled?: boolean;
   deferRequiredValidation?: boolean;
   expanded?: boolean;
@@ -59,111 +61,9 @@ function initialOptionalValue(field: SchemaField): unknown {
   return null;
 }
 
-function JsonEditorDialog({ fieldName, text, onTextChange, onClose, returnFocusTo }: {
-  fieldName: string; text: string; onTextChange: (text: string) => void; onClose: () => void;
-  returnFocusTo: HTMLElement | null;
-}) {
-  const { t } = useTranslation("tools");
-  const titleId = useId();
-  const dialogRef = useRef<HTMLElement>(null);
-  const closeRef = useRef(onClose);
-  closeRef.current = onClose;
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { event.preventDefault(); closeRef.current(); return; }
-      if (event.key !== "Tab") return;
-      const focusable = dialogRef.current?.querySelectorAll<HTMLElement>("button:not([disabled]), textarea:not([disabled])");
-      if (focusable === undefined || focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => { document.removeEventListener("keydown", handleKeyDown); returnFocusTo?.focus(); };
-  }, [returnFocusTo]);
-  return createPortal(<div className="json-editor-dialog__backdrop" role="presentation" onMouseDown={(event) => {
-    if (event.currentTarget === event.target) onClose();
-  }}>
-    <section ref={dialogRef} className="json-editor-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
-      <header><div><span>{t("parameter.jsonParameter")}</span><h2 id={titleId}>{t("parameter.editJson", { name: fieldName })}</h2></div>
-        <button type="button" aria-label={t("parameter.closeJson")} onClick={onClose}><X size={18} aria-hidden="true" /></button>
-      </header>
-      <textarea autoFocus aria-label={t("parameter.enlargedJsonEditor", { name: fieldName })} value={text}
-        onChange={(event) => onTextChange(event.target.value)} />
-    </section>
-  </div>, document.body);
-}
-
-function JsonSubtreeEditor({ id, fieldName, value, describedBy, draft, objectOnly = false, required = false, disabled = false, onDraftChange, onCommit }: {
-  id: string; fieldName: string; value: unknown; describedBy?: string; draft?: { text: string; base: string };
-  objectOnly?: boolean; required?: boolean; disabled?: boolean;
-  onDraftChange?: (text: string, base: string) => void; onCommit: (value: unknown) => void;
-}) {
-  const { t, i18n } = useTranslation("tools");
-  const formatted = value === undefined ? "" : JSON.stringify(value, null, 2);
-  const [localText, setLocalText] = useState(formatted);
-  const [invalid, setInvalid] = useState(false);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const enlargeButtonRef = useRef<HTMLButtonElement>(null);
-  const text = draft?.base === formatted ? draft.text : draft === undefined ? localText : formatted;
-  useEffect(() => { if (draft === undefined) setLocalText(formatted); }, [draft, formatted]);
-  useEffect(() => { if (disabled) setInvalid(false); }, [disabled]);
-  function parse(textValue: string): { ok: true; value: unknown } | { ok: false } {
-    if (textValue.trim() === "") {
-      return !required && !objectOnly ? { ok: true, value: undefined } : { ok: false };
-    }
-    try {
-      const parsed: unknown = JSON.parse(textValue);
-      if (objectOnly && (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))) return { ok: false };
-      return { ok: true, value: parsed };
-    } catch { return { ok: false }; }
-  }
-  function commitIfChanged(next: unknown): void {
-    const currentCanonical = value === undefined ? "" : JSON.stringify(value);
-    const nextCanonical = next === undefined ? "" : JSON.stringify(next);
-    if (currentCanonical !== nextCanonical) onCommit(next);
-  }
-  function updateText(nextText: string): void {
-    onDraftChange?.(nextText, formatted);
-    if (draft === undefined) setLocalText(nextText);
-    const parsed = parse(nextText);
-    if (parsed.ok) commitIfChanged(parsed.value);
-    setInvalid(false);
-  }
-  function format(): void {
-    const parsed = parse(text);
-    if (!parsed.ok) { setInvalid(true); return; }
-    updateText(parsed.value === undefined ? "" : JSON.stringify(parsed.value, null, 2));
-  }
-  return <><div className="json-subtree-toolbar">
-    <span>{summarizeJsonValue(value, i18n.resolvedLanguage === "en-US" ? "en-US" : "zh-CN")}</span>
-    <div>
-      <button type="button" disabled={disabled} aria-label={t("parameter.formatJson", { name: fieldName })} onClick={format}>
-        <Check size={15} aria-hidden="true" />{t("parameter.format")}
-      </button>
-      <button type="button" disabled={disabled} aria-label={t("parameter.copyJson", { name: fieldName })}
-        onClick={() => void navigator.clipboard?.writeText(text)}><CopySimple size={15} aria-hidden="true" />{t("parameter.copy")}</button>
-      <button ref={enlargeButtonRef} type="button" disabled={disabled} aria-label={t("parameter.enlargeJson", { name: fieldName })} onClick={() => setDialogOpen(true)}>
-        <ArrowsOutSimple size={15} aria-hidden="true" />{t("parameter.enlarge")}
-      </button>
-    </div>
-  </div><textarea id={id} value={text} required={required} disabled={disabled} placeholder={required ? t("parameter.requiredPlaceholder") : undefined}
-    aria-describedby={describedBy} aria-invalid={!disabled && invalid}
-    onChange={(event) => updateText(event.target.value)}
-    onBlur={() => {
-      const parsed = parse(text);
-      if (parsed.ok) { commitIfChanged(parsed.value); setInvalid(false); }
-      else setInvalid(true);
-    }} />
-    {!disabled && invalid && <p role="alert">{objectOnly ? t("parameter.jsonObjectRequired") : t("parameter.validJsonRequired")}</p>}
-    {dialogOpen && <JsonEditorDialog fieldName={fieldName} text={text} onTextChange={updateText}
-      returnFocusTo={enlargeButtonRef.current} onClose={() => setDialogOpen(false)} />}</>;
-}
-
-export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveRequest, executing = false, workflowEnabled = false,
+export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveRequest, layoutControls, executing = false, workflowEnabled = false,
   deferRequiredValidation = false,
-  expanded: controlledExpanded, onExpandedChange, subtreeDrafts = {}, onSubtreeDraftChange }: Props) {
+  showExecute = true, expanded: controlledExpanded, onExpandedChange, subtreeDrafts = {}, onSubtreeDraftChange }: Props) {
   const { t } = useTranslation("tools");
   const [rawTouched, setRawTouched] = useState(false);
   const [localExpanded, setLocalExpanded] = useState(true);
@@ -224,7 +124,7 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveReques
     onChange(current.ok ? { rawText: text, arguments: current.value } : { rawText: text });
   }
   return <section className="parameter-editor" onKeyDown={(event) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); execute(); }
+    if (showExecute && (event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); execute(); }
   }}>
     <div className="editor-toolbar">
       <div className="editor-primary-actions">
@@ -243,18 +143,18 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveReques
             const nextMode = event.key === "Home" ? "form" : event.key === "End" ? "raw" : inputMode === "form" ? "raw" : "form";
             event.preventDefault(); if (mode(nextMode)) queueMicrotask(() => document.getElementById(`mode-${nextMode}-${tab.id}`)?.focus());
           }}>
-            <button id={`mode-form-${tab.id}`} aria-controls={`panel-form-${tab.id}`} type="button" role="tab" tabIndex={inputMode === "form" ? 0 : -1} aria-selected={inputMode === "form"} onClick={() => mode("form")}>Form</button>
+            <button id={`mode-form-${tab.id}`} aria-controls={`panel-form-${tab.id}`} type="button" role="tab" tabIndex={inputMode === "form" ? 0 : -1} aria-selected={inputMode === "form"} onClick={() => mode("form")}>{t("parameter.formMode")}</button>
             <button id={`mode-raw-${tab.id}`} aria-controls={`panel-raw-${tab.id}`} type="button" role="tab" tabIndex={inputMode === "raw" ? 0 : -1} aria-selected={inputMode === "raw"}
-              disabled={!hasEditableArguments} title={!hasEditableArguments ? t("parameter.noArguments") : undefined} onClick={() => mode("raw")}>Raw JSON</button>
+              disabled={!hasEditableArguments} title={!hasEditableArguments ? t("parameter.noArguments") : undefined} onClick={() => mode("raw")}>{t("parameter.rawMode")}</button>
           </div>
         </div>
-        <button type="button" className="editor-execute" disabled={!canExecute || executing} onClick={execute}>
+        {showExecute && <button type="button" className="editor-execute" disabled={!canExecute || executing} onClick={execute}>
           <Play size={14} weight="fill" aria-hidden="true" />{executing
             ? workflowEnabled ? t("parameter.executingWorkflow") : t("parameter.executing")
             : workflowEnabled ? t("parameter.executeWorkflow") : t("parameter.execute")}
-        </button>
+        </button>}
       </div>
-      <div className="editor-actions">{onSaveRequest !== undefined && <button type="button" className="run-result-action" disabled={inputMode === "raw" && !parsed.ok}
+      <div className="editor-actions">{layoutControls}{onSaveRequest !== undefined && <button type="button" className="run-result-action" disabled={inputMode === "raw" && !parsed.ok}
         onClick={() => onSaveRequest(inputMode === "raw" && parsed.ok ? parsed.value : tab.arguments)}>{t("parameter.saveRequest")}</button>}
         <button type="button" className="run-result-action" onClick={() => void navigator.clipboard?.writeText(
         inputMode === "raw" && parsed.ok ? formatRawArguments(parsed.value) : formatRawArguments(tab.arguments))}>{t("parameter.copyArguments")}</button></div>
@@ -338,10 +238,26 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveReques
               options={field.enumValues ?? []} required={field.required} invalid={errors.length > 0}
               disabled={!included} describedBy={describedBy} onSelect={(index) => edit(field.name, field.enumValues?.[index])}
               onClear={() => edit(field.name, undefined)} />
+          : field.kind === "json" && discriminatedObjectBranches(field.schema) !== null &&
+            (field.value === undefined || objectValueIsSafe(field.value))
+            ? <BranchObjectEditor id={inputId} fieldName={field.name} fieldPath={field.path}
+              model={discriminatedObjectBranches(field.schema)!}
+              value={typeof field.value === "object" && field.value !== null && !Array.isArray(field.value)
+                ? field.value as Record<string, unknown> : {}}
+              disabled={!included} drafts={subtreeDrafts} onDraftChange={onSubtreeDraftChange}
+              onChange={(value) => edit(field.name, value)} />
+          : field.kind === "json" && safeObjectEditorSchema(field.schema, field.value) !== null
+            ? <ObjectFieldEditor id={inputId} fieldName={field.name} fieldPath={field.path}
+              schema={safeObjectEditorSchema(field.schema, field.value)!}
+              value={typeof field.value === "object" && field.value !== null && !Array.isArray(field.value)
+                ? field.value as Record<string, unknown> : {}}
+              disabled={!included} drafts={subtreeDrafts} onDraftChange={onSubtreeDraftChange}
+              onChange={(value) => edit(field.name, value)} />
           : field.kind === "json" && arrayObjectItemSchema(field.schema) !== null && Array.isArray(field.value)
             ? <ArrayObjectEditor id={inputId} fieldName={field.name} itemSchema={arrayObjectItemSchema(field.schema)!}
               value={field.value} disabled={!included} onChange={(value) => edit(field.name, value)} />
           : field.kind === "json" ? <JsonSubtreeEditor id={inputId} fieldName={field.name} value={field.value} describedBy={describedBy}
+              ariaLabel={field.name}
               required={field.required} disabled={!included} draft={subtreeDrafts[field.path]} onDraftChange={(text, base) => onSubtreeDraftChange?.(field.path, text, base)}
               onCommit={(value) => edit(field.name, value)} />
           : <input id={inputId} type={field.kind === "string" ? "text" : "number"} value={field.value === undefined ? "" : String(field.value)}

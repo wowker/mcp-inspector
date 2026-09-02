@@ -1,70 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { Eye, EyeSlash, Plus, Trash, X } from "@phosphor-icons/react";
 import type { ConnectionHeaderDraft } from "./ConnectionPanel.js";
 import type { ConnectionAuthMode } from "../../../shared/connection-auth.js";
-
-interface DialogSurfaceProps {
-  children: ReactNode;
-  labelledBy: string;
-  describedBy?: string;
-  initialFocusRef: React.RefObject<HTMLElement | null>;
-  onClose: () => void;
-  closeDisabled?: boolean;
-}
-
-function DialogSurface({
-  children, labelledBy, describedBy, initialFocusRef, onClose, closeDisabled = false,
-}: DialogSurfaceProps) {
-  const surfaceRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    initialFocusRef.current?.focus();
-  }, [initialFocusRef]);
-
-  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
-    if (event.key === "Escape" && !closeDisabled) {
-      event.preventDefault();
-      onClose();
-      return;
-    }
-    if (event.key !== "Tab") return;
-    const focusable = [...(surfaceRef.current?.querySelectorAll<HTMLElement>(
-      "button, input, select, textarea, [tabindex]",
-    ) ?? [])].filter((element) =>
-      !element.hasAttribute("disabled") && element.getAttribute("tabindex") !== "-1");
-    if (focusable.length === 0) return;
-    const first = focusable[0];
-    const last = focusable.at(-1);
-    if (event.shiftKey && event.target === first) {
-      event.preventDefault();
-      last?.focus();
-    } else if (!event.shiftKey && event.target === last) {
-      event.preventDefault();
-      first?.focus();
-    }
-  }
-
-  return (
-    <div
-      className="dialog-backdrop"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !closeDisabled) onClose();
-      }}
-    >
-      <div
-        ref={surfaceRef}
-        className="dialog-surface"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={labelledBy}
-        aria-describedby={describedBy}
-        onKeyDown={handleKeyDown}
-      >
-        {children}
-      </div>
-    </div>
-  );
-}
+import { Dialog } from "../../components/overlays/Dialog.js";
+import { Select } from "../../components/forms/Select.js";
+import { FormField } from "../../components/forms/FormField.js";
+import { useTranslation } from "react-i18next";
 
 interface ConnectionFormDialogProps {
   mode: "create" | "edit";
@@ -95,18 +36,19 @@ export function ConnectionFormDialog({
   onNameChange, onUrlChange, onTimeoutChange, onAuthModeChange, onBearerTokenChange,
   onRedactSensitiveInfoChange, onAddHeader, onHeaderChange, onRemoveHeader, onSubmit, onClose,
 }: ConnectionFormDialogProps) {
+  const { t } = useTranslation("servers");
   const nameInput = useRef<HTMLInputElement>(null);
   const [visibleHeaderIds, setVisibleHeaderIds] = useState<ReadonlySet<number>>(() => new Set());
   const [bearerTokenVisible, setBearerTokenVisible] = useState(false);
-  const title = mode === "create" ? "添加连接" : "编辑连接";
+  const title = mode === "create" ? t("form.createTitle") : t("form.editTitle");
   const description = mode === "create"
-    ? "保存连接配置后，可从列表中手动发起连接。"
-    : "保存修改会断开当前连接，需要重新连接后才能继续调试。";
+    ? t("form.createDescription")
+    : t("form.editDescription");
 
   return (
-    <DialogSurface
-      labelledBy="connection-dialog-title"
-      describedBy="connection-dialog-description"
+    <Dialog
+      titleId="connection-dialog-title"
+      descriptionId="connection-dialog-description"
       initialFocusRef={nameInput}
       onClose={onClose}
       closeDisabled={submitting}
@@ -120,7 +62,7 @@ export function ConnectionFormDialog({
         <button
           type="button"
           className="dialog-close"
-          aria-label={`关闭${title}弹窗`}
+          aria-label={t("form.closeAria", { title })}
           disabled={submitting}
           onClick={onClose}
         ><X size={18} aria-hidden="true" /></button>
@@ -128,30 +70,30 @@ export function ConnectionFormDialog({
       <form className="connection-dialog-form" onSubmit={onSubmit}>
         {error !== null && <p role="alert" className="connection-error dialog-error">{error}</p>}
         <div className="connection-fields">
-          <label>
-            <span>连接名称</span>
+          <FormField label={t("form.name")} htmlFor="connection-name" required>
             <input
+              id="connection-name"
               ref={nameInput}
               value={name}
               onChange={(event) => onNameChange(event.target.value)}
               maxLength={120}
-              placeholder="例如：商品服务 MCP"
+              placeholder={t("form.namePlaceholder")}
               required
             />
-          </label>
-          <label>
-            <span>MCP URL</span>
+          </FormField>
+          <FormField label={t("form.url")} htmlFor="connection-url" required>
             <input
+              id="connection-url"
               value={url}
               onChange={(event) => onUrlChange(event.target.value)}
               type="url"
               placeholder="https://example.com/mcp"
               required
             />
-          </label>
-          <label>
-            <span>请求超时（毫秒）</span>
+          </FormField>
+          <FormField label={t("form.timeout")} htmlFor="connection-timeout" required>
             <input
+              id="connection-timeout"
               value={timeoutMs}
               onChange={(event) => onTimeoutChange(event.target.value)}
               type="number"
@@ -160,16 +102,15 @@ export function ConnectionFormDialog({
               step={1}
               required
             />
-          </label>
-          <label>
-            <span>认证方式</span>
-            <select value={authMode} onChange={(event) => onAuthModeChange(event.target.value as ConnectionAuthMode)}>
-              <option value="none">无认证</option>
-              <option value="bearer">Bearer Token</option>
-              <option value="oauth">OAuth 自动授权</option>
-            </select>
-            {authMode === "oauth" && <small>首次连接会打开浏览器完成授权。</small>}
-          </label>
+          </FormField>
+          <FormField label={t("form.authMode")} htmlFor="connection-auth-mode"
+            description={authMode === "oauth" ? t("form.oauthDescription") : undefined}>
+            <Select id="connection-auth-mode" value={authMode} onChange={(event) => onAuthModeChange(event.target.value as ConnectionAuthMode)}>
+              <option value="none">{t("form.auth.none")}</option>
+              <option value="bearer">{t("form.auth.bearer")}</option>
+              <option value="oauth">{t("form.auth.oauth")}</option>
+            </Select>
+          </FormField>
           {authMode === "bearer" && (
             <div className="connection-bearer-token">
               <label htmlFor="connection-bearer-token">Bearer Token</label>
@@ -181,67 +122,67 @@ export function ConnectionFormDialog({
                   type={bearerTokenVisible ? "text" : "password"}
                   autoComplete="off"
                   maxLength={8192}
-                  placeholder="请输入 Bearer Token"
+                  placeholder={t("form.tokenPlaceholder")}
                   required
                 />
                 <button
                   type="button"
-                  aria-label={bearerTokenVisible ? "隐藏 Bearer Token" : "显示 Bearer Token"}
+                  aria-label={bearerTokenVisible ? t("form.hideToken") : t("form.showToken")}
                   aria-pressed={bearerTokenVisible}
-                  title={bearerTokenVisible ? "隐藏 Bearer Token" : "显示 Bearer Token"}
+                  title={bearerTokenVisible ? t("form.hideToken") : t("form.showToken")}
                   onClick={() => setBearerTokenVisible((visible) => !visible)}
                 >{bearerTokenVisible
                     ? <EyeSlash size={17} aria-hidden="true" />
                     : <Eye size={17} aria-hidden="true" />}</button>
               </span>
-              <small>支持直接值或 <code>{"{{VARIABLE_NAME}}"}</code>；连接时按当前 Server 解析变量并发送 Authorization Header。</small>
+              <small>{t("form.tokenHint", { variable: "{{VARIABLE_NAME}}" })}</small>
             </div>
           )}
         </div>
         <section className="connection-headers" aria-labelledby="connection-headers-title">
           <div className="connection-headers__heading">
             <div>
-              <h4 id="connection-headers-title">自定义 Headers</h4>
-              <p>连接、刷新 Tool 和调用 Tool 时都会发送。值支持直接输入或使用 <code>{"{{VARIABLE_NAME}}"}</code> 引用环境变量。</p>
+              <h4 id="connection-headers-title">{t("form.headersTitle")}</h4>
+              <p>{t("form.headersDescription", { variable: "{{VARIABLE_NAME}}" })}</p>
             </div>
             <button type="button" className="button-secondary" onClick={onAddHeader} disabled={submitting || headers.length >= 32}>
-              <Plus size={15} weight="bold" aria-hidden="true" />添加 Header
+              <Plus size={15} weight="bold" aria-hidden="true" />{t("form.addHeader")}
             </button>
           </div>
           {headers.length === 0 ? (
-            <p className="connection-headers__empty">未配置自定义 Header</p>
+            <p className="connection-headers__empty">{t("form.noHeaders")}</p>
           ) : (
             <div className="connection-headers__list">
               {headers.map((header, index) => (
                 <div className="connection-header-row" key={header.id}>
                   <label>
-                    <span>名称</span>
+                    <span>{t("form.headerName")}</span>
                     <input
-                      aria-label={`Header 名称 ${index + 1}`}
+                      aria-label={t("form.headerNameAria", { index: index + 1 })}
                       value={header.name}
                       onChange={(event) => onHeaderChange(header.id, "name", event.target.value)}
-                      placeholder="例如 X-API-Key"
+                      placeholder={t("form.headerNamePlaceholder")}
                       maxLength={256}
                       required
                     />
                   </label>
                   <label>
-                    <span>值</span>
+                    <span>{t("form.headerValue")}</span>
                     <input
-                      aria-label={`Header 值 ${index + 1}`}
+                      aria-label={t("form.headerValueAria", { index: index + 1 })}
                       value={header.value}
                       onChange={(event) => onHeaderChange(header.id, "value", event.target.value)}
                       type={visibleHeaderIds.has(header.id) ? "text" : "password"}
                       autoComplete="off"
-                      placeholder="输入 Header 值"
+                      placeholder={t("form.headerValuePlaceholder")}
                       maxLength={8192}
                     />
                   </label>
                   <button
                     type="button"
                     className="connection-header-row__visibility"
-                    aria-label={`${visibleHeaderIds.has(header.id) ? "隐藏" : "显示"} Header ${header.name || index + 1}`}
-                    title={visibleHeaderIds.has(header.id) ? "隐藏 Header 值" : "显示 Header 值"}
+                    aria-label={t(visibleHeaderIds.has(header.id) ? "form.hideHeader" : "form.showHeader", { name: header.name || index + 1 })}
+                    title={t(visibleHeaderIds.has(header.id) ? "form.hideHeaderTitle" : "form.showHeaderTitle")}
                     aria-pressed={visibleHeaderIds.has(header.id)}
                     disabled={submitting}
                     onClick={() => setVisibleHeaderIds((current) => {
@@ -258,7 +199,7 @@ export function ConnectionFormDialog({
                   <button
                     type="button"
                     className="connection-header-row__remove"
-                    aria-label={`删除 Header ${header.name || index + 1}`}
+                    aria-label={t("form.deleteHeader", { name: header.name || index + 1 })}
                     disabled={submitting}
                     onClick={() => onRemoveHeader(header.id)}
                   >
@@ -270,29 +211,29 @@ export function ConnectionFormDialog({
           )}
           {authMode !== "none" && (
             <p className="connection-headers__notice">
-              {authMode === "oauth" ? "OAuth" : "Bearer Token"} 模式下 Authorization 由认证方式自动管理。
+              {t("form.managedAuthorization", { mode: authMode === "oauth" ? "OAuth" : "Bearer Token" })}
             </p>
           )}
         </section>
         <label className="connection-redaction-option">
-          <input type="checkbox" aria-label="信息脱敏" checked={redactSensitiveInfo} disabled={submitting}
+          <input type="checkbox" aria-label={t("form.redaction")} checked={redactSensitiveInfo} disabled={submitting}
             onChange={(event) => onRedactSensitiveInfoChange(event.target.checked)} />
-          <span><strong>信息脱敏</strong><small>隐藏 Authorization、Cookie、API Key 等敏感 HTTP Header。</small></span>
+          <span><strong>{t("form.redaction")}</strong><small>{t("form.redactionDescription")}</small></span>
         </label>
         {!redactSensitiveInfo && <p role="alert" className="connection-redaction-warning">
-          关闭后，敏感 Header 将以原文写入本地 SQLite 运行记录，并显示在调用详情中。
+          {t("form.redactionWarning")}
         </p>}
         <dl className="connection-fixed-options">
-          <div><dt>传输方式</dt><dd>Streamable HTTP</dd></div>
+          <div><dt>{t("form.transport")}</dt><dd>Streamable HTTP</dd></div>
         </dl>
         <div className="dialog-actions">
-          <button type="button" className="button-secondary" disabled={submitting} onClick={onClose}>取消</button>
+          <button type="button" className="button-secondary" disabled={submitting} onClick={onClose}>{t("form.cancel")}</button>
           <button type="submit" disabled={submitting}>
-            {submitting ? "正在保存…" : mode === "create" ? "保存连接" : "保存修改"}
+            {submitting ? t("form.saving") : mode === "create" ? t("form.saveCreate") : t("form.saveEdit")}
           </button>
         </div>
       </form>
-    </DialogSurface>
+    </Dialog>
   );
 }
 
@@ -307,11 +248,12 @@ interface DeleteConnectionDialogProps {
 export function DeleteConnectionDialog({
   connectionName, deleting, error, onConfirm, onClose,
 }: DeleteConnectionDialogProps) {
+  const { t } = useTranslation("servers");
   const cancelButton = useRef<HTMLButtonElement>(null);
   return (
-    <DialogSurface
-      labelledBy="delete-connection-dialog-title"
-      describedBy="delete-connection-dialog-description"
+    <Dialog
+      titleId="delete-connection-dialog-title"
+      descriptionId="delete-connection-dialog-description"
       initialFocusRef={cancelButton}
       onClose={onClose}
       closeDisabled={deleting}
@@ -319,23 +261,23 @@ export function DeleteConnectionDialog({
       <div className="dialog-header dialog-header--compact">
         <div>
           <p className="dialog-kicker dialog-kicker--danger">DANGER ZONE</p>
-          <h3 id="delete-connection-dialog-title">删除连接</h3>
+          <h3 id="delete-connection-dialog-title">{t("delete.title")}</h3>
           <p id="delete-connection-dialog-description">
-            确认删除 {connectionName}？已保存的 Tool 快照也将从当前项目移除。
+            {t("delete.description", { name: connectionName })}
           </p>
         </div>
       </div>
       {error !== null && <p role="alert" className="connection-error dialog-error">{error}</p>}
       <div className="dialog-actions">
-        <button ref={cancelButton} type="button" className="button-secondary" disabled={deleting} onClick={onClose}>取消</button>
+        <button ref={cancelButton} type="button" className="button-secondary" disabled={deleting} onClick={onClose}>{t("delete.cancel")}</button>
         <button
           type="button"
           className="button-danger"
           disabled={deleting}
-          aria-label={`确认删除 ${connectionName}`}
+          aria-label={t("delete.confirmAria", { name: connectionName })}
           onClick={onConfirm}
-        >{deleting ? "正在删除…" : "确认删除"}</button>
+        >{deleting ? t("delete.deleting") : t("delete.confirm")}</button>
       </div>
-    </DialogSurface>
+    </Dialog>
   );
 }

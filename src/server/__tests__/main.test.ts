@@ -53,7 +53,8 @@ describe("startInspector", () => {
       expect(opened).toHaveLength(1);
       const openedUrl = new URL(opened[0]);
       expect(openedUrl.origin).toBe(runtime.address.origin);
-      expect(openedUrl.searchParams.get("session")).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(openedUrl.search).toBe("");
+      expect(openedUrl.pathname).toMatch(/^\/bootstrap\/[A-Za-z0-9_-]{43}$/);
     } finally {
       await runtime.close();
     }
@@ -87,10 +88,14 @@ describe("startInspector", () => {
       openBrowser: async (url) => { browserUrl = url; },
     });
     try {
-      const token = new URL(browserUrl).searchParams.get("session")!;
       expect(new URL(browserUrl).origin).toBe("http://127.0.0.1:5173");
+      expect(new URL(browserUrl).search).toBe("");
+      const bootstrap = await fetch(`${runtime.address.origin}${new URL(browserUrl).pathname}`, {
+        redirect: "manual",
+      });
+      const cookie = bootstrap.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
       const health = await fetch(`${runtime.address.origin}/api/health`, { headers: {
-        Origin: "http://127.0.0.1:5173", "X-MCP-Inspector-Session": token,
+        Origin: "http://127.0.0.1:5173", Cookie: cookie,
       } });
       expect(health.status).toBe(200);
     } finally { await runtime.close(); }
@@ -104,8 +109,9 @@ describe("startInspector", () => {
       openBrowser: async (url) => { browserUrl = url; },
     });
     try {
-      const token = new URL(browserUrl).searchParams.get("session")!;
-      const headers = { Origin: runtime.address.origin, "X-MCP-Inspector-Session": token };
+      const bootstrap = await fetch(browserUrl, { redirect: "manual" });
+      const headers = { Origin: runtime.address.origin,
+        Cookie: bootstrap.headers.get("set-cookie")?.split(";", 1)[0] ?? "" };
       const asset = await fetch(`${runtime.address.origin}/assets/app.js`);
       expect(asset.status).toBe(200);
       expect(await asset.text()).toContain("inspectorLoaded");
@@ -169,14 +175,14 @@ describe("startInspector", () => {
     }
     expect(thrown).toBeInstanceOf(Error);
     const opened = new URL(openedUrl);
-    const token = opened.searchParams.get("session")!;
+    const ticket = opened.pathname.split("/").at(-1)!;
     expect((thrown as Error).message).toBe("Unable to open Inspector browser");
-    expect(String(thrown)).not.toContain(token);
+    expect(String(thrown)).not.toContain(ticket);
     expect(String(thrown)).not.toContain(openedUrl);
     const logged: string[] = [];
     reportStartupFailure(thrown, (message) => { logged.push(message); });
     expect(logged).toEqual(["Unable to start MCP Inspector"]);
-    expect(logged.join("\n")).not.toContain(token);
+    expect(logged.join("\n")).not.toContain(ticket);
     expect(logged.join("\n")).not.toContain(openedUrl);
     await expect(fetch(opened.origin)).rejects.toThrow();
     expect(process.listenerCount("SIGINT")).toBe(before.sigint);

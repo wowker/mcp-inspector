@@ -1,0 +1,43 @@
+export const zhCNApp = {
+  shell: {
+    eyebrow: "MCP Tool 调试平台",
+    preparing: "安全的本地调试工作台正在准备中。",
+    connecting: "正在连接本地服务…",
+    loadingWorkbench: "正在加载调试工作台…",
+    ready: "本地服务已就绪 · v{{version}}",
+    missingSession: "缺少本地会话凭证",
+    healthFailed: "本地服务健康检查失败（{{status}}）",
+    invalidHealth: "本地服务返回了无效的健康检查结果",
+    unknownHealth: "本地服务健康检查失败",
+  },
+  language: {
+    label: "界面语言",
+    changed: "界面语言已切换为简体中文",
+  },
+  workbench: {
+    skipMain: "跳到主要内容", navigation: "工作台导航",
+    nav: { servers: "Servers", tools: "Tools", environment: "环境变量", testing: "自动化测试", suites: "测试套件", reports: "测试报告", history: "运行历史" },
+    localService: "本地服务 v{{version}}", themeDark: "切换到深色主题", themeLight: "切换到浅色主题",
+    collapseSidebar: "收起侧边栏", expandSidebar: "展开侧边栏",
+    connectedServers: "已连接 Servers", noConnectedServers: "尚未连接 Server",
+    serversTitle: "Servers", serversSummary: "管理 MCP Server 连接、认证方式和运行状态。",
+    toolsPanel: "Tools", catalog: "Tool 目录", resizeCatalog: "调整 Tool 目录宽度",
+    emptyToolsTitle: "选择一个已连接的 Server 开始调试",
+    emptyToolsHint: "前往 Servers 页面建立连接，连接成功后会自动创建 Server 页签。",
+    openServers: "前往 Servers",
+    errors: {
+      runProjectMismatch: "运行记录不属于当前项目",
+      runServerMissing: "运行记录所属 Server 已不存在",
+      runToolMismatch: "Tool 数据与运行记录不匹配",
+      runToolRemoved: "该运行记录的 Tool 已移除，无法打开调试",
+    },
+  },
+  toaster: { close: "关闭通知" },
+  oauth: {
+    successTitle: "OAuth 授权成功", successHeading: "OAuth 授权完成",
+    returning: "正在返回 Server 管理…", returningComplete: "授权完成，正在返回 Server 管理…",
+    returnAction: "返回 MCP Inspector", autoClose: "此页面稍后会自动关闭",
+    failureTitle: "OAuth 授权失败", failureHeading: "OAuth 授权失败",
+    failureHint: "授权请求已失效或被取消，请返回 Inspector 后重新连接。",
+  },
+} as const;

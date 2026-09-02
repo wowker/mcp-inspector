@@ -4,7 +4,7 @@
 
 | 项目 | 内容 |
 |---|---|
-| 状态 | 实施中；第一批 `array<object>` 已完成 |
+| 状态 | 已完成；`array<object>`、有界嵌套 object 与可判定组合分支均已交付 |
 | 适用版本 | 当前 1.x，兼容 2.0.0 UI Foundation |
 | 更新日期 | 2026-08-31 |
 | 适用范围 | Tool 调试页的复杂 Schema 参数录入 |
@@ -136,6 +136,10 @@ npm run verify
 - 已实现条目新增、删除、上下移动、折叠以及条目 primitive 字段编辑。
 - 已实现字段局部 Form / Raw JSON 双模式及 canonical arguments 同步。
 - 已修复可选 array/object 启用时默认写入 `null` 的问题。
+- 已实现最多两层的嵌套 object 分组、递归 Form、局部 Raw JSON 与 JSON Pointer 草稿隔离。
+- 超过可视深度、未知组合 Schema、Schema 或参数值中的 prototype key 均安全回退到局部 JSON。
 - 已加入中英文文案、紧凑布局、深浅主题 token 和 focused 回归测试。
-- 完整门禁通过：66 个 Vitest 文件、564 项测试及 2 项生产 Playwright 流程全部成功。
-- 嵌套 object 与可判定分支的 `oneOf` / `anyOf` 将作为后续独立增量实施。
+- 已实现标准 discriminator 与唯一 const/单值 enum 的确定性 `oneOf` / `anyOf` 分支选择。
+- 分支切换保留公共字段与未知扩展字段；删除旧分支专属字段前必须确认，取消不改变 canonical arguments。
+- 歧义、畸形或含危险 prototype key 的组合分支安全回退到局部 JSON，不猜测或隐藏值。
+- 最新完整门禁通过：66 个 Vitest 文件、585 项测试及 2 项生产 Playwright 流程全部成功。

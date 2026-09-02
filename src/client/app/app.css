@@ -720,7 +720,7 @@ summary:focus-visible {
 .tool-definition__title { margin: 6px 0 0; color: #667085; }
 .definition-kicker { margin: 0; color: #667085; font-size: 0.7rem; font-weight: 750; letter-spacing: 0.1em; }
 .definition-copy { display: flex; align-items: center; gap: 10px; }
-.definition-copy button { flex: none; min-height: 40px; color: #fff; background: #172033; }
+.definition-copy button { flex: none; min-height: 40px; }
 
 .tool-description { display: grid; gap: 12px; }
 .tool-description > section { padding: 16px 18px; border-left: 3px solid #98a2b3; background: #f8f9fa; }
@@ -733,9 +733,6 @@ summary:focus-visible {
 .definition-metadata dt { color: #667085; font-size: 0.72rem; font-weight: 700; }
 .definition-metadata dd { margin: 6px 0 0; }
 .definition-metadata dd > code { display: block; overflow: hidden; color: #344054; font-size: 0.78rem; text-overflow: ellipsis; white-space: nowrap; }
-.definition-status { display: inline-flex; padding: 3px 8px; border-radius: 999px; color: #067647; background: #ecfdf3; font-size: 0.75rem; font-weight: 700; }
-.definition-status--changed { color: #93370d; background: #fffaeb; }
-.definition-status--removed { color: #b42318; background: #fef3f2; }
 
 .definition-behavior,
 .definition-schema,
@@ -764,7 +761,6 @@ summary:focus-visible {
 .definition-schema-table tbody th { width: 24%; overflow-wrap: anywhere; }
 .definition-schema-table tbody td:last-child { color: #475467; line-height: 1.5; }
 .definition-raw { border: 1px solid #e4e7ec; background: #fff; }
-.definition-raw summary { padding: 11px 14px; cursor: pointer; color: #475467; font-weight: 700; }
 .definition-raw pre,
 .tool-definition .definition-raw pre { min-height: 0; max-height: 360px; margin: 0; padding: 14px; border-radius: 0; overflow: auto; background: #101828; color: #f2f4f7; white-space: pre; }
 .definition-history ol { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }

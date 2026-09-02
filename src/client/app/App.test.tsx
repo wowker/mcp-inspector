@@ -20,8 +20,7 @@ describe("App", () => {
     vi.unstubAllGlobals();
   });
 
-  test("checks health with the bootstrap session and announces the version", async () => {
-    history.replaceState(null, "", "/?session=test-session");
+  test("checks health with the HttpOnly browser session and announces the version", async () => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ ok: true, version: "0.1.0" }), {
         status: 200,
@@ -37,41 +36,39 @@ describe("App", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/health",
       expect.objectContaining({
-        headers: { "X-MCP-Inspector-Session": "test-session" },
+        credentials: "same-origin",
       }),
     );
     expect(location.search).toBe("");
   });
 
-  test("shows an accessible alert and skips the request without a session", () => {
+  test("shows an accessible alert when the HttpOnly session is absent", async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 401 }));
     render(<App />);
 
-    expect(screen.getByRole("alert")).toHaveTextContent("Missing local session");
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await screen.findByRole("alert")).toHaveTextContent("本地服务健康检查失败（401）");
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   test("announces a non-success health response as an error", async () => {
-    sessionStorage.setItem("mcp-inspector-session", "test-session");
     fetchMock.mockResolvedValue(new Response(null, { status: 503 }));
 
     render(<App />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Health check failed (503)",
+      "本地服务健康检查失败（503）",
     );
   });
 
   test("announces a network failure as an error", async () => {
-    sessionStorage.setItem("mcp-inspector-session", "test-session");
     fetchMock.mockRejectedValue(new Error("connection refused"));
 
     render(<App />);
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("connection refused");
+    expect(await screen.findByRole("alert")).toHaveTextContent("本地服务健康检查失败");
   });
 
   test("rejects a malformed success response", async () => {
-    sessionStorage.setItem("mcp-inspector-session", "test-session");
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ ok: "yes" }), {
         status: 200,
@@ -82,12 +79,11 @@ describe("App", () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent("Invalid health response");
+      expect(screen.getByRole("alert")).toHaveTextContent("本地服务返回了无效的健康检查结果");
     });
   });
 
   test("shows connection configuration management after a project opens", async () => {
-    sessionStorage.setItem("mcp-inspector-session", "test-session");
     const project = {
       id: "00000000-0000-4000-8000-000000000501",
       name: "Supplier Tools",
@@ -119,15 +115,18 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Servers", level: 1 })).toBeVisible();
+    // The workbench is a deliberate lazy boundary. Under the full parallel suite,
+    // module transformation may exceed Testing Library's 1 s default without
+    // representing a product timeout or requiring a fixed sleep.
+    expect(await screen.findByRole("heading", { name: "Servers", level: 1 }, { timeout: 5_000 })).toBeVisible();
     expect(screen.queryByText("Supplier Tools")).not.toBeInTheDocument();
     expect(document.querySelector(".project-identity")).not.toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "连接管理" })).toBeVisible();
     expect(fetchMock).toHaveBeenCalledWith(
       `/api/projects/${project.id}/connections`,
       expect.objectContaining({
-        headers: expect.objectContaining({ "X-MCP-Inspector-Session": "test-session" }),
+        headers: expect.not.objectContaining({ "X-MCP-Inspector-Session": expect.anything() }),
       }),
     );
-  });
+  }, 10_000);
 });

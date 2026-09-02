@@ -92,6 +92,8 @@ export interface ToolService {
   renameFolder(projectId: string, connectionId: string, folderId: string, name: unknown): ToolFolder;
   deleteFolder(projectId: string, connectionId: string, folderId: string): void;
   moveToFolder(projectId: string, connectionId: string, toolName: string, folderId: unknown): CatalogTool;
+  setFavorite(projectId: string, connectionId: string, toolName: string, favorite: unknown): CatalogTool;
+  markUsed(projectId: string, connectionId: string, toolName: string): CatalogTool;
 }
 
 export function createToolService(
@@ -215,6 +217,22 @@ export function createToolService(
       if (result === "tool-missing") throw new ToolNotFoundError();
       if (result === "folder-missing") throw new ToolFolderNotFoundError();
       return result;
+    },
+
+    setFavorite(projectId, connectionId, toolName, favorite) {
+      if (toolName.length === 0 || typeof favorite !== "boolean") throw new ToolNotFoundError();
+      const tool = repository(projectId, connectionId).setFavorite(projectId, connectionId, toolName, favorite);
+      if (tool === null) throw new ToolNotFoundError();
+      return tool;
+    },
+
+    markUsed(projectId, connectionId, toolName) {
+      if (toolName.length === 0) throw new ToolNotFoundError();
+      const tool = repository(projectId, connectionId).markUsed(
+        projectId, connectionId, toolName, now().toISOString(),
+      );
+      if (tool === null) throw new ToolNotFoundError();
+      return tool;
     },
 
     get(projectId, connectionId, toolName) {

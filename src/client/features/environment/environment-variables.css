@@ -1,5 +1,8 @@
 .environment-page { height: 100%; overflow: auto; padding: 32px 36px 56px; }
 .environment-page__heading { margin-bottom: 22px; }
+.environment-page__view { display: inline-flex; gap: 3px; margin-bottom: 18px; padding: 3px; border: 1px solid var(--ui-border); border-radius: var(--ui-control-radius); background: var(--ui-surface-muted); }
+.environment-page__view > button { min-height: 30px; padding: 0 13px; border: 0; border-radius: calc(var(--ui-control-radius) - 2px); color: var(--ui-text-muted); background: transparent; font-size: 12px; font-weight: 700; }
+.environment-page__view > button[aria-selected="true"] { color: var(--ui-text); background: var(--ui-surface); box-shadow: inset 0 0 0 1px var(--ui-border); }
 .environment-page__scope { display: flex; align-items: center; gap: 4px; margin-bottom: 12px; }
 .environment-page__scope > button { min-height: 34px; padding: 0 14px; border: 1px solid var(--ui-border); color: var(--ui-text); background: var(--ui-surface); cursor: pointer; }
 .environment-page__scope > button[aria-selected="true"] { color: var(--ui-accent); border-color: var(--ui-accent); }
@@ -23,3 +26,46 @@
 .environment-table td:last-child button { border: 0; background: transparent; padding: 5px; color: var(--ui-text-muted); }
 .environment-table__empty { margin: 0; padding: 40px 16px; text-align: center; color: var(--ui-text-muted); }
 @media (max-width: 1000px) { .environment-editor { grid-template-columns: 1fr 1fr; } }
+
+.environment-profiles { display: grid; min-height: 560px; grid-template-columns: 240px minmax(0, 1fr); border: 1px solid var(--ui-border); background: var(--ui-surface); }
+.environment-profiles__rail { min-width: 0; border-right: 1px solid var(--ui-border); background: var(--ui-surface-muted); }
+.environment-profiles__rail-heading { display: flex; min-height: 48px; align-items: center; justify-content: space-between; padding: 7px 10px 7px 14px; border-bottom: 1px solid var(--ui-border); }
+.environment-profile-row { display: grid; width: 100%; min-height: 44px; grid-template-columns: auto 1fr; align-items: center; gap: 8px; padding: 8px 14px; border: 0; border-bottom: 1px solid var(--ui-border-muted); color: var(--ui-text); background: transparent; text-align: left; }
+.environment-profile-row:hover { background: var(--ui-surface); }
+.environment-profile-row[data-selected="true"] { box-shadow: inset 3px 0 var(--ui-accent); background: var(--ui-surface); }
+.environment-profile-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 650; white-space: nowrap; }
+.environment-profile-row > small { grid-column: 2; color: var(--ui-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.environment-profiles__main { display: grid; min-width: 0; align-content: start; }
+.environment-profile-section { padding: 20px; border-bottom: 1px solid var(--ui-border); }
+.environment-profile-section:last-child { border-bottom: 0; }
+.environment-profile-section__heading { display: flex; align-items: start; justify-content: space-between; gap: 20px; margin-bottom: 16px; }
+.environment-profile-section__heading h2 { margin: 0; font-size: 15px; }
+.environment-profile-section__heading p { margin: 4px 0 0; color: var(--ui-text-muted); font-size: 12px; }
+.environment-profile-actions { display: flex; gap: 7px; }
+.environment-profile-form { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr); gap: 14px; }
+.environment-profile-form > label, .environment-profile-variable-editor > label { display: grid; gap: 7px; color: var(--ui-text); font-size: 12px; font-weight: 650; }
+.environment-profile-form__description { grid-column: 1 / -1; }
+.environment-profile-form textarea { min-height: 72px; resize: vertical; }
+.environment-profile-toolbar { display: flex; align-items: center; gap: 4px; margin-bottom: 12px; }
+.environment-profile-toolbar > button { min-height: 30px; padding: 0 11px; border: 1px solid var(--ui-border); color: var(--ui-text-muted); background: var(--ui-surface); }
+.environment-profile-toolbar > button[data-selected="true"] { color: var(--ui-accent); border-color: var(--ui-accent); }
+.environment-profile-toolbar .ui-select { min-width: 220px; margin-left: 8px; }
+.environment-profile-variable-editor { display: grid; grid-template-columns: minmax(140px, .8fr) 120px 100px minmax(220px, 1.4fr) auto auto; align-items: end; gap: 10px; padding: 12px; border: 1px solid var(--ui-border); background: var(--ui-surface-muted); }
+.environment-profile-variable-list { margin-top: 12px; border: 1px solid var(--ui-border); }
+.environment-profile-variable-row { display: grid; min-height: 40px; grid-template-columns: minmax(160px, .6fr) minmax(180px, 1fr) auto auto; align-items: center; gap: 10px; padding: 5px 10px; border-bottom: 1px solid var(--ui-border-muted); }
+.environment-profile-variable-row:last-child { border-bottom: 0; }
+.environment-profile-variable-row > span { color: var(--ui-text-muted); overflow-wrap: anywhere; }
+.environment-profile-preview-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.environment-profile-preview-controls .ui-select { min-width: 190px; }
+.environment-profile-active { margin-left: auto; color: var(--ui-text-muted); font-size: 12px; }
+.environment-profile-preview { margin-top: 14px; border: 1px solid var(--ui-border); }
+.environment-profile-preview > p { margin: 0; padding: 10px 12px; border-bottom: 1px solid var(--ui-border); color: var(--ui-text-muted); font-size: 12px; }
+.environment-profile-references { display: grid; gap: 1px; border-bottom: 1px solid var(--ui-border); background: var(--ui-border-muted); }
+.environment-profile-references > div { display: grid; grid-template-columns: minmax(160px, .7fr) minmax(180px, 1fr) auto; gap: 12px; padding: 8px 12px; background: var(--ui-surface); font-size: 12px; }
+.environment-profile-references > div small { color: var(--ui-success); }
+.environment-profile-references > div[data-missing="true"] small { color: var(--ui-danger); font-weight: 700; }
+.environment-profiles__empty { margin: 0; padding: 22px 14px; color: var(--ui-text-muted); font-size: 12px; text-align: center; }
+@media (max-width: 1100px) {
+  .environment-profiles { grid-template-columns: 190px minmax(0, 1fr); }
+  .environment-profile-variable-editor { grid-template-columns: 1fr 1fr; }
+}

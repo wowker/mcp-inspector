@@ -1,7 +1,13 @@
 import type { ProjectStore } from "../projects/project-store.js";
 
 export type TabInputMode = "form" | "raw";
-export interface TabViewState { editorScrollTop: number; resultScrollTop: number; splitRatio: number }
+export interface TabViewState {
+  editorScrollTop: number;
+  resultScrollTop: number;
+  splitRatio: number;
+  requestExpanded?: boolean;
+  responseExpanded?: boolean;
+}
 export interface DebugTab {
   id: string; projectId: string; connectionId: string; toolName: string; title: string;
   position: number; pinned: boolean; inputMode: TabInputMode;
@@ -25,10 +31,14 @@ function objectJson(text: string, label: string): Record<string, unknown> {
 
 function fromRow(row: TabRow): DebugTab {
   const rawView = objectJson(row.view_state_json, "view state");
-  const { editorScrollTop, resultScrollTop, splitRatio } = rawView;
+  const { editorScrollTop, resultScrollTop, splitRatio, requestExpanded, responseExpanded } = rawView;
   if (![editorScrollTop, resultScrollTop, splitRatio].every((item) => typeof item === "number" && Number.isFinite(item)) ||
       (editorScrollTop as number) < 0 || (resultScrollTop as number) < 0 ||
       (splitRatio as number) < 0.2 || (splitRatio as number) > 0.8) {
+    throw new Error("Stored Tab view state is invalid");
+  }
+  if (requestExpanded !== undefined && typeof requestExpanded !== "boolean" ||
+      responseExpanded !== undefined && typeof responseExpanded !== "boolean") {
     throw new Error("Stored Tab view state is invalid");
   }
   if (typeof row.raw_text !== "string" || typeof row.title !== "string" || row.title.length === 0 ||
@@ -38,7 +48,8 @@ function fromRow(row: TabRow): DebugTab {
     toolName: row.tool_name, title: row.title, position: row.position, pinned: row.pinned === 1,
     inputMode: row.input_mode, arguments: objectJson(row.arguments_json, "arguments"), rawText: row.raw_text,
     viewState: { editorScrollTop: editorScrollTop as number, resultScrollTop: resultScrollTop as number,
-      splitRatio: splitRatio as number }, lastRunId: row.last_run_id };
+      splitRatio: splitRatio as number, requestExpanded: requestExpanded ?? true,
+      responseExpanded: responseExpanded ?? true }, lastRunId: row.last_run_id };
 }
 
 const columns = `id, project_id, connection_id, tool_name, title, position, pinned,

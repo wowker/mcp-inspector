@@ -3,13 +3,16 @@ import {
   type DragEvent, type FormEvent, type MouseEvent,
 } from "react";
 import {
-  ArrowClockwise, CaretRight, DotsThree, FolderPlus, FolderSimple, FolderSimplePlus,
-  MagnifyingGlass, PencilSimple, Trash, X,
+  ArrowClockwise, CaretLeft, CaretRight, DotsThree, FolderPlus, FolderSimple,
+  MagnifyingGlass, PencilSimple, Star, Trash, X,
 } from "@phosphor-icons/react";
+import { useTranslation } from "react-i18next";
+import { Dialog } from "../../components/overlays/Dialog.js";
 import type {
   CatalogToolSummary, ConnectionSummary, ToolFolderSummary,
 } from "../../api/api-client.js";
 import { summarizeToolDescription } from "./tool-description.js";
+import { ToolFolderSelect } from "./ToolFolderSelect.js";
 
 interface ToolTreeProps {
   connections: ConnectionSummary[];
@@ -24,13 +27,12 @@ interface ToolTreeProps {
   onRenameFolder?: (folder: ToolFolderSummary, name: string) => Promise<void>;
   onDeleteFolder?: (folder: ToolFolderSummary) => Promise<void>;
   onMoveTool?: (tool: CatalogToolSummary, folderId: string | null) => Promise<void>;
+  onToggleFavorite?: (tool: CatalogToolSummary) => Promise<void>;
   selectedTool?: { connectionId: string; name: string } | null;
 }
 
-const statusLabels: Record<CatalogToolSummary["status"], string> = {
-  current: "当前", changed: "已变化", removed: "已移除",
-};
 const POINTER_DOUBLE_CLICK_WINDOW_MS = 500;
+const TOOL_PAGE_SIZE = 200;
 
 function normalizeSearch(value: string): string {
   return value.normalize("NFKC").toLocaleLowerCase().replace(/[_/.-]+/g, " ").replace(/\s+/g, " ").trim();
@@ -45,30 +47,38 @@ function isSubsequence(needle: string, haystack: string): boolean {
   return needle.length === 0;
 }
 
-function fuzzyMatches(query: string, value: string): boolean {
-  const searchable = normalizeSearch(value);
-  return normalizeSearch(query).split(" ").every((token) =>
-    searchable.includes(token) || isSubsequence(token, searchable));
+function fuzzyMatches(normalizedQuery: string, normalizedValue: string): boolean {
+  return normalizedQuery.split(" ").every((token) =>
+    normalizedValue.includes(token) || isSubsequence(token, normalizedValue));
 }
 
 function canonicalIdentifier(value: string): string {
   return value.normalize("NFKC").toLocaleLowerCase().trim();
 }
 
-function searchRank(query: string, tool: CatalogToolSummary): number | null {
-  const rawQuery = canonicalIdentifier(query);
-  const rawName = canonicalIdentifier(tool.name);
-  const normalizedQuery = normalizeSearch(query);
-  const normalizedName = normalizeSearch(tool.name);
+interface ToolSearchEntry {
+  rawName: string;
+  normalizedName: string;
+  normalizedDescription: string;
+}
+
+function indexToolSearch(tool: CatalogToolSummary): ToolSearchEntry {
   const description = tool.currentSnapshot.definition.description;
   const summary = typeof description === "string" ? summarizeToolDescription(description) : "";
-  const normalizedDescription = normalizeSearch(summary);
-  if (rawName === rawQuery) return 0;
-  if (normalizedName.startsWith(normalizedQuery)) return 1;
-  if (normalizedName.includes(normalizedQuery)) return 2;
-  if (fuzzyMatches(normalizedQuery, normalizedName)) return 3;
-  if (normalizedDescription.includes(normalizedQuery)) return 4;
-  if (fuzzyMatches(normalizedQuery, normalizedDescription)) return 5;
+  return {
+    rawName: canonicalIdentifier(tool.name),
+    normalizedName: normalizeSearch(tool.name),
+    normalizedDescription: normalizeSearch(summary),
+  };
+}
+
+function searchRank(rawQuery: string, normalizedQuery: string, entry: ToolSearchEntry): number | null {
+  if (entry.rawName === rawQuery) return 0;
+  if (entry.normalizedName.startsWith(normalizedQuery)) return 1;
+  if (entry.normalizedName.includes(normalizedQuery)) return 2;
+  if (fuzzyMatches(normalizedQuery, entry.normalizedName)) return 3;
+  if (entry.normalizedDescription.includes(normalizedQuery)) return 4;
+  if (fuzzyMatches(normalizedQuery, entry.normalizedDescription)) return 5;
   return null;
 }
 
@@ -77,12 +87,21 @@ export function ToolTree({
   onSelectTool, onOpenTool, onDeleteTool = async () => undefined,
   onCreateFolder = async () => undefined, onMoveTool = async () => undefined,
   onRenameFolder = async () => undefined, onDeleteFolder = async () => undefined,
+  onToggleFavorite = async () => undefined,
   selectedTool = null,
 }: ToolTreeProps) {
+  const { t, i18n } = useTranslation("tools");
+  const statusLabels: Record<CatalogToolSummary["status"], string> = {
+    current: t("catalog.status.current"), changed: t("catalog.status.changed"), removed: t("catalog.status.removed"),
+  };
   const connection = connections[0] ?? null;
   const pendingSelection = useRef<{ timer: ReturnType<typeof setTimeout>; tool: CatalogToolSummary } | null>(null);
   const draggedTool = useRef<CatalogToolSummary | null>(null);
+  const treeRef = useRef<HTMLUListElement | null>(null);
   const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<"all" | "favorite" | "recent" | "changed" | "removed">("all");
+  const [catalogPage, setCatalogPage] = useState(0);
+  const [favoritePending, setFavoritePending] = useState<string | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [folderName, setFolderName] = useState("");
   const [folderPending, setFolderPending] = useState(false);
@@ -102,9 +121,15 @@ export function ToolTree({
   const [deletingFolder, setDeletingFolder] = useState<ToolFolderSummary | null>(null);
   const [folderActionPending, setFolderActionPending] = useState(false);
   const folderMenuRef = useRef<HTMLDivElement | null>(null);
+  const folderMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
+  const deleteFolderButtonRef = useRef<HTMLButtonElement | null>(null);
+  const deleteToolButtonRef = useRef<HTMLButtonElement | null>(null);
   const deleteTrigger = useRef<HTMLButtonElement | null>(null);
+  const rawQuery = canonicalIdentifier(query);
   const normalizedQuery = normalizeSearch(query);
   const tools = connection === null ? [] : catalogs[connection.id] ?? [];
+  const searchIndex = useMemo(() => new Map(tools.map((tool) => [tool.name, indexToolSearch(tool)])), [tools]);
   const activeFolders = useMemo(() => [...folders]
     .filter((folder) => connection !== null && folder.connectionId === connection.id)
     .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base", numeric: true }) ||
@@ -118,13 +143,50 @@ export function ToolTree({
     newFolderIds.forEach((id) => seenFolderIds.current.add(id));
     setCollapsedFolderIds((current) => new Set([...current, ...newFolderIds]));
   }, [activeFolders]);
+  const scopedTools = useMemo(() => {
+    const matching = tools.filter((tool) => filter === "all" ||
+      (filter === "favorite" && tool.favorite) ||
+      (filter === "recent" && tool.lastUsedAt !== null) || tool.status === filter);
+    return filter === "recent"
+      ? [...matching].sort((left, right) => (right.lastUsedAt ?? "").localeCompare(left.lastUsedAt ?? ""))
+      : matching;
+  }, [filter, tools]);
   const filteredTools = useMemo(() => {
-    if (normalizedQuery.length === 0) return tools;
-    return tools.map((tool, index) => ({ tool, index, rank: searchRank(query, tool) }))
+    if (normalizedQuery.length === 0) return scopedTools;
+    return scopedTools.map((tool, index) => ({
+      tool, index, rank: searchRank(rawQuery, normalizedQuery, searchIndex.get(tool.name)!),
+    }))
       .filter((candidate): candidate is { tool: CatalogToolSummary; index: number; rank: number } => candidate.rank !== null)
       .sort((left, right) => left.rank - right.rank || left.index - right.index)
       .map(({ tool }) => tool);
-  }, [normalizedQuery, query, tools]);
+  }, [normalizedQuery, rawQuery, scopedTools, searchIndex]);
+  const unfiled = useMemo(() => tools.filter((tool) =>
+    tool.folderId === null || !knownFolderIds.has(tool.folderId)), [knownFolderIds, tools]);
+  const expandedCatalogTools = useMemo(() => [
+    ...activeFolders.flatMap((folder) => collapsedFolderIds.has(folder.id)
+      ? [] : tools.filter((tool) => tool.folderId === folder.id)),
+    ...unfiled,
+  ], [activeFolders, collapsedFolderIds, tools, unfiled]);
+  const pageSource = normalizedQuery.length > 0 || filter !== "all" ? filteredTools : expandedCatalogTools;
+  const pageCount = Math.max(1, Math.ceil(pageSource.length / TOOL_PAGE_SIZE));
+  const currentPage = Math.min(catalogPage, pageCount - 1);
+  const pageStart = currentPage * TOOL_PAGE_SIZE;
+  const visibleTools = pageSource.slice(pageStart, pageStart + TOOL_PAGE_SIZE);
+  const hasBoundedPages = pageSource.length > TOOL_PAGE_SIZE;
+  const numberFormat = useMemo(() => new Intl.NumberFormat(i18n.resolvedLanguage ?? i18n.language),
+    [i18n.language, i18n.resolvedLanguage]);
+
+  useEffect(() => { setCatalogPage(0); }, [connection?.id]);
+
+  useEffect(() => {
+    if (treeRef.current !== null) treeRef.current.scrollTop = 0;
+  }, [currentPage, filter, normalizedQuery]);
+
+  useEffect(() => {
+    if (selectedTool === null || selectedTool.connectionId !== connection?.id) return;
+    const selectedIndex = pageSource.findIndex((tool) => tool.name === selectedTool.name);
+    if (selectedIndex >= 0) setCatalogPage(Math.floor(selectedIndex / TOOL_PAGE_SIZE));
+  }, [connection?.id, pageSource, selectedTool]);
 
   useEffect(() => () => {
     if (pendingSelection.current !== null) clearTimeout(pendingSelection.current.timer);
@@ -136,7 +198,10 @@ export function ToolTree({
       if (!folderMenuRef.current?.contains(event.target as Node)) setFolderMenuId(null);
     }
     function escape(event: KeyboardEvent): void {
-      if (event.key === "Escape") setFolderMenuId(null);
+      if (event.key === "Escape") {
+        setFolderMenuId(null);
+        queueMicrotask(() => folderMenuTriggerRef.current?.focus());
+      }
     }
     document.addEventListener("pointerdown", close);
     document.addEventListener("keydown", escape);
@@ -145,6 +210,11 @@ export function ToolTree({
       document.removeEventListener("keydown", escape);
     };
   }, [folderMenuId]);
+
+  function closeFolderDialog(kind: "rename" | "delete"): void {
+    if (kind === "rename") setRenamingFolder(null); else setDeletingFolder(null);
+    queueMicrotask(() => folderMenuTriggerRef.current?.focus());
+  }
 
   function select(tool: CatalogToolSummary, event: MouseEvent<HTMLButtonElement>): void {
     if (tool.status === "removed") {
@@ -181,7 +251,7 @@ export function ToolTree({
       await onDeleteTool(pendingDelete); setPendingDelete(null);
       queueMicrotask(() => deleteTrigger.current?.focus());
     } catch (error) {
-      setDeleteError(error instanceof Error ? error.message : "无法删除已移除 Tool");
+      setDeleteError(error instanceof Error ? error.message : t("catalog.errors.deleteTool"));
     } finally { setDeleting(false); }
   }
 
@@ -193,7 +263,7 @@ export function ToolTree({
     try {
       await onCreateFolder(name); setFolderName(""); setCreatingFolder(false);
     } catch (error) {
-      setOrganizeError(error instanceof Error ? error.message : "无法创建文件夹");
+      setOrganizeError(error instanceof Error ? error.message : t("catalog.errors.createFolder"));
     } finally { setFolderPending(false); }
   }
 
@@ -201,31 +271,40 @@ export function ToolTree({
     if (movingToolName !== null || tool.folderId === folderId) return;
     setMovingToolName(tool.name); setOrganizeError(null);
     try { await onMoveTool(tool, folderId); }
-    catch (error) { setOrganizeError(error instanceof Error ? error.message : "无法移动 Tool"); }
+    catch (error) { setOrganizeError(error instanceof Error ? error.message : t("catalog.errors.moveTool")); }
     finally {
       setMovingToolName(null); setDragTarget(undefined); draggedTool.current = null;
     }
+  }
+
+  async function toggleFavorite(tool: CatalogToolSummary): Promise<void> {
+    if (favoritePending !== null) return;
+    setFavoritePending(tool.name); setOrganizeError(null);
+    try { await onToggleFavorite(tool); }
+    catch (error) { setOrganizeError(error instanceof Error ? error.message : t("catalog.errors.favorite")); }
+    finally { setFavoritePending(null); }
   }
 
   async function renameFolder(event: FormEvent): Promise<void> {
     event.preventDefault();
     if (renamingFolder === null || folderActionPending || renameName.trim().length === 0) return;
     setFolderActionPending(true); setOrganizeError(null);
-    try { await onRenameFolder(renamingFolder, renameName.trim()); setRenamingFolder(null); }
-    catch (error) { setOrganizeError(error instanceof Error ? error.message : "无法重命名文件夹"); }
+    try { await onRenameFolder(renamingFolder, renameName.trim()); closeFolderDialog("rename"); }
+    catch (error) { setOrganizeError(error instanceof Error ? error.message : t("catalog.errors.renameFolder")); }
     finally { setFolderActionPending(false); }
   }
 
   async function deleteFolder(): Promise<void> {
     if (deletingFolder === null || folderActionPending) return;
     setFolderActionPending(true); setOrganizeError(null);
-    try { await onDeleteFolder(deletingFolder); setDeletingFolder(null); }
-    catch (error) { setOrganizeError(error instanceof Error ? error.message : "无法删除文件夹"); }
+    try { await onDeleteFolder(deletingFolder); closeFolderDialog("delete"); }
+    catch (error) { setOrganizeError(error instanceof Error ? error.message : t("catalog.errors.deleteFolder")); }
     finally { setFolderActionPending(false); }
   }
 
   function dragStart(event: DragEvent<HTMLLIElement>, tool: CatalogToolSummary): void {
-    if (tool.status === "removed" || (event.target as HTMLElement).closest(".tool-move-control") !== null) {
+    if (tool.status === "removed" ||
+      (event.target as HTMLElement).closest(".tool-move-control, .tool-favorite") !== null) {
       event.preventDefault(); return;
     }
     draggedTool.current = tool;
@@ -242,188 +321,225 @@ export function ToolTree({
 
   function renderTool(tool: CatalogToolSummary) {
     const active = selectedTool?.connectionId === tool.connectionId && selectedTool.name === tool.name;
-    return <li key={tool.name} role="none" className="tool-row"
+    return <li key={tool.name} className="tool-row"
       draggable={tool.status !== "removed" && movingToolName !== tool.name}
       onDragStart={(event) => dragStart(event, tool)}
       onDragEnd={() => { draggedTool.current = null; setDragTarget(undefined); }}>
-      <button type="button" role="treeitem" className={`tool-item${active ? " tool-item--selected" : ""}`}
+      <button type="button" className={`tool-item${active ? " tool-item--selected" : ""}`}
         aria-current={active ? "true" : undefined}
-        aria-label={`${tool.name}${tool.status === "current" ? "" : `，${statusLabels[tool.status]}`}`}
+        aria-label={tool.status === "current" ? tool.name : t("catalog.toolAria", { name: tool.name, status: statusLabels[tool.status] })}
         onClick={(event) => select(tool, event)} onDoubleClick={() => open(tool)}>
         <span className="tool-item__copy"><strong>{tool.name}</strong></span>
         {tool.status !== "current" && <span className={`tool-status tool-status--${tool.status}`}>
           {statusLabels[tool.status]}
         </span>}
       </button>
-      {tool.status !== "removed" && activeFolders.length > 0 && <label className="tool-move-control" title="移动到文件夹">
-        <FolderSimplePlus size={15} weight="bold" aria-hidden="true" />
-        <select aria-label={`移动 ${tool.name} 到文件夹`} value={tool.folderId ?? ""}
-          disabled={movingToolName !== null} onChange={(event) => void move(tool, event.target.value || null)}>
-          <option value="">未分类</option>
-          {activeFolders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
-        </select>
-      </label>}
+      <button type="button" className={`tool-favorite${tool.favorite ? " tool-favorite--active" : ""}`}
+        aria-label={tool.favorite ? t("catalog.unfavoriteAria", { name: tool.name }) : t("catalog.favoriteAria", { name: tool.name })}
+        aria-pressed={tool.favorite} disabled={favoritePending !== null}
+        onClick={() => void toggleFavorite(tool)}>
+        <Star size={16} weight={tool.favorite ? "fill" : "regular"} aria-hidden="true" />
+      </button>
+      {tool.status !== "removed" && activeFolders.length > 0 && <ToolFolderSelect
+        ariaLabel={t("catalog.moveAria", { name: tool.name })} disabled={movingToolName !== null}
+        folderId={tool.folderId} folders={activeFolders} title={t("catalog.moveTitle")}
+        unfiledLabel={t("catalog.unfiled")} onChange={(folderId) => void move(tool, folderId)} />}
     </li>;
   }
 
-  const unfiled = tools.filter((tool) => tool.folderId === null || !knownFolderIds.has(tool.folderId));
   const refreshing = connection !== null && refreshingConnectionIds.has(connection.id);
 
   return <section className="tool-tree-panel" aria-labelledby="tool-tree-title">
     <div className="tool-tree-panel__heading">
-      <p className="eyebrow" id="tool-tree-title">Tool Catalog</p>
+      <p className="eyebrow" id="tool-tree-title">{t("catalog.title")}</p>
       <div className="tool-catalog-actions">
-        <button type="button" className="button-secondary" aria-label="创建文件夹" title="创建文件夹"
+        <button type="button" className="button-secondary" aria-label={t("catalog.createFolder")} title={t("catalog.createFolder")}
           onClick={() => { setCreatingFolder(true); setOrganizeError(null); }}>
           <FolderPlus size={16} weight="bold" aria-hidden="true" />
         </button>
         {connection !== null && <button type="button" className="button-secondary tool-refresh-button"
-          aria-label={`刷新 ${connection.name} Tools`} title="刷新 Tool 目录"
+          aria-label={t("catalog.refreshAria", { name: connection.name })} title={t("catalog.refreshTitle")}
           disabled={refreshing || connection.status !== "connected"} onClick={() => onRefresh(connection.id)}>
           <ArrowClockwise size={16} aria-hidden="true" />
-          <span className="sr-only">{refreshing ? "刷新中" : "刷新"}</span>
+          <span className="sr-only">{refreshing ? t("catalog.refreshing") : t("catalog.refresh")}</span>
         </button>}
       </div>
       <div className="tool-search-wrap">
         <MagnifyingGlass size={15} weight="bold" aria-hidden="true" />
-        <input className="tool-search" type="search" aria-label="搜索 Tool" value={query}
-          onChange={(event) => setQuery(event.target.value)} placeholder="搜索名称或描述" />
-        {query !== "" && <button type="button" aria-label="清除 Tool 搜索" onClick={() => setQuery("")}>
+        <input className="tool-search" type="search" aria-label={t("catalog.searchAria")} value={query}
+          onChange={(event) => { setQuery(event.target.value); setCatalogPage(0); }} placeholder={t("catalog.searchPlaceholder")} />
+        {query !== "" && <button type="button" aria-label={t("catalog.clearSearch")} onClick={() => {
+          setQuery(""); setCatalogPage(0);
+        }}>
           <X size={14} weight="bold" aria-hidden="true" />
         </button>}
+      </div>
+      <div className="tool-catalog-filters" role="group" aria-label={t("catalog.filterLabel")}>
+        {(["all", "favorite", "recent", "changed", "removed"] as const).map((value) =>
+          <button key={value} type="button" aria-pressed={filter === value}
+            onClick={() => { setFilter(value); setCatalogPage(0); }}>{t(`catalog.filters.${value}`)}</button>)}
       </div>
     </div>
 
     {creatingFolder && <form className="tool-folder-create" onSubmit={(event) => void createFolder(event)}>
       <FolderSimple size={16} weight="fill" aria-hidden="true" />
-      <input autoFocus aria-label="文件夹名称" value={folderName} maxLength={80}
-        onChange={(event) => setFolderName(event.target.value)} placeholder="文件夹名称" />
-      <button type="submit" disabled={folderPending || folderName.trim().length === 0}>创建</button>
+      <input autoFocus aria-label={t("catalog.folderName")} value={folderName} maxLength={80}
+        onChange={(event) => setFolderName(event.target.value)} placeholder={t("catalog.folderName")} />
+      <button type="submit" disabled={folderPending || folderName.trim().length === 0}>{t("catalog.create")}</button>
       <button type="button" className="button-secondary" disabled={folderPending}
-        onClick={() => { setCreatingFolder(false); setFolderName(""); }}>取消</button>
+        onClick={() => { setCreatingFolder(false); setFolderName(""); }}>{t("catalog.cancel")}</button>
     </form>}
     {organizeError !== null && renamingFolder === null && deletingFolder === null &&
       <p className="tool-organize-error" role="alert">{organizeError}</p>}
 
-    <ul className="tool-tree" role="tree" aria-label="MCP Tools">
-      {normalizedQuery.length > 0 ? filteredTools.map(renderTool) : <>
+    <ul ref={treeRef} className="tool-tree" aria-label={t("catalog.treeLabel")}>
+      {normalizedQuery.length > 0 || filter !== "all" ? visibleTools.map(renderTool) : <>
         {activeFolders.map((folder) => {
           const folderTools = tools.filter((tool) => tool.folderId === folder.id);
+          const visibleFolderTools = visibleTools.filter((tool) => tool.folderId === folder.id);
           const collapsed = collapsedFolderIds.has(folder.id);
-          return <li key={folder.id} role="none"
+          return <li key={folder.id}
             className={`tool-folder-group${dragTarget === folder.id ? " tool-folder-group--dragover" : ""}`}
             onDragEnter={(event) => { event.preventDefault(); setDragTarget(folder.id); }}
             onDragOver={(event) => event.preventDefault()} onDrop={(event) => drop(event, folder.id)}>
             <div className="tool-folder-heading-row">
-            <button type="button" className="tool-folder-heading" role="treeitem"
-              aria-expanded={!collapsed} aria-label={`${folder.name} 文件夹，${folderTools.length} 个 Tool`}
-              onClick={() => setCollapsedFolderIds((current) => {
+            <button type="button" className="tool-folder-heading"
+              aria-expanded={!collapsed} aria-label={t("catalog.folderAria", { name: folder.name, count: folderTools.length })}
+              onClick={() => {
+                setCatalogPage(0);
+                setCollapsedFolderIds((current) => {
                 const next = new Set(current);
                 if (next.has(folder.id)) next.delete(folder.id); else next.add(folder.id);
                 return next;
-              })}>
+                });
+              }}>
               <CaretRight className="tool-folder-caret" size={13} weight="bold" aria-hidden="true" />
               <FolderSimple size={16} weight="fill" aria-hidden="true" />
               <strong>{folder.name}</strong><span>{folderTools.length}</span>
             </button>
             <div className="tool-folder-menu-wrap" ref={folderMenuId === folder.id ? folderMenuRef : undefined}>
-              <button type="button" className="tool-folder-actions" aria-label={`${folder.name} 文件夹操作`}
+              <button type="button" className="tool-folder-actions" aria-label={t("catalog.folderActions", { name: folder.name })}
                 aria-haspopup="menu" aria-expanded={folderMenuId === folder.id}
-                onClick={() => setFolderMenuId((current) => current === folder.id ? null : folder.id)}>
+                onClick={(event) => {
+                  folderMenuTriggerRef.current = event.currentTarget;
+                  setFolderMenuId((current) => current === folder.id ? null : folder.id);
+                  queueMicrotask(() => folderMenuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus());
+                }}>
                 <DotsThree size={18} weight="bold" aria-hidden="true" />
               </button>
-              {folderMenuId === folder.id && <div className="tool-folder-menu" role="menu">
+              {folderMenuId === folder.id && <div className="tool-folder-menu" role="menu"
+                onKeyDown={(event) => {
+                  if (event.key === "Tab") {
+                    queueMicrotask(() => setFolderMenuId(null));
+                    return;
+                  }
+                  if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+                  const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
+                  const current = items.indexOf(document.activeElement as HTMLButtonElement);
+                  const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1
+                    : event.key === "ArrowDown" ? (current + 1) % items.length : (current - 1 + items.length) % items.length;
+                  event.preventDefault(); items[next]?.focus();
+                }}>
                 <button type="button" role="menuitem" onClick={() => {
                   setFolderMenuId(null); setRenameName(folder.name); setRenamingFolder(folder); setOrganizeError(null);
-                }}><PencilSimple size={15} aria-hidden="true" />重命名</button>
+                }}><PencilSimple size={15} aria-hidden="true" />{t("catalog.rename")}</button>
                 <button type="button" role="menuitem" className="tool-folder-menu__danger" onClick={() => {
                   setFolderMenuId(null); setDeletingFolder(folder); setOrganizeError(null);
-                }}><Trash size={15} aria-hidden="true" />删除文件夹</button>
+                }}><Trash size={15} aria-hidden="true" />{t("catalog.deleteFolder")}</button>
               </div>}
             </div>
             </div>
-            {!collapsed && <ul role="group" className="tool-items">
-              {folderTools.map(renderTool)}
-              {folderTools.length === 0 && <li role="none" className="tool-folder-empty">拖拽 Tool 到这里</li>}
+            {!collapsed && <ul className="tool-items">
+              {visibleFolderTools.map(renderTool)}
+              {folderTools.length === 0 && <li className="tool-folder-empty">{t("catalog.dropHere")}</li>}
             </ul>}
           </li>;
         })}
-        <li role="none" className={`tool-unfiled${dragTarget === null ? " tool-unfiled--dragover" : ""}`}
+        <li className={`tool-unfiled${dragTarget === null ? " tool-unfiled--dragover" : ""}`}
           onDragEnter={(event) => { event.preventDefault(); setDragTarget(null); }}
           onDragOver={(event) => event.preventDefault()} onDrop={(event) => drop(event, null)}>
-          {activeFolders.length > 0 && <div className="tool-unfiled-heading">未分类 <span>{unfiled.length}</span></div>}
-          <ul role="group" className="tool-items">
-            {unfiled.map(renderTool)}
-            {tools.length === 0 && <li role="none" className="tool-empty">暂无 Tool 快照</li>}
+          {activeFolders.length > 0 && <div className="tool-unfiled-heading">{t("catalog.unfiled")} <span>{unfiled.length}</span></div>}
+          <ul className="tool-items">
+            {visibleTools.filter((tool) => tool.folderId === null || !knownFolderIds.has(tool.folderId)).map(renderTool)}
+            {tools.length === 0 && <li className="tool-empty">{t("catalog.empty")}</li>}
           </ul>
         </li>
       </>}
-      {normalizedQuery.length > 0 && filteredTools.length === 0 &&
-        <li role="none" className="tool-empty">没有匹配的 Tool</li>}
+      {(normalizedQuery.length > 0 || filter !== "all") && filteredTools.length === 0 &&
+        <li className="tool-empty">{t("catalog.noMatches")}</li>}
     </ul>
+    {hasBoundedPages && <nav className="tool-catalog-pagination" aria-label={t("catalog.pagination.label")}>
+      <span aria-live="polite">{t("catalog.pagination.summary", {
+        start: numberFormat.format(pageStart + 1),
+        end: numberFormat.format(Math.min(pageStart + TOOL_PAGE_SIZE, pageSource.length)),
+        total: numberFormat.format(pageSource.length),
+      })}</span>
+      <div>
+        <button type="button" aria-label={t("catalog.pagination.previous")} disabled={currentPage === 0}
+          onClick={() => setCatalogPage((page) => Math.max(0, page - 1))}>
+          <CaretLeft size={15} weight="bold" aria-hidden="true" />
+        </button>
+        <button type="button" aria-label={t("catalog.pagination.next")} disabled={currentPage >= pageCount - 1}
+          onClick={() => setCatalogPage((page) => Math.min(pageCount - 1, page + 1))}>
+          <CaretRight size={15} weight="bold" aria-hidden="true" />
+        </button>
+      </div>
+    </nav>}
 
-    {renamingFolder !== null && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => {
-      if (event.target === event.currentTarget && !folderActionPending) setRenamingFolder(null);
-    }}><form className="dialog-surface" role="dialog" aria-modal="true" aria-labelledby="rename-folder-title"
-      onSubmit={(event) => void renameFolder(event)} onKeyDown={(event) => {
-        if (event.key === "Escape" && !folderActionPending) setRenamingFolder(null);
-      }}>
+    {renamingFolder !== null && <Dialog titleId="rename-folder-title" initialFocusRef={renameInputRef}
+      closeDisabled={folderActionPending} onClose={() => closeFolderDialog("rename")}>
+      <form onSubmit={(event) => void renameFolder(event)}>
       <div className="dialog-header dialog-header--compact"><div>
-        <p className="dialog-kicker">TOOL FOLDER</p><h3 id="rename-folder-title">重命名文件夹</h3>
+        <p className="dialog-kicker">{t("catalog.folderKicker")}</p><h3 id="rename-folder-title">{t("catalog.renameTitle")}</h3>
       </div></div>
-      <label className="tool-folder-dialog-field">文件夹名称
-        <input autoFocus aria-label="文件夹名称" maxLength={80} value={renameName}
+      <label className="tool-folder-dialog-field">{t("catalog.folderName")}
+        <input ref={renameInputRef} aria-label={t("catalog.folderName")} maxLength={80} value={renameName}
           onChange={(event) => setRenameName(event.target.value)} />
       </label>
       {organizeError !== null && <p className="connection-error dialog-error" role="alert">{organizeError}</p>}
       <div className="dialog-actions">
         <button type="button" className="button-secondary" disabled={folderActionPending}
-          onClick={() => setRenamingFolder(null)}>取消</button>
-        <button type="submit" disabled={folderActionPending || renameName.trim().length === 0}>保存修改</button>
+          onClick={() => closeFolderDialog("rename")}>{t("catalog.cancel")}</button>
+        <button type="submit" disabled={folderActionPending || renameName.trim().length === 0}>{t("catalog.saveChanges")}</button>
       </div>
-    </form></div>}
+    </form></Dialog>}
 
-    {deletingFolder !== null && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => {
-      if (event.target === event.currentTarget && !folderActionPending) setDeletingFolder(null);
-    }}><section className="dialog-surface" role="dialog" aria-modal="true" aria-labelledby="delete-folder-title"
-      onKeyDown={(event) => { if (event.key === "Escape" && !folderActionPending) setDeletingFolder(null); }}>
+    {deletingFolder !== null && <Dialog titleId="delete-folder-title" initialFocusRef={deleteFolderButtonRef}
+      closeDisabled={folderActionPending} onClose={() => closeFolderDialog("delete")}>
       <div className="dialog-header dialog-header--compact"><div>
-        <p className="dialog-kicker dialog-kicker--danger">TOOL FOLDER</p>
-        <h3 id="delete-folder-title">删除文件夹</h3>
-        <p>删除“{deletingFolder.name}”后，{tools.filter((tool) => tool.folderId === deletingFolder.id).length} 个 Tool 将移到“未分类”。Tool 与历史数据不会删除。</p>
+        <p className="dialog-kicker dialog-kicker--danger">{t("catalog.folderKicker")}</p>
+        <h3 id="delete-folder-title">{t("catalog.deleteFolder")}</h3>
+        <p>{t("catalog.deleteFolderDescription", { name: deletingFolder.name,
+          count: tools.filter((tool) => tool.folderId === deletingFolder.id).length })}</p>
       </div></div>
       {organizeError !== null && <p className="connection-error dialog-error" role="alert">{organizeError}</p>}
       <div className="dialog-actions">
         <button type="button" className="button-secondary" disabled={folderActionPending}
-          onClick={() => setDeletingFolder(null)}>取消</button>
-        <button type="button" className="button-danger" disabled={folderActionPending}
-          aria-label="确认删除文件夹" onClick={() => void deleteFolder()}>确认删除</button>
+          onClick={() => closeFolderDialog("delete")}>{t("catalog.cancel")}</button>
+        <button ref={deleteFolderButtonRef} type="button" className="button-danger" disabled={folderActionPending}
+          aria-label={t("catalog.confirmDeleteFolder")} onClick={() => void deleteFolder()}>{t("catalog.confirmDelete")}</button>
       </div>
-    </section></div>}
+    </Dialog>}
 
-    {pendingDelete !== null && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => {
-      if (event.target === event.currentTarget && !deleting) setPendingDelete(null);
-    }}>
-      <section className="dialog-surface" role="dialog" aria-modal="true" aria-labelledby="delete-tool-title"
-        aria-describedby="delete-tool-description" onKeyDown={(event) => {
-          if (event.key === "Escape" && !deleting) setPendingDelete(null);
-        }}>
+    {pendingDelete !== null && <Dialog titleId="delete-tool-title" descriptionId="delete-tool-description"
+      initialFocusRef={deleteToolButtonRef} closeDisabled={deleting} onClose={() => {
+        setPendingDelete(null); queueMicrotask(() => deleteTrigger.current?.focus());
+      }}>
         <div className="dialog-header dialog-header--compact"><div>
-          <p className="dialog-kicker dialog-kicker--danger">LOCAL CATALOG</p>
-          <h3 id="delete-tool-title">删除已移除 Tool</h3>
-          <p id="delete-tool-description">确认从本地 Tool 目录删除 {pendingDelete.name}？既有运行历史仍会保留。</p>
+          <p className="dialog-kicker dialog-kicker--danger">{t("catalog.localCatalogKicker")}</p>
+          <h3 id="delete-tool-title">{t("catalog.deleteRemovedTitle")}</h3>
+          <p id="delete-tool-description">{t("catalog.deleteRemovedDescription", { name: pendingDelete.name })}</p>
         </div></div>
         {deleteError !== null && <p role="alert" className="connection-error dialog-error">{deleteError}</p>}
         <div className="dialog-actions">
           <button type="button" className="button-secondary" disabled={deleting} onClick={() => {
             setPendingDelete(null); queueMicrotask(() => deleteTrigger.current?.focus());
-          }}>取消</button>
-          <button type="button" className="button-danger" disabled={deleting}
-            aria-label={`确认删除 ${pendingDelete.name}`} onClick={() => void confirmDelete()}>
-            {deleting ? "正在删除…" : "确认删除"}
+          }}>{t("catalog.cancel")}</button>
+          <button ref={deleteToolButtonRef} type="button" className="button-danger" disabled={deleting}
+            aria-label={t("catalog.confirmDeleteTool", { name: pendingDelete.name })} onClick={() => void confirmDelete()}>
+            {deleting ? t("catalog.deleting") : t("catalog.confirmDelete")}
           </button>
         </div>
-      </section>
-    </div>}
+    </Dialog>}
   </section>;
 }

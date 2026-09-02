@@ -7,6 +7,8 @@ interface CatalogRow {
   name: string;
   status: ToolStatus;
   folder_id: string | null;
+  favorite: number;
+  last_used_at: string | null;
   updated_at: string;
   snapshot_id: string;
   tool_name: string;
@@ -69,6 +71,8 @@ function catalogFromRow(row: CatalogRow): CatalogTool {
     name: row.name,
     status: row.status,
     folderId: row.folder_id,
+    favorite: row.favorite === 1,
+    lastUsedAt: row.last_used_at,
     updatedAt: row.updated_at,
     currentSnapshot: snapshotFromRow({
       id: row.snapshot_id,
@@ -96,11 +100,15 @@ function folderFromRow(row: FolderRow): ToolFolder {
 const catalogSelect = `
   SELECT t.project_id, t.connection_id, t.name, t.status, t.updated_at,
          a.folder_id,
+         COALESCE(p.favorite, 0) AS favorite,
+         p.last_used_at,
          s.id AS snapshot_id, s.tool_name, s.content_hash, s.definition_json, s.created_at
   FROM tools t
   JOIN tool_snapshots s ON s.id = t.current_snapshot_id
   LEFT JOIN tool_folder_assignments a
     ON a.project_id = t.project_id AND a.connection_id = t.connection_id AND a.tool_name = t.name
+  LEFT JOIN tool_catalog_preferences p
+    ON p.project_id = t.project_id AND p.connection_id = t.connection_id AND p.tool_name = t.name
 `;
 
 export class ToolRepository {
@@ -113,6 +121,26 @@ export class ToolRepository {
       ORDER BY t.name COLLATE NOCASE, t.name
     `).all(projectId, connectionId) as CatalogRow[];
     return rows.map(catalogFromRow);
+  }
+
+  setFavorite(projectId: string, connectionId: string, toolName: string, favorite: boolean): CatalogTool | null {
+    if (this.get(projectId, connectionId, toolName) === null) return null;
+    this.store.database.prepare(`
+      INSERT INTO tool_catalog_preferences (project_id, connection_id, tool_name, favorite, last_used_at)
+      VALUES (?, ?, ?, ?, NULL)
+      ON CONFLICT(project_id, connection_id, tool_name) DO UPDATE SET favorite = excluded.favorite
+    `).run(projectId, connectionId, toolName, favorite ? 1 : 0);
+    return this.get(projectId, connectionId, toolName)!.tool;
+  }
+
+  markUsed(projectId: string, connectionId: string, toolName: string, timestamp: string): CatalogTool | null {
+    if (this.get(projectId, connectionId, toolName) === null) return null;
+    this.store.database.prepare(`
+      INSERT INTO tool_catalog_preferences (project_id, connection_id, tool_name, favorite, last_used_at)
+      VALUES (?, ?, ?, 0, ?)
+      ON CONFLICT(project_id, connection_id, tool_name) DO UPDATE SET last_used_at = excluded.last_used_at
+    `).run(projectId, connectionId, toolName, timestamp);
+    return this.get(projectId, connectionId, toolName)!.tool;
   }
 
   listFolders(projectId: string, connectionId: string): ToolFolder[] {

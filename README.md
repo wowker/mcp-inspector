@@ -46,10 +46,18 @@ make stop     # 优雅停止当前项目启动的 Inspector
 - 使用 Schema Form 或 Raw JSON 编辑 `arguments`。
 - 为同一个 Tool 打开多个互相隔离且可恢复的调试 Tab。
 - 执行 Tool 并自动保存 Run 历史。
+- 按状态、Server、Tool、来源、固定状态和时间范围筛选运行历史，并固定重要 Run。
+- 对历史 Run 执行显式确认的安全回放；回放始终使用来源 Run 的准确连接 ID 和当前 Tool 定义，不会修改调试 Tab 草稿。
+- 对直接来源与回放结果执行有界结构化比较，并保存项目级 JSONPath 忽略规则。
 - 查看格式化结果、Raw 响应、JSON-RPC、HTTP 摘要和有序时间线，并复制相关内容。
 - 为单个 Tool 配置隔离的前置/后置 JavaScript 脚本、环境变量和可追溯的流水线执行。
+- 创建单 Tool 与多步骤场景测试，配置声明式断言、响应映射、轮询和清理步骤。
+- 将测试用例组织为有限并发套件，并查看可追溯到 Run、Workflow、Server 与 Tool 快照的执行报告。
+- 显式确认后从报告更新断言基线；通过版本化 JSON 包导入导出测试定义，导入时逐个重绑定目标 Server。
 
 当前版本支持无认证、Bearer Token、自定义 Header 和 OAuth 自动授权的 Streamable HTTP MCP 连接。OAuth 使用浏览器授权、PKCE、受保护资源发现和动态客户端注册；访问令牌仅保存在 Inspector 服务进程内，重启后需要重新授权，不会写入 SQLite、导出数据或浏览器存储。
+
+回放不会自动重试，也不会跨 Server 执行。Schema 漂移和未知或破坏性副作用必须分别确认；缺失、运行中、失败、截断、损坏或非 JSON 的结果不会进入结构化比较。首个比较版本仅支持回放 Run 与其直接来源 Run，暂不支持任意两个 Run 之间比较。
 
 ## Tool 前置与后置脚本
 
@@ -114,6 +122,11 @@ npm run verify
 ```
 
 端到端测试使用本机安装的 Google Chrome，并只访问临时的回环 Inspector 与 MCP fixture。
+发布候选还必须执行构建预算、migration 字节一致性和 npm 包内容 allowlist：
+
+```bash
+npm run verify:release-artifacts
+```
 
 ## npm 发布
 
@@ -123,7 +136,7 @@ npm run verify
 
 ```bash
 make release-version BUMP=minor  # 可替换为 major 或 patch；会创建版本提交和 vX.Y.Z tag
-make release-check               # 身份、tag、测试、E2E、安全审计和打包预检
+make release-check               # 身份、tag、测试、E2E、预算、allowlist 和安全审计
 git push --follow-tags           # 保存发布提交和 tag
 make publish CONFIRM=publish     # 再次完成全部门禁后正式发布
 ```

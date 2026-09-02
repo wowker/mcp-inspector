@@ -141,6 +141,38 @@ describe("Tool routes", () => {
     expect((await app().request(`${base}/tool-folders/${folder.id}`, { method: "DELETE", headers })).status).toBe(404);
   });
 
+  it("persists favorite and recent-use metadata in the exact project and connection scope", async () => {
+    await connections.connect(projectId, connectionId);
+    const base = `/api/projects/${projectId}/connections/${connectionId}/tools`;
+    await app().request(`${base}/refresh`, { method: "POST", headers });
+    const name = encodeURIComponent("catalog/read item");
+    const favorite = await app().request(`${base}/${name}/favorite`, {
+      method: "PUT", headers, body: JSON.stringify({ favorite: true }),
+    });
+    expect(favorite.status).toBe(200);
+    expect(await favorite.json()).toEqual({ tool: expect.objectContaining({ favorite: true, lastUsedAt: null }) });
+
+    const recent = await app().request(`${base}/${name}/recent-use`, { method: "POST", headers });
+    expect(recent.status).toBe(200);
+    const recentTool = (await recent.json() as { tool: { favorite: boolean; lastUsedAt: string | null } }).tool;
+    expect(recentTool.favorite).toBe(true);
+    expect(recentTool.lastUsedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(await (await app().request(base, { headers })).json()).toEqual({ tools: [expect.objectContaining({
+      favorite: true, lastUsedAt: recentTool.lastUsedAt,
+    })] });
+  });
+
+  it("rejects an invalid favorite mutation with a stable validation error", async () => {
+    const response = await app().request(
+      `/api/projects/${projectId}/connections/${connectionId}/tools/catalog%2Fread%20item/favorite`,
+      { method: "PUT", headers, body: JSON.stringify({ favorite: "yes" }) },
+    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: { code: "TOOL_FAVORITE_INVALID", message: "Favorite must be a boolean" },
+    });
+  });
+
   it("enforces project ownership and stable missing-resource errors", async () => {
     const other = projects.create("Other");
     const cross = await app().request(

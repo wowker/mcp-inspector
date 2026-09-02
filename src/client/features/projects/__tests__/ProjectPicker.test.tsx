@@ -3,8 +3,9 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { InspectorApiClient, ProjectSummary } from "../../../api/api-client.js";
+import { i18n } from "../../../i18n/index.js";
 import { ProjectPicker } from "../ProjectPicker.js";
 
 const project = (overrides: Partial<ProjectSummary> = {}): ProjectSummary => ({
@@ -36,19 +37,31 @@ function api(overrides: Partial<InspectorApiClient> = {}): InspectorApiClient {
     createToolFolder: vi.fn(),
     renameToolFolder: vi.fn(),
     deleteToolFolder: vi.fn(),
-    moveToolToFolder: vi.fn(),
+    moveToolToFolder: vi.fn(), setToolFavorite: vi.fn(), markToolUsed: vi.fn(),
     getToolWorkflow: vi.fn(), updateToolWorkflow: vi.fn(), validateToolWorkflow: vi.fn(), debugToolWorkflow: vi.fn(),
     listEnvironmentVariables: vi.fn(), setEnvironmentVariable: vi.fn(), deleteEnvironmentVariable: vi.fn(),
+    listEnvironmentProfiles: vi.fn().mockResolvedValue([]), createEnvironmentProfile: vi.fn(), updateEnvironmentProfile: vi.fn(), deleteEnvironmentProfile: vi.fn(),
+    listEnvironmentProfileVariables: vi.fn().mockResolvedValue([]), setEnvironmentProfileVariable: vi.fn(), deleteEnvironmentProfileVariable: vi.fn(),
+    getConnectionEnvironmentProfile: vi.fn(), setConnectionEnvironmentProfile: vi.fn(), previewConnectionEnvironmentProfile: vi.fn(),
     listTabs: vi.fn().mockResolvedValue([]),
     openTab: vi.fn(), replaceTabTool: vi.fn(), updateTab: vi.fn(), duplicateTab: vi.fn(),
     reorderTabs: vi.fn(), closeTab: vi.fn(), closeOtherTabs: vi.fn(), closeTabsRight: vi.fn(),
     startRun: vi.fn(), startWorkflowExecution: vi.fn(), getActiveWorkflowExecution: vi.fn(), getWorkflowExecution: vi.fn(), cancelWorkflowExecution: vi.fn(),
-    getRunSummary: vi.fn(), getRun: vi.fn(), listRuns: vi.fn(), openRunEventStream: vi.fn(),
+    getRunSummary: vi.fn(), getRun: vi.fn(), listRuns: vi.fn(), setRunPinned: vi.fn(), openRunEventStream: vi.fn(),
+    getReplayPreflight: vi.fn(), startReplay: vi.fn(),
+    listComparisonRules: vi.fn().mockResolvedValue({ rules: [] }), replaceComparisonRules: vi.fn(), getRunComparison: vi.fn(),
     listSavedItems: vi.fn(), getSavedItem: vi.fn(), createSavedItem: vi.fn(), deleteSavedItem: vi.fn(),
+    listTestCases: vi.fn(), getTestCase: vi.fn(), createTestCase: vi.fn(), updateTestCase: vi.fn(), deleteTestCase: vi.fn(),
+    previewTestCaseFromRun: vi.fn(), previewTestCaseFromSavedItem: vi.fn(),
+    listTestSuites: vi.fn(), getTestSuite: vi.fn(), createTestSuite: vi.fn(), updateTestSuite: vi.fn(), deleteTestSuite: vi.fn(),
+    startTestSuiteExecution: vi.fn(), getTestSuiteExecution: vi.fn(), cancelTestSuiteExecution: vi.fn(),
+    startTestExecution: vi.fn(), listTestExecutions: vi.fn(), updateTestExecutionBaseline: vi.fn(), getTestExecution: vi.fn(), cancelTestExecution: vi.fn(),
+    exportAutomatedTests: vi.fn(), importAutomatedTests: vi.fn(),
     ...overrides,
   };
 }
 
+beforeEach(async () => { await i18n.changeLanguage("zh-CN"); });
 afterEach(cleanup);
 
 describe("ProjectPicker", () => {
@@ -151,5 +164,15 @@ describe("ProjectPicker", () => {
     await user.click(screen.getByRole("button", { name: "重试" }));
     expect(await screen.findByRole("heading", { name: "选择项目" })).toBeVisible();
     expect(listProjects).toHaveBeenCalledTimes(2);
+  });
+
+  it("renders the project picker in English", async () => {
+    await i18n.changeLanguage("en-US");
+    render(<ProjectPicker api={api()} onProjectOpened={vi.fn()} />);
+
+    expect(await screen.findByRole("heading", { name: "Select a project" })).toBeVisible();
+    expect(screen.getByText("Project data is stored in local SQLite.")).toBeVisible();
+    expect(screen.getByLabelText("Project name")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Create and open" })).toBeDisabled();
   });
 });

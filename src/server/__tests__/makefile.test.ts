@@ -126,9 +126,9 @@ if [ "$1" = "tag" ] && [ "$2" = "--points-at" ]; then printf 'v${version}\\n'; f
       expect(readFileSync(npmLog, "utf8").trim().split("\n")).toEqual([
         "whoami --registry=https://registry.npmjs.org/",
         "run verify",
+        "run verify:release-artifacts",
         "audit --omit=dev --audit-level=high --registry=https://registry.npmjs.org/",
-        "pack --dry-run --registry=https://registry.npmjs.org/",
-        "publish --access public --tag latest --registry=https://registry.npmjs.org/",
+        "publish .release/package.tgz --access public --tag latest --registry=https://registry.npmjs.org/",
       ]);
     } finally {
       rmSync(root, { recursive: true, force: true });

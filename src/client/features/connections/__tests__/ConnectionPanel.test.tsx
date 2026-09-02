@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CatalogToolSummary, InspectorApiClient } from "../../../api/api-client.js";
 import { AppToaster } from "../../../app/AppToaster.js";
 import { ConnectionPanel } from "../ConnectionPanel.js";
+import { i18n } from "../../../i18n/index.js";
 
 const projectId = "00000000-0000-4000-8000-000000000401";
 const connection = {
@@ -57,15 +58,26 @@ function api(overrides: Partial<InspectorApiClient> = {}): InspectorApiClient {
     createToolFolder: vi.fn(),
     renameToolFolder: vi.fn(),
     deleteToolFolder: vi.fn(),
-    moveToolToFolder: vi.fn(),
+    moveToolToFolder: vi.fn(), setToolFavorite: vi.fn(), markToolUsed: vi.fn(),
     getToolWorkflow: vi.fn(), updateToolWorkflow: vi.fn(), validateToolWorkflow: vi.fn(), debugToolWorkflow: vi.fn(),
     listEnvironmentVariables: vi.fn(), setEnvironmentVariable: vi.fn(), deleteEnvironmentVariable: vi.fn(),
+    listEnvironmentProfiles: vi.fn().mockResolvedValue([]), createEnvironmentProfile: vi.fn(), updateEnvironmentProfile: vi.fn(), deleteEnvironmentProfile: vi.fn(),
+    listEnvironmentProfileVariables: vi.fn().mockResolvedValue([]), setEnvironmentProfileVariable: vi.fn(), deleteEnvironmentProfileVariable: vi.fn(),
+    getConnectionEnvironmentProfile: vi.fn(), setConnectionEnvironmentProfile: vi.fn(), previewConnectionEnvironmentProfile: vi.fn(),
     listTabs: vi.fn().mockResolvedValue([]),
     openTab: vi.fn(), replaceTabTool: vi.fn(), updateTab: vi.fn(), duplicateTab: vi.fn(),
     reorderTabs: vi.fn(), closeTab: vi.fn(), closeOtherTabs: vi.fn(), closeTabsRight: vi.fn(),
     startRun: vi.fn(), startWorkflowExecution: vi.fn(), getActiveWorkflowExecution: vi.fn(), getWorkflowExecution: vi.fn(), cancelWorkflowExecution: vi.fn(),
-    getRunSummary: vi.fn(), getRun: vi.fn(), listRuns: vi.fn(), openRunEventStream: vi.fn(),
+    getRunSummary: vi.fn(), getRun: vi.fn(), listRuns: vi.fn(), setRunPinned: vi.fn(), openRunEventStream: vi.fn(),
+    getReplayPreflight: vi.fn(), startReplay: vi.fn(),
+    listComparisonRules: vi.fn().mockResolvedValue({ rules: [] }), replaceComparisonRules: vi.fn(), getRunComparison: vi.fn(),
     listSavedItems: vi.fn(), getSavedItem: vi.fn(), createSavedItem: vi.fn(), deleteSavedItem: vi.fn(),
+    listTestCases: vi.fn(), getTestCase: vi.fn(), createTestCase: vi.fn(), updateTestCase: vi.fn(), deleteTestCase: vi.fn(),
+    listTestSuites: vi.fn(), getTestSuite: vi.fn(), createTestSuite: vi.fn(), updateTestSuite: vi.fn(), deleteTestSuite: vi.fn(),
+    startTestSuiteExecution: vi.fn(), getTestSuiteExecution: vi.fn(), cancelTestSuiteExecution: vi.fn(),
+    startTestExecution: vi.fn(), listTestExecutions: vi.fn(), updateTestExecutionBaseline: vi.fn(), getTestExecution: vi.fn(), cancelTestExecution: vi.fn(),
+    exportAutomatedTests: vi.fn(), importAutomatedTests: vi.fn(),
+    previewTestCaseFromRun: vi.fn(), previewTestCaseFromSavedItem: vi.fn(),
     ...overrides,
   };
 }
@@ -73,6 +85,51 @@ function api(overrides: Partial<InspectorApiClient> = {}): InspectorApiClient {
 afterEach(cleanup);
 
 describe("ConnectionPanel", () => {
+  it("persists Tool favorites and recent use without blocking Tool selection", async () => {
+    const connected = { ...connection, status: "connected" as const };
+    const savedTool: CatalogToolSummary = {
+      projectId, connectionId: connection.id, name: "catalog/read", status: "current", folderId: null,
+      favorite: false, lastUsedAt: null, updatedAt: "2026-08-17T12:00:00.000Z",
+      currentSnapshot: {
+        id: "00000000-0000-4000-8000-000000000411", projectId, connectionId: connection.id,
+        toolName: "catalog/read", contentHash: "a".repeat(64), createdAt: "2026-08-17T12:00:00.000Z",
+        definition: { name: "catalog/read", inputSchema: { type: "object" } },
+      },
+    };
+    const setToolFavorite = vi.fn().mockResolvedValue({ ...savedTool, favorite: true });
+    const markToolUsed = vi.fn().mockResolvedValue({ ...savedTool, lastUsedAt: "2026-08-17T12:01:00.000Z" });
+    const onSelectTool = vi.fn();
+    const user = userEvent.setup();
+    render(<ConnectionPanel api={api({
+      listConnections: vi.fn().mockResolvedValue([connected]),
+      listTools: vi.fn().mockResolvedValue([savedTool]), setToolFavorite, markToolUsed,
+    })} projectId={projectId} mode="tools" connectionFilterId={connection.id} onSelectTool={onSelectTool} />);
+
+    await user.click(await screen.findByRole("button", { name: "收藏 catalog/read" }));
+    expect(setToolFavorite).toHaveBeenCalledWith(projectId, connection.id, "catalog/read", true);
+    await user.click(screen.getByRole("button", { name: "catalog/read" }));
+    await waitFor(() => expect(onSelectTool).toHaveBeenCalledWith(expect.objectContaining({ name: "catalog/read" })));
+    expect(markToolUsed).toHaveBeenCalledWith(projectId, connection.id, "catalog/read");
+  });
+
+  it("renders the complete Server management flow in English without rebuilding connection state", async () => {
+    await i18n.changeLanguage("en-US");
+    const listConnections = vi.fn().mockResolvedValue([connection]);
+    const user = userEvent.setup();
+    render(<ConnectionPanel api={api({ listConnections })} projectId={projectId} mode="servers" />);
+
+    expect(await screen.findByRole("heading", { name: "Connection management" })).toBeVisible();
+    expect(screen.getByRole("table", { name: "Connection list" })).toBeVisible();
+    expect(screen.getByText("Disconnected")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Add connection" }));
+    expect(screen.getByRole("dialog", { name: "Add connection" })).toBeVisible();
+    expect(screen.getByLabelText("Connection name")).toBeVisible();
+    expect(screen.getByLabelText("Authentication")).toBeVisible();
+    expect(listConnections).toHaveBeenCalledTimes(1);
+
+    await i18n.changeLanguage("zh-CN");
+  });
+
   it("keeps an OAuth Server on Servers after authorization and enters Tools only after a later connect", async () => {
     const authorized = { ...connection, authMode: "oauth" as const, authorizationStatus: "authorized" as const };
     const connected = { ...authorized, status: "connected" as const };
@@ -237,7 +294,7 @@ describe("ConnectionPanel", () => {
     })} projectId={projectId} /></>);
     await screen.findByText("Catalog MCP");
     await user.click(screen.getByRole("button", { name: "连接 Catalog MCP" }));
-    expect(await screen.findByText("Catalog MCP 的 Tool 目录已更新。")).toBeVisible();
+    await waitFor(() => expect(refreshTools).toHaveBeenCalledTimes(1));
     await user.click(screen.getByRole("button", { name: "刷新 Catalog MCP Tools" }));
     expect(screen.getByRole("button", { name: "刷新 Catalog MCP Tools" })).toHaveTextContent("刷新中");
     expect(screen.getByText("正在刷新 Catalog MCP 的 Tool 目录…").closest("[data-sonner-toast]")).toHaveAttribute("data-type", "loading");
@@ -262,10 +319,10 @@ describe("ConnectionPanel", () => {
     await user.click(screen.getByRole("button", { name: "刷新 Catalog MCP Tools" }));
     await user.click(screen.getByRole("button", { name: "删除 Catalog MCP" }));
     await user.click(screen.getByRole("button", { name: "确认删除 Catalog MCP" }));
-    expect(screen.queryByRole("treeitem", { name: "折叠 Catalog MCP" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "折叠 Catalog MCP" })).not.toBeInTheDocument();
 
     await act(async () => pendingRefresh.resolve([]));
-    expect(screen.queryByRole("treeitem", { name: "折叠 Catalog MCP" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "折叠 Catalog MCP" })).not.toBeInTheDocument();
   });
 
   it("does not refresh or restore a connection deleted during connect", async () => {
@@ -452,6 +509,7 @@ describe("ConnectionPanel", () => {
     const connected = { ...connection, status: "connected" as const };
     const savedTool: CatalogToolSummary = {
       projectId, connectionId: connection.id, name: "offline/tool", status: "current", folderId: null,
+      favorite: false, lastUsedAt: null,
       updatedAt: "2026-08-17T12:00:00.000Z",
       currentSnapshot: {
         id: "00000000-0000-4000-8000-000000000410", projectId,
@@ -467,7 +525,7 @@ describe("ConnectionPanel", () => {
       deleteConnection,
     })} projectId={projectId} />);
     await screen.findByText("Catalog MCP");
-    expect(await screen.findByRole("treeitem", { name: /offline\/tool/ })).toBeVisible();
+    expect(await screen.findByRole("button", { name: "offline/tool" })).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "删除 Catalog MCP" }));
     expect(deleteConnection).not.toHaveBeenCalled();
@@ -475,7 +533,7 @@ describe("ConnectionPanel", () => {
     await user.click(screen.getByRole("button", { name: "确认删除 Catalog MCP" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("database is busy");
     expect(screen.getByText("Catalog MCP")).toBeVisible();
-    expect(screen.getByRole("treeitem", { name: /offline\/tool/ })).toBeVisible();
+    expect(screen.getByRole("button", { name: "offline/tool" })).toBeVisible();
   });
 
   it("retries the initial list after an accessible load error", async () => {
@@ -671,7 +729,7 @@ describe("ConnectionPanel", () => {
       projectId,
       connectionId: connection.id,
       name: "stale/tool",
-      status: "current" as const, folderId: null,
+      status: "current" as const, folderId: null, favorite: false, lastUsedAt: null,
       updatedAt: "2026-08-17T12:00:00.000Z",
       currentSnapshot: {
         id: "00000000-0000-4000-8000-000000000409",
@@ -698,6 +756,6 @@ describe("ConnectionPanel", () => {
     await screen.findByRole("button", { name: "连接 Orders MCP" });
     await act(async () => oldCatalog.resolve([staleTool]));
 
-    expect(screen.queryByRole("treeitem", { name: /stale\/tool/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "stale/tool" })).not.toBeInTheDocument();
   });
 });

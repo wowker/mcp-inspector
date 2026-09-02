@@ -2,13 +2,16 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 import { startInspector } from "../dist/server/main.js";
 import { startStreamableMcpServer } from "../test-support/streamable-mcp-server.js";
+import { inspectorApiHeaders } from "./session.js";
 
 interface InspectorRuntime { address: { origin: string }; close(): Promise<void> }
 
 test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state", async ({ page, request }) => {
   await page.setViewportSize({ width: 2560, height: 1318 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
   const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-e2e-"));
   let mcp: Awaited<ReturnType<typeof startStreamableMcpServer>> | undefined;
   let browserUrl = "";
@@ -23,17 +26,14 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
       installSignalHandlers: false,
       openBrowser: async (url) => { browserUrl = url; },
     });
-    const bootstrap = new URL(browserUrl);
-    const token = bootstrap.searchParams.get("session")!;
-    const apiHeaders = { Origin: inspector.address.origin, "X-MCP-Inspector-Session": token };
     expect((await request.get(`${inspector.address.origin}/api/health`, { headers: {
       Origin: inspector.address.origin, "X-MCP-Inspector-Session": "invalid-session",
     } })).status()).toBe(401);
-    expect((await request.get(`${inspector.address.origin}/api/health`, { headers: {
-      Origin: "https://attacker.example", "X-MCP-Inspector-Session": token,
-    } })).status()).toBe(403);
-
     await page.goto(browserUrl);
+    const apiHeaders = await inspectorApiHeaders(page, inspector.address.origin);
+    expect((await request.get(`${inspector.address.origin}/api/health`, { headers: {
+      ...apiHeaders, Origin: "https://attacker.example",
+    } })).status()).toBe(403);
     await expect(page.getByText("本地服务已就绪")).toBeVisible();
     await page.getByLabel("项目名称").fill("Core E2E");
     await page.getByRole("button", { name: "创建并打开" }).click();
@@ -52,9 +52,9 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     await page.getByRole("button", { name: "连接 Loopback MCP" }).click();
     await expect(page.getByRole("tab", { name: "Loopback MCP" })).toHaveAttribute("aria-selected", "true");
     await expect(page.getByRole("tabpanel", { name: "Loopback MCP" })).toBeVisible();
-    const echoTool = page.getByRole("treeitem", { name: "echo" });
+    const echoTool = page.getByRole("button", { name: "echo", exact: true });
     await expect(echoTool).toBeVisible();
-    const sumTool = page.getByRole("treeitem", { name: "sum" });
+    const sumTool = page.getByRole("button", { name: "sum", exact: true });
     await expect(sumTool).toBeVisible();
     const catalog = page.getByRole("complementary", { name: "Tool 目录" });
     await expect(catalog).toBeVisible();
@@ -65,7 +65,7 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     await expect(toolSearch).toHaveCSS("outline-style", "none");
     await expect(toolSearch.locator("xpath=..")).not.toHaveCSS("box-shadow", "none");
 
-    const choiceTool = page.getByRole("treeitem", { name: "choose_mode" });
+    const choiceTool = page.getByRole("button", { name: "choose_mode", exact: true });
     await choiceTool.dblclick();
     await expect(page.getByRole("tab", { name: "choose_mode", exact: true })).toBeVisible();
     const workbenchContent = page.locator(".workbench-content");
@@ -90,15 +90,15 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     await page.getByRole("button", { name: "创建文件夹" }).click();
     await page.getByRole("textbox", { name: "文件夹名称" }).fill("Commerce");
     await page.getByRole("button", { name: "创建", exact: true }).click();
-    const emptyFolder = page.getByRole("treeitem", { name: "Commerce 文件夹，0 个 Tool" });
+    const emptyFolder = page.getByRole("button", { name: "Commerce 文件夹，0 个 Tool" });
     await expect(emptyFolder).toBeVisible();
     await page.locator(".tool-row").filter({ has: echoTool }).dragTo(emptyFolder.locator("xpath=.."));
-    const commerceFolder = page.getByRole("treeitem", { name: "Commerce 文件夹，1 个 Tool" });
+    const commerceFolder = page.getByRole("button", { name: "Commerce 文件夹，1 个 Tool" });
     await expect(commerceFolder).toBeVisible();
     await expect(commerceFolder).toHaveAttribute("aria-expanded", "false");
     await commerceFolder.click();
     await expect(commerceFolder).toHaveAttribute("aria-expanded", "true");
-    await expect(page.locator(".tool-folder-group").filter({ has: commerceFolder }).getByRole("treeitem", { name: "echo" })).toBeVisible();
+    await expect(page.locator(".tool-folder-group").filter({ has: commerceFolder }).getByRole("button", { name: "echo", exact: true })).toBeVisible();
 
     const titles = ["sum", ...Array.from({ length: 7 }, (_, index) => `sum (${index + 2})`)];
     for (let index = 0; index < 8; index += 1) {
@@ -106,7 +106,9 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
       await expect(page.getByRole("tab", { name: titles[index], exact: true })).toBeVisible();
     }
     const tabList = page.getByRole("tablist", { name: "Tool 调试 Tabs" });
-    await expect(tabList.getByRole("tab")).toHaveCount(8);
+    await expect(tabList).toBeVisible();
+    const debugTabs = page.locator('.debug-tabs > .debug-tab > [role="tab"]');
+    await expect(debugTabs).toHaveCount(8);
 
     await page.getByRole("tab", { name: "sum", exact: true }).click();
     await page.getByRole("tab", { name: "Raw JSON" }).click();
@@ -180,6 +182,9 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
         await detail.getByRole("tab", { name: "RPC" }).click();
         await page.locator(".request-result-split").evaluate((element) => {
           (element as HTMLElement).style.gridTemplateRows = "80% 10px minmax(0, 1fr)";
+        });
+        await resultPane.locator(".result-view").evaluate((element) => {
+          (element as HTMLElement).style.minHeight = "800px";
         });
         await resultPane.evaluate((element) => { element.scrollTop = 80; });
         expect(await resultPane.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
@@ -268,13 +273,13 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     await expect(page.getByRole("heading", { name: "Servers", level: 1 })).toBeVisible();
     await page.getByRole("tab", { name: "Loopback MCP" }).click();
     await expect(page.getByRole("tabpanel", { name: "Loopback MCP" })).toBeVisible();
-    const restoredFolder = page.getByRole("treeitem", { name: "Commerce 文件夹，1 个 Tool" });
+    const restoredFolder = page.getByRole("button", { name: "Commerce 文件夹，1 个 Tool" });
     await expect(restoredFolder).toBeVisible();
     await expect(restoredFolder).toHaveAttribute("aria-expanded", "false");
     await restoredFolder.click();
     await expect(restoredFolder).toHaveAttribute("aria-expanded", "true");
-    await expect(page.locator(".tool-folder-group").filter({ has: restoredFolder }).getByRole("treeitem", { name: "echo" })).toBeVisible();
-    await expect(tabList.getByRole("tab")).toHaveCount(8);
+    await expect(page.locator(".tool-folder-group").filter({ has: restoredFolder }).getByRole("button", { name: "echo", exact: true })).toBeVisible();
+    await expect(debugTabs).toHaveCount(8);
     await expect(page.getByRole("tab", { name: titles[5], exact: true })).toHaveAttribute("aria-selected", "true");
     for (let index = 0; index < 8; index += 1) {
       const tab = page.getByRole("tab", { name: titles[index], exact: true });
@@ -297,12 +302,13 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     await page.getByRole("button", { name: "运行历史" }).click();
     const history = page.getByRole("region", { name: "项目运行历史" });
     await expect(history.locator("li")).toHaveCount(8);
-    const historyLabels = await history.locator("li button").evaluateAll((buttons) =>
+    const openRunButtons = history.getByRole("button", { name: /^打开运行 / });
+    const historyLabels = await openRunButtons.evaluateAll((buttons) =>
       buttons.map((button) => button.getAttribute("aria-label") ?? ""));
     const historyIds = historyLabels.map((label) => label.replace(/^打开运行 /, ""));
     expect(new Set(historyIds).size).toBe(8);
     expect(new Set(historyIds)).toEqual(new Set(runIds));
-    await history.locator("li button").first().click();
+    await openRunButtons.first().click();
     await expect(page.locator("article.run-result")).toBeVisible();
 
     const projectsResponse = await request.get(`${inspector.address.origin}/api/projects`, { headers: apiHeaders });
@@ -388,6 +394,21 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     expect(workflowDetail.execution.finalArguments).toMatchObject({ a: 12, b: 1_000 });
     expect(workflowDetail.execution.runs.map(({ phase }) => phase)).toEqual(["main"]);
     expect(workflowDetail.execution.events.filter(({ kind }) => kind === "script-log")).toHaveLength(2);
+    await page.getByRole("tab", { name: "请求与结果" }).click();
+    await expect(page.getByRole("tabpanel", { name: "请求与结果" })).toBeVisible();
+    expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+      .analyze()).violations).toEqual([]);
+    const visualMasks = [
+      page.locator(".run-result__sticky-header > header"),
+      page.locator(".run-overview"),
+    ];
+    await expect(page).toHaveScreenshot("tool-debug-zh-light.png", { animations: "disabled", mask: visualMasks });
+    await page.getByRole("button", { name: "切换到深色主题" }).click();
+    await expect(page.locator("html")).toHaveAttribute("data-color-mode", "dark");
+    await page.waitForTimeout(50);
+    expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+      .analyze()).violations).toEqual([]);
+    await expect(page).toHaveScreenshot("tool-debug-zh-dark.png", { animations: "disabled", mask: visualMasks });
   } catch (error) {
     primaryFailure = error;
   } finally {

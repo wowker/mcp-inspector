@@ -62,18 +62,32 @@ describe("createObservedFetch", () => {
       { redactSensitiveInfo: false },
     );
 
-    await observed("http://127.0.0.1/mcp", {
+    await observed("http://127.0.0.1/mcp?access_token=request-secret&cursor=next", {
       headers: { Authorization: "Bearer request-secret", Cookie: "session=request-secret" },
     });
 
     expect(events).toEqual([
-      expect.objectContaining({ kind: "http-request", headers: expect.objectContaining({
+      expect.objectContaining({ kind: "http-request", url: "http://127.0.0.1/mcp?cursor=next", headers: expect.objectContaining({
         authorization: "Bearer request-secret", cookie: "session=request-secret",
       }) }),
       expect.objectContaining({ kind: "http-response", headers: expect.objectContaining({
         "set-cookie": "session=response-secret",
       }) }),
     ]);
+    expect(JSON.stringify(events)).not.toContain("request-secret&cursor");
+  });
+
+  it("removes credential aliases while preserving ordinary routing query values", async () => {
+    const events: WireObservation[] = [];
+    const observed = createObservedFetch(async () => new Response("ok"), (event) => events.push(event));
+
+    await observed("http://127.0.0.1/mcp?auth=a&key=b&sig=c&access_key=d&tenant=e&cursor=next");
+
+    expect(events[0]).toEqual(expect.objectContaining({
+      kind: "http-request",
+      url: "http://127.0.0.1/mcp?tenant=e&cursor=next",
+    }));
+    expect(JSON.stringify(events)).not.toMatch(/(?:auth=a|key=b|sig=c|access_key=d)/);
   });
 
   it("parses CRLF and multiline SSE frames while ignoring invalid JSON", async () => {

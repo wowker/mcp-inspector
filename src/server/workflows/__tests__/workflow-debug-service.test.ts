@@ -14,6 +14,8 @@ import { createWorkflowDebugService } from "../workflow-debug-service.js";
 
 const projectId = "00000000-0000-4000-8000-000000001201";
 const connectionId = "00000000-0000-4000-8000-000000001202";
+const firstDuplicateId = "00000000-0000-4000-8000-000000001203";
+const secondDuplicateId = "00000000-0000-4000-8000-000000001204";
 
 describe("WorkflowDebugService", () => {
   const roots: string[] = [];
@@ -26,7 +28,11 @@ describe("WorkflowDebugService", () => {
     session.call = async ({ name }) => name === "lookup"
       ? { content: [], structuredContent: { value: 7 } }
       : { content: [], structuredContent: {} };
-    const connections = createConnectionService(projects, { createId: () => connectionId, sessionFactory: async () => session });
+    const connectionIds = [connectionId, firstDuplicateId, secondDuplicateId];
+    const connections = createConnectionService(projects, {
+      createId: () => connectionIds.shift() ?? crypto.randomUUID(),
+      sessionFactory: async () => session,
+    });
     connections.create(projectId, { name: "Current", url: "https://example.test/mcp", transport: "streamable-http",
       authMode: "none", timeoutMs: 10_000 });
     let snapshot = 1_210;
@@ -115,6 +121,36 @@ describe("WorkflowDebugService", () => {
         }`,
       })).rejects.toThrow("Tool call failed");
       expect(value.session.calls).toHaveLength(1);
+    } finally {
+      await value.debug.close(); await value.runs.close(); await value.connections.close(); value.projects.close();
+    }
+  });
+
+  it("rejects an ambiguous helper Server name instead of selecting one connection arbitrarily", async () => {
+    const value = fixture();
+    try {
+      for (const id of [firstDuplicateId, secondDuplicateId]) {
+        const created = value.connections.create(projectId, {
+          name: "Duplicate", url: `https://${id}.example.test/mcp`, transport: "streamable-http",
+          authMode: "none", timeoutMs: 10_000,
+        });
+        expect(created.id).toBe(id);
+        new ToolRepository(value.projects.open(projectId)).replaceCatalog(projectId, id, [{
+          id: id.replace(/20[34]$/, id.endsWith("3") ? "230" : "240"),
+          name: "lookup", contentHash: id.endsWith("3") ? "c".repeat(64) : "d".repeat(64),
+          definitionJson: JSON.stringify({ name: "lookup", inputSchema: { type: "object" } }),
+        }], "2026-08-27T00:00:00.000Z");
+        await value.connections.connect(projectId, id);
+      }
+
+      await expect(value.debug.run(projectId, connectionId, "main", {
+        phase: "before", arguments: {}, response: null, timeoutMs: 5_000,
+        source: `export default async function before(ctx) {
+          await ctx.tools.call({ server: "Duplicate", name: "lookup", arguments: {} });
+        }`,
+      })).rejects.toThrow("Tool call failed");
+      expect(value.session.calls).toHaveLength(0);
+      expect(value.runs.list(projectId).runs).toHaveLength(0);
     } finally {
       await value.debug.close(); await value.runs.close(); await value.connections.close(); value.projects.close();
     }

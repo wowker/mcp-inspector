@@ -109,6 +109,23 @@ describe("WorkflowExecutionService", () => {
     }
   });
 
+  it("executes a workflow invocation without creating or borrowing a debug Tab", async () => {
+    const fixtureValue = fixture();
+    const { projects, connections, runs, executions } = fixtureValue;
+    try {
+      await connections.connect(projectId, connectionId);
+      const started = executions.startInvocation({
+        projectId, connectionId, toolName: "main", idempotencyKey: "test-invocation", arguments: {},
+      });
+      const completed = await executions.waitForTerminal(projectId, started.id);
+      expect(completed).toMatchObject({ status: "succeeded", tabId: null, finalArguments: { a: 3 } });
+      expect(completed.runs.map(({ phase }) => phase)).toEqual(["helper-before", "main"]);
+      expect(completed.runs.every(({ runId }) => runs.get(projectId, runId).tabId === null)).toBe(true);
+    } finally {
+      await executions.close(); await runs.close(); await connections.close(); projects.close();
+    }
+  });
+
   it("validates final arguments after the before script and never starts an invalid main Run", async () => {
     const fixtureValue = fixture();
     const { projects, connections, runs, executions, session, tab, workflowService } = fixtureValue;
@@ -165,6 +182,9 @@ describe("WorkflowExecutionService", () => {
         arguments: { a: 1, nested: { a: 1, b: 2 } } });
       expect(duplicate.id).toBe(first.id);
       expect(() => executions.start({ projectId, connectionId, tabId: tab.id, idempotencyKey: "flow-dedup",
+        arguments: { a: 1, nested: { a: 1, b: 2 } }, allowDestructiveHelpers: true }))
+        .toThrow(/idempotency conflict/i);
+      expect(() => executions.start({ projectId, connectionId, tabId: tab.id, idempotencyKey: "flow-dedup",
         arguments: { a: 2, nested: { a: 1, b: 2 } } })).toThrow(/idempotency conflict/i);
       await terminal(executions, first.id);
       expect(session.calls.map(({ name }) => name)).toEqual(["lookup", "main"]);
@@ -214,6 +234,67 @@ describe("WorkflowExecutionService", () => {
       const completed = await terminal(executions, started.id);
       expect(completed.status).toBe("failed");
       expect(JSON.stringify(completed)).not.toContain("very-secret-token");
+      expect(session.calls).toHaveLength(0);
+      expect(runs.list(projectId).runs).toHaveLength(0);
+    } finally {
+      await executions.close(); await runs.close(); await connections.close(); projects.close();
+    }
+  });
+
+  it("redacts and blocks scalar values extracted from a structured secret", async () => {
+    const fixtureValue = fixture();
+    const { projects, connections, environment, runs, executions, tab, workflowService, session } = fixtureValue;
+    try {
+      environment.set(projectId, connectionId, "credentials", {
+        value: { token: "nested-secret-token", account: 42 },
+        secret: true,
+      });
+      workflowService.update(projectId, connectionId, "main", {
+        revision: 2,
+        before: { enabled: true, source: `export default function before(ctx) {
+          const credentials = ctx.env.get("credentials", { scope: "server" });
+          ctx.log.info("using nested token", { token: credentials.token });
+          ctx.arguments.set("a", 2);
+          ctx.arguments.set("token", credentials.token);
+        }` },
+        after: { enabled: false, source: "" }, timeoutMs: 5_000,
+      });
+      await connections.connect(projectId, connectionId);
+      const started = executions.start({ projectId, connectionId, tabId: tab.id,
+        idempotencyKey: "flow-structured-secret", arguments: { a: 1 } });
+      const completed = await terminal(executions, started.id);
+
+      expect(completed.status).toBe("failed");
+      expect(JSON.stringify(completed)).not.toContain("nested-secret-token");
+      expect(session.calls).toHaveLength(0);
+      expect(runs.list(projectId).runs).toHaveLength(0);
+    } finally {
+      await executions.close(); await runs.close(); await connections.close(); projects.close();
+    }
+  });
+
+  it("does not allow a secret value to be staged as a non-secret environment variable", async () => {
+    const fixtureValue = fixture();
+    const { projects, connections, environment, runs, executions, tab, workflowService, session } = fixtureValue;
+    try {
+      environment.set(projectId, connectionId, "apiToken", { value: "very-secret-token", secret: true });
+      workflowService.update(projectId, connectionId, "main", {
+        revision: 2,
+        before: { enabled: true, source: `export default function before(ctx) {
+          const token = ctx.env.get("apiToken", { scope: "server" });
+          ctx.env.set("copiedToken", token, { scope: "project", secret: false });
+          ctx.arguments.set("a", 2);
+        }` },
+        after: { enabled: false, source: "" }, timeoutMs: 5_000,
+      });
+      await connections.connect(projectId, connectionId);
+      const started = executions.start({ projectId, connectionId, tabId: tab.id,
+        idempotencyKey: "flow-secret-downgrade", arguments: { a: 1 } });
+      const completed = await terminal(executions, started.id);
+
+      expect(completed.status).toBe("failed");
+      expect(JSON.stringify(completed)).not.toContain("very-secret-token");
+      expect(environment.resolve(projectId, connectionId).project).not.toHaveProperty("copiedToken");
       expect(session.calls).toHaveLength(0);
       expect(runs.list(projectId).runs).toHaveLength(0);
     } finally {

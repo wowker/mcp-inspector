@@ -3,9 +3,10 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { InspectorApiClient, ToolWorkflow } from "../../../api/api-client.js";
 import { AppToaster } from "../../../app/AppToaster.js";
+import { i18n } from "../../../i18n/index.js";
 import { ScriptWorkflowView } from "../ScriptWorkflowView.js";
 
 const projectId = "00000000-0000-4000-8000-000000000731";
@@ -30,6 +31,7 @@ function client(overrides: Partial<InspectorApiClient> = {}): InspectorApiClient
   } as unknown as InspectorApiClient;
 }
 
+beforeEach(async () => { await i18n.changeLanguage("zh-CN"); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("ScriptWorkflowView", () => {
@@ -173,5 +175,31 @@ describe("ScriptWorkflowView", () => {
     const error = await screen.findByText("后置脚本调试响应必须是有效 JSON");
     expect(error.closest("[data-sonner-toast]")).toHaveAttribute("data-type", "error");
     expect(debugToolWorkflow).not.toHaveBeenCalled();
+  });
+
+  it("renders the script workflow editor and reference library in English", async () => {
+    await i18n.changeLanguage("en-US");
+    render(<ScriptWorkflowView api={client()} projectId={projectId} connectionId={connectionId}
+      toolName="sum" argumentsValue={{}} />);
+
+    expect(await screen.findByRole("heading", { name: "Before script" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "After script" })).toBeVisible();
+    expect(screen.getByLabelText("Script timeout in milliseconds")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Save configuration" })).toBeVisible();
+    expect(screen.getByText("Script SDK and debugging reference")).toBeVisible();
+    expect(screen.getByText("Example scripts")).toBeVisible();
+  });
+
+  it("preserves an unsaved script draft when the locale changes", async () => {
+    const api = client();
+    render(<ScriptWorkflowView api={api} projectId={projectId} connectionId={connectionId}
+      toolName="sum" argumentsValue={{}} />);
+
+    const source = await screen.findByLabelText("前置脚本源码");
+    fireEvent.change(source, { target: { value: "export default function before() { return 42; }" } });
+    await i18n.changeLanguage("en-US");
+
+    expect(screen.getByLabelText("Before script source")).toHaveValue("export default function before() { return 42; }");
+    expect(api.getToolWorkflow).toHaveBeenCalledTimes(1);
   });
 });

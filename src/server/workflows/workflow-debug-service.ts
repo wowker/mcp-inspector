@@ -9,6 +9,12 @@ import type { EnvironmentService } from "../environment/environment-service.js";
 import type { RunServiceWithEvents } from "../runs/run-service.js";
 import type { ToolService } from "../tools/tool-service.js";
 import { createScriptRunner, ScriptExecutionError, type ScriptRunner } from "./script-runner.js";
+import {
+  collectSecretTokens,
+  containsWorkflowSecret,
+  redactWorkflowJson,
+  resolveHelperConnection,
+} from "./workflow-security.js";
 
 export class InvalidWorkflowDebugError extends Error {
   constructor() { super("Workflow debug payload is invalid"); this.name = "InvalidWorkflowDebugError"; }
@@ -17,28 +23,6 @@ export class InvalidWorkflowDebugError extends Error {
 export interface WorkflowDebugService {
   run(projectId: string, connectionId: string, toolName: string, input: unknown, signal?: AbortSignal): Promise<WorkflowDebugResult>;
   close(): Promise<void>;
-}
-
-function secretStrings(environment: { project: Record<string, JsonValue>; server: Record<string, JsonValue>; secretNames: string[] }): string[] {
-  return environment.secretNames.flatMap((name) => {
-    const value = Object.hasOwn(environment.server, name) ? environment.server[name] : environment.project[name];
-    if (value === undefined || value === null) return [];
-    const serialized = typeof value === "string" ? value : JSON.stringify(value);
-    return serialized.length === 0 ? [] : [serialized];
-  }).sort((left, right) => right.length - left.length);
-}
-
-function redact(value: JsonValue, secrets: string[]): JsonValue {
-  if (typeof value === "string") return secrets.reduce((text, secret) => text.replaceAll(secret, "[REDACTED]"), value);
-  if (Array.isArray(value)) return value.map((item) => redact(item, secrets));
-  if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redact(item, secrets)]));
-  return value;
-}
-
-function containsSecret(value: JsonValue, secrets: string[]): boolean {
-  if (secrets.length === 0) return false;
-  const serialized = JSON.stringify(value);
-  return secrets.some((secret) => serialized.includes(secret));
 }
 
 export function createWorkflowDebugService(deps: {
@@ -55,7 +39,7 @@ export function createWorkflowDebugService(deps: {
       if (!parsed.success) throw new InvalidWorkflowDebugError();
       deps.tools.get(projectId, connectionId, toolName);
       const environment = deps.environment.resolve(projectId, connectionId);
-      const secrets = secretStrings(environment);
+      const secrets = collectSecretTokens(environment);
       let helperOrdinal = 0;
       let result: Awaited<ReturnType<ScriptRunner["run"]>>;
       try {
@@ -65,15 +49,12 @@ export function createWorkflowDebugService(deps: {
         environment: { project: environment.project, server: environment.server, execution: {} },
         limits: { timeoutMs: parsed.data.timeoutMs }, signal,
         onToolCall: async (input, callSignal) => {
-          const connection = input.server === "current"
-            ? deps.connections.get(projectId, connectionId)
-            : deps.connections.list(projectId).find((item) => item.id === input.server || item.name === input.server);
-          if (connection === undefined) throw new Error("Helper Server is not available");
+          const connection = resolveHelperConnection(deps.connections, projectId, connectionId, input.server);
           const helper = deps.tools.get(projectId, connection.id, input.name);
           if (helper.tool.currentSnapshot.definition.annotations?.destructiveHint === true && parsed.data.allowDestructiveHelpers !== true) {
             throw new Error("Destructive helper Tool requires confirmation");
           }
-          if (containsSecret(input.arguments, secrets)) {
+          if (containsWorkflowSecret(input.arguments, secrets)) {
             throw new Error("Secret environment values cannot be persisted as Tool arguments");
           }
           const run = deps.runs.startInvocation({ projectId, connectionId: connection.id, toolName: input.name,
@@ -89,21 +70,21 @@ export function createWorkflowDebugService(deps: {
         if (error instanceof ScriptExecutionError) {
           throw new ScriptExecutionError({
             code: error.code, phase: error.phase, line: error.line, column: error.column,
-            excerpt: error.excerpt === null ? null : redact(error.excerpt, secrets) as string,
-            message: redact(error.message, secrets) as string,
+            excerpt: error.excerpt === null ? null : redactWorkflowJson(error.excerpt, secrets) as string,
+            message: redactWorkflowJson(error.message, secrets) as string,
           });
         }
         throw error;
       }
       return {
         phase: parsed.data.phase,
-        arguments: redact(result.arguments, secrets) as JsonObject,
-        variables: redact(result.variables, secrets) as JsonObject,
+        arguments: redactWorkflowJson(result.arguments, secrets) as JsonObject,
+        variables: redactWorkflowJson(result.variables, secrets) as JsonObject,
         stagedEnvironment: result.stagedEnvironment.map((item) => ({ ...item,
-          value: item.secret ? "[REDACTED]" : redact(item.value, secrets) })),
+          value: item.secret ? "[REDACTED]" : redactWorkflowJson(item.value, secrets) })),
         logs: result.logs.map((item) => ({ ...item,
-          message: redact(item.message, secrets) as string,
-          ...(item.data === undefined ? {} : { data: redact(item.data, secrets) }) })),
+          message: redactWorkflowJson(item.message, secrets) as string,
+          ...(item.data === undefined ? {} : { data: redactWorkflowJson(item.data, secrets) }) })),
       };
     },
     close: () => runner.close(),

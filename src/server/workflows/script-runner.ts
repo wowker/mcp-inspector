@@ -105,6 +105,21 @@ function internalError(phase: ScriptPhase, message: string): ScriptExecutionErro
   });
 }
 
+function boundaryError(
+  phase: ScriptPhase,
+  code: "IPC_INVALID" | "CALL_LIMIT" | "OUTPUT_LIMIT",
+  message: string,
+): ScriptExecutionError {
+  return new ScriptExecutionError({
+    code,
+    message,
+    phase,
+    line: null,
+    column: null,
+    excerpt: null,
+  });
+}
+
 export function createScriptRunner(options: ScriptRunnerOptions = {}): ScriptRunner {
   const sourceRuntime = fileURLToPath(import.meta.url).endsWith(".ts");
   const workerUrl = options.workerUrl ?? (sourceRuntime
@@ -151,6 +166,9 @@ export function createScriptRunner(options: ScriptRunnerOptions = {}): ScriptRun
       return await new Promise<ScriptRunResult>((resolve, reject) => {
         const logs: ScriptLogEntry[] = [];
         const hostCalls = new AbortController();
+        const pendingHostCalls = new Set<string>();
+        let hostCallCount = 0;
+        let logBytes = 0;
         let settled = false;
         const hardTimeout = setTimeout(() => {
           finish(() => reject(new ScriptExecutionError({
@@ -195,14 +213,32 @@ export function createScriptRunner(options: ScriptRunnerOptions = {}): ScriptRun
         }
 
         child.on("message", (raw: unknown) => {
+          let messageBytes: number;
+          try {
+            messageBytes = Buffer.byteLength(JSON.stringify(raw));
+          } catch {
+            finish(() => reject(boundaryError(input.phase, "IPC_INVALID", "Invalid sandbox response")));
+            return;
+          }
+          if (messageBytes > limits.memoryBytes) {
+            finish(() => reject(boundaryError(input.phase, "OUTPUT_LIMIT", "Script output limit exceeded")));
+            return;
+          }
           let message: SandboxMessage;
           try {
             message = parseSandboxMessage(raw);
           } catch {
-            finish(() => reject(internalError(input.phase, "Invalid sandbox response")));
+            finish(() => reject(boundaryError(input.phase, "IPC_INVALID", "Invalid sandbox response")));
             return;
           }
           if (message.type === "log") {
+            const bytes = Buffer.byteLength(message.message) +
+              (message.data === undefined ? 0 : Buffer.byteLength(JSON.stringify(message.data)));
+            logBytes += bytes;
+            if (logs.length >= limits.maxLogs || logBytes > limits.maxLogBytes) {
+              finish(() => reject(boundaryError(input.phase, "OUTPUT_LIMIT", "Script log limit exceeded")));
+              return;
+            }
             logs.push({
               level: message.level,
               message: message.message,
@@ -213,8 +249,18 @@ export function createScriptRunner(options: ScriptRunnerOptions = {}): ScriptRun
             return;
           }
           if (message.type === "host-call") {
+            hostCallCount += 1;
+            if (hostCallCount > limits.maxToolCalls) {
+              finish(() => reject(boundaryError(input.phase, "CALL_LIMIT", "Script Tool call limit exceeded")));
+              return;
+            }
+            if (pendingHostCalls.has(message.requestId)) {
+              finish(() => reject(boundaryError(input.phase, "IPC_INVALID", "Duplicate sandbox request ID")));
+              return;
+            }
+            pendingHostCalls.add(message.requestId);
             const reply = (result: SandboxMessage): void => {
-              if (!settled && child.connected) child.send(result);
+              if (!settled && pendingHostCalls.delete(message.requestId) && child.connected) child.send(result);
             };
             if (!input.onToolCall) {
               reply({
@@ -259,6 +305,10 @@ export function createScriptRunner(options: ScriptRunnerOptions = {}): ScriptRun
             return;
           }
           if (message.type === "completed") {
+            if (pendingHostCalls.size > 0) {
+              finish(() => reject(boundaryError(input.phase, "IPC_INVALID", "Sandbox completed with pending host calls")));
+              return;
+            }
             finish(() => resolve({
               arguments: message.arguments,
               variables: message.variables,
@@ -269,7 +319,9 @@ export function createScriptRunner(options: ScriptRunnerOptions = {}): ScriptRun
           }
           if (message.type === "failed") {
             finish(() => reject(new ScriptExecutionError(message.error)));
+            return;
           }
+          finish(() => reject(boundaryError(input.phase, "IPC_INVALID", "Unexpected sandbox message direction")));
         });
         child.once("error", () => {
           finish(() => reject(internalError(input.phase, "Unable to start script sandbox")));

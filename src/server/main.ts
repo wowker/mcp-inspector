@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serve, type ServerType } from "@hono/node-server";
 import open from "open";
-import { createApp } from "./app.js";
+import { createApp, createSessionBootstrap } from "./app.js";
 import { createConnectionService } from "./connections/connection-service.js";
 import { createRuntimeConfig } from "./config/runtime-config.js";
 import { resolveDefaultDataRoot } from "./projects/project-paths.js";
@@ -14,6 +14,7 @@ import { createTabService } from "./tabs/tab-service.js";
 import { createToolService } from "./tools/tool-service.js";
 import { createWorkflowService } from "./workflows/workflow-service.js";
 import { createEnvironmentService } from "./environment/environment-service.js";
+import { createEnvironmentProfileService, createProfileAwareEnvironmentService } from "./environment/environment-profile-service.js";
 import { createWorkflowExecutionService } from "./workflows/workflow-execution-service.js";
 import { createWorkflowDebugService } from "./workflows/workflow-debug-service.js";
 
@@ -97,11 +98,13 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
   const projects = createProjectService({ dataRoot: options.dataRoot ?? resolveDefaultDataRoot() });
   let allowedOrigin = clientOrigin ?? "";
   let environment: ReturnType<typeof createEnvironmentService> | undefined;
+  let environmentProfiles: ReturnType<typeof createEnvironmentProfileService> | undefined;
   const connections = createConnectionService(projects, {
     oauthRedirectUrl: () => `${allowedOrigin}/oauth/callback`,
     openAuthorizationUrl: options.openBrowser ?? (async (url) => { await open(url); }),
     resolveEnvironment: (projectId, connectionId) => {
-      const resolved = environment?.resolve(projectId, connectionId);
+      const resolved = environmentProfiles?.resolveActive(projectId, connectionId)
+        ?? environment?.resolve(projectId, connectionId);
       return resolved === undefined
         ? { project: {}, server: {} }
         : { project: resolved.project, server: resolved.server };
@@ -112,12 +115,16 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
   const runs = createRunService(projects, connections, tabs);
   const workflows = createWorkflowService(projects, tools);
   environment = createEnvironmentService(projects, connections);
+  environmentProfiles = createEnvironmentProfileService(projects, connections, environment);
+  const runtimeEnvironment = createProfileAwareEnvironmentService(environment, environmentProfiles);
   const workflowExecutions = createWorkflowExecutionService({
-    projects, connections, tabs, workflows, environment, runs,
+    projects, connections, tabs, workflows, environment: runtimeEnvironment, runs,
   });
-  const workflowDebug = createWorkflowDebugService({ connections, tools, environment, runs });
+  const workflowDebug = createWorkflowDebugService({ connections, tools, environment: runtimeEnvironment, runs });
+  const sessionBootstrap = createSessionBootstrap();
   const app = createApp({
     sessionToken: config.sessionToken,
+    sessionBootstrap,
     allowedOrigin: () => allowedOrigin,
     version: config.version,
     projects,
@@ -127,6 +134,7 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
     runs,
     workflows,
     environment,
+    environmentProfiles,
     workflowExecutions,
     workflowDebug,
     staticRoot,
@@ -181,7 +189,7 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
       process.once("SIGTERM", onSignal);
     }
     const browserUrl = new URL(clientOrigin ?? serverOrigin);
-    browserUrl.searchParams.set("session", config.sessionToken);
+    browserUrl.pathname = `/bootstrap/${sessionBootstrap.issue()}`;
     try {
       await (options.openBrowser ?? ((url) => open(url)))(browserUrl.toString());
     } catch {

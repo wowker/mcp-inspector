@@ -147,6 +147,37 @@ describe("connection API response decoding", () => {
     const connectionId = "00000000-0000-4000-8000-000000000602";
     fetchMock.mockResolvedValue(new Response(JSON.stringify({
       format: "mcp-inspector-server-export",
+      version: 2,
+      exportedAt: "2026-08-26T10:00:00.000Z",
+      project: { id: projectId, name: "Supplier Tools" },
+      server: { id: connectionId, name: "Catalog MCP" },
+      security: { environmentSecretValuesIncluded: false, containsSensitiveToolData: false,
+        omittedSensitiveToolData: ["tab-drafts", "run-requests", "run-responses", "run-events", "saved-items"] },
+      data: { environment: { activeProfileId: null, baseVariables: [], profiles: [] } },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    const blob = await createApiClient("session").exportConnection(projectId, connectionId);
+    expect(JSON.parse(await blob.text())).toMatchObject({
+      format: "mcp-inspector-server-export", version: 2,
+      project: { id: projectId }, server: { id: connectionId },
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/projects/${projectId}/connections/${connectionId}/export`,
+      expect.objectContaining({ headers: expect.not.objectContaining({ "X-MCP-Inspector-Session": expect.anything() }) }),
+    );
+
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      format: "mcp-inspector-server-export", version: 1,
+      project: { id: "00000000-0000-4000-8000-000000000699" }, server: { id: connectionId }, data: {},
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    await expect(createApiClient("session").exportConnection(projectId, connectionId))
+      .rejects.toThrow("Invalid Server export response");
+  });
+
+  it("keeps accepting the legacy Server export v1 envelope", async () => {
+    const connectionId = "00000000-0000-4000-8000-000000000602";
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      format: "mcp-inspector-server-export",
       version: 1,
       exportedAt: "2026-08-26T10:00:00.000Z",
       project: { id: projectId, name: "Supplier Tools" },
@@ -156,19 +187,21 @@ describe("connection API response decoding", () => {
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
 
     const blob = await createApiClient("session").exportConnection(projectId, connectionId);
-    expect(JSON.parse(await blob.text())).toMatchObject({
-      format: "mcp-inspector-server-export", version: 1,
-      project: { id: projectId }, server: { id: connectionId },
-    });
-    expect(fetchMock).toHaveBeenCalledWith(
-      `/api/projects/${projectId}/connections/${connectionId}/export`,
-      expect.objectContaining({ headers: expect.objectContaining({ "X-MCP-Inspector-Session": "session" }) }),
-    );
+    expect(JSON.parse(await blob.text())).toMatchObject({ version: 1 });
+  });
 
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
-      format: "mcp-inspector-server-export", version: 1,
-      project: { id: "00000000-0000-4000-8000-000000000699" }, server: { id: connectionId }, data: {},
+  it("rejects a v2 Server export that could contain environment secret values", async () => {
+    const connectionId = "00000000-0000-4000-8000-000000000602";
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      format: "mcp-inspector-server-export",
+      version: 2,
+      exportedAt: "2026-08-26T10:00:00.000Z",
+      project: { id: projectId, name: "Supplier Tools" },
+      server: { id: connectionId, name: "Catalog MCP" },
+      security: { environmentSecretValuesIncluded: true },
+      data: { environment: { activeProfileId: null, baseVariables: [], profiles: [] } },
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
+
     await expect(createApiClient("session").exportConnection(projectId, connectionId))
       .rejects.toThrow("Invalid Server export response");
   });

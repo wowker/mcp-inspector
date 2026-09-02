@@ -82,7 +82,7 @@ export class WorkflowExecutionRepository {
   constructor(private readonly store: ProjectStore) {}
 
   create(input: {
-    id: string; projectId: string; connectionId: string; tabId: string; toolName: string; toolSnapshotId: string;
+    id: string; projectId: string; connectionId: string; tabId: string | null; toolName: string; toolSnapshotId: string;
     idempotencyKey: string; initialArguments: JsonObject; workflowSnapshot: JsonObject; createdAt: string;
   }): { execution: WorkflowExecutionDetail; created: boolean } {
     return this.store.database.transaction(() => {

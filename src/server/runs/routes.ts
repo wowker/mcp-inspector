@@ -1,6 +1,7 @@
 import { Hono, type Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
+import { runHistoryFilterSchema, runPinRequestSchema } from "../../shared/run-replay.js";
 import { InvalidProjectStorageError, ProjectNotFoundError } from "../projects/project-service.js";
 import { TabNotFoundError } from "../tabs/tab-service.js";
 import {
@@ -59,14 +60,27 @@ export function createRunRoutes(runs: RunServiceWithEvents): Hono {
     const tabId = c.req.query("tabId");
     const connectionId = c.req.query("connectionId");
     const requestedToolName = c.req.query("toolName");
-    if ((tabId !== undefined && !uuid.safeParse(tabId).success) ||
-        (connectionId !== undefined && !uuid.safeParse(connectionId).success) ||
-        (requestedToolName !== undefined && !toolName.safeParse(requestedToolName).success)) return c.json(errors.invalid, 400);
-    try { return c.json(runs.list(c.req.param("projectId"), c.req.query("cursor"), {
+    const rawPinned = c.req.query("pinned");
+    const rawLimit = c.req.query("limit");
+    const parsed = runHistoryFilterSchema.safeParse({
       ...(tabId === undefined ? {} : { tabId }),
       ...(connectionId === undefined ? {} : { connectionId }),
       ...(requestedToolName === undefined ? {} : { toolName: requestedToolName }),
-    })); }
+      ...(c.req.query("status") === undefined ? {} : { status: c.req.query("status") }),
+      ...(c.req.query("origin") === undefined ? {} : { origin: c.req.query("origin") }),
+      ...(rawPinned === undefined ? {} : { pinned: rawPinned === "true" ? true : rawPinned === "false" ? false : rawPinned }),
+      ...(c.req.query("createdFrom") === undefined ? {} : { createdFrom: c.req.query("createdFrom") }),
+      ...(c.req.query("createdTo") === undefined ? {} : { createdTo: c.req.query("createdTo") }),
+      ...(rawLimit === undefined || !/^\d+$/.test(rawLimit) ? (rawLimit === undefined ? {} : { limit: rawLimit }) : { limit: Number(rawLimit) }),
+    });
+    if (!parsed.success) return c.json(errors.invalid, 400);
+    try { return c.json(runs.list(c.req.param("projectId"), c.req.query("cursor"), parsed.data)); }
+    catch (error) { return errorResponse(c, error); }
+  });
+  routes.patch("/:projectId/runs/:runId/pin", async (c) => {
+    const parsed = runPinRequestSchema.safeParse(await jsonBody(c));
+    if (!parsed.success) return c.json(errors.invalid, 400);
+    try { return c.json({ run: runs.setPinned(c.req.param("projectId"), c.req.param("runId"), parsed.data.pinned) }); }
     catch (error) { return errorResponse(c, error); }
   });
   routes.get("/:projectId/runs/:runId/status", (c) => {

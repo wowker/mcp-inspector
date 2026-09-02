@@ -4,10 +4,10 @@
 
 | 项目 | 内容 |
 |---|---|
-| 状态 | Proposed，进入实现前需要确认范围与里程碑 |
+| 状态 | Implemented，M1–M5 已完成并通过发布前门禁 |
 | 目标版本 | `1.5.0` |
 | 当前基线 | `1.0.4` |
-| 更新日期 | 2026-08-28 |
+| 更新日期 | 2026-09-01 |
 | 适用范围 | Web UI、Hono API、SQLite、Tool/Workflow 执行、测试报告和导入导出 |
 | 配套规范 | [前端 UI 与交互开发规范](./FRONTEND-DEVELOPMENT-STANDARDS.md) |
 | 后续规划 | [MCP Inspector 2.0.0 升级规划](./UPGRADE-2.0.0.md) |
@@ -64,6 +64,12 @@
 - `destructiveHint: true` 的 Tool 在交互执行前要求显式确认。
 - 测试套件批量执行破坏性 Tool 时必须再次确认本次范围。
 - 1.5.0 不承诺对 MCP Server 已产生的业务副作用进行回滚。
+
+### 2.6 范围与删除语义
+
+- Server 被测试定义引用时默认阻止删除，并要求先处理对应测试依赖。
+- 1.5.0 不提供“删除 Server 并级联删除测试定义/历史”的快捷操作；若后续需要，必须单独确认交互与恢复边界。
+- 1.5.0 继续排除 headless CLI/CI Runner；共享契约不携带 CLI 专用字段，为 1.6+ 保留 additive 扩展空间。
 
 ## 3. 非目标
 
@@ -356,7 +362,7 @@ interface AssertionDefinition {
 - 类型严格，不将 `"1"` 自动转成 `1`。
 - object 默认 `SUBSET`，只有显式选择时才做完全相等。
 - array 默认有序；可以显式改为无序。
-- 正则表达式必须有长度和执行时间上限，避免 ReDoS。
+- 正则表达式使用有界线性状态机子集，限制 pattern、input、状态数和重复次数；1.5.0 不执行带分组、alternation 或 backreference 的原生回溯表达式，避免 ReDoS。
 - JSON Schema 使用现有 Ajv 方言选择和缓存机制。
 - 路径使用现有确定性 JSONPath 子集，不在 1.5.0 引入完整表达式执行器。
 
@@ -441,6 +447,7 @@ flowchart TD
 | 表 | 作用 |
 |---|---|
 | `test_cases` | 用例元数据、kind、当前 revision 和 definition JSON |
+| `test_case_targets` | 从定义投影出的 connection/tool 依赖索引，用于身份外键与 Server 删除保护 |
 | `test_case_revisions` | 每次保存的不可变定义版本 |
 | `test_suites` | 套件元数据、revision 和执行策略 |
 | `test_suite_members` | 套件成员、稳定成员 ID 和 position |
@@ -455,7 +462,7 @@ flowchart TD
 
 - 所有表均包含 `project_id`，所有跨表引用必须验证同一 project。
 - Tool 目标引用 `connection_id`，不存 URL 作为身份。
-- 删除 Server 时若存在测试定义，默认阻止删除并提示依赖数量；用户显式选择后可级联删除测试定义和历史引用，具体交互在实现前再次确认。
+- 删除 Server 时若存在测试定义，默认阻止删除并提示依赖数量；1.5.0 必须先处理依赖，不提供级联删除测试历史。
 - 删除测试定义不删除历史执行；执行保存完整定义快照。
 - JSON 列写入前使用共享 schema 验证，读取失败返回稳定存储损坏错误，不把异常 JSON 传给 UI。
 - migration 1→12、重复打开、外键、事务回滚和 source/dist byte-match 必须自动化验证。
@@ -834,6 +841,8 @@ npm pack --dry-run --json
 
 验收：定义可安全保存、导出和恢复；断言纯函数测试完备；不改变现有 Run/Workflow 行为。
 
+实施状态（2026-09-01）：已完成。已交付 migration 012、共享契约、定义 CRUD、26 种声明式断言、单 Tool 用例编辑器，以及从 Run/已保存项创建用例的服务端安全预览。创建和编辑阶段不执行真实 Tool；完整验证为 Vitest `671/671`、Playwright `3/3`。
+
 ### M2：单 Tool 执行
 
 - 统一内部 invocation seam。
@@ -841,6 +850,8 @@ npm pack --dry-run --json
 - 单 Tool 执行结果和断言 UI。
 
 验收：普通 Run 与 Workflow 回归全部通过；同 URL 不同连接不串认证；执行历史可重现。
+
+实施状态（2026-09-01）：已完成。单 Tool 测试通过现有 Run/Workflow invocation seam 执行，不创建隐藏 Tab；持久化定义快照、最终参数、Run/Workflow 关联及断言结果。幂等、取消、terminal CAS、重启恢复和 late completion 均有回归测试；同 URL 不同连接使用各自 connection ID 对应的认证 session。前端支持执行、取消、破坏性确认和逐条断言结果。完整验证为 Vitest `685/685`、Playwright `3/3`。
 
 ### M3：场景测试
 
@@ -850,6 +861,8 @@ npm pack --dry-run --json
 
 验收：多 Tool 值传递、失败、取消和清理均有确定结果；临时变量不持久化为环境变量。
 
+实施状态（2026-09-01）：已完成。场景通过现有 Run/Workflow invocation seam 串行执行，支持输入和多来源参数映射、响应提取、执行内临时变量、条件、确定性轮询、失败策略与始终运行的清理步骤。每次步骤尝试都保留独立 Run/Workflow 引用并原子写入终态报告；临时变量不会写回 project/server 环境。前端支持输入、执行、取消与逐步骤/逐尝试报告。完整验证为 Vitest `700/700`、Playwright `3/3`。
+
 ### M4：测试套件
 
 - 套件 CRUD、顺序、有限并发和聚合取消。
@@ -858,6 +871,8 @@ npm pack --dry-run --json
 
 验收：并发上限由 barrier 测试证明；成员间无变量、认证和结果串扰。
 
+实施状态（2026-09-01）：已完成。测试套件支持单 Tool/场景成员、稳定成员 ID、1–8 有限并发、失败后停止调度、聚合取消和按 position 的确定性报告；场景输入通过成员 ID 隔离。启动前会完整检查成员目标，并在任何调用开始前集中确认破坏性范围。migration 013 以软删除保留已有套件执行对成员的历史引用，报告始终从执行快照恢复身份。完整验证为 Vitest `715/715`、既有 Playwright `3/3`，新增套件生产 E2E `1/1`。
+
 ### M5：分享与发布
 
 - 定义导入导出、绑定预览和冲突处理。
@@ -865,6 +880,8 @@ npm pack --dry-run --json
 - README、Changelog、升级说明和 1.5.0 发布记录。
 
 验收：1.0.4 数据原地升级且不丢失，包内容 allowlist、完整 verify 和独立审查通过。
+
+实施状态（2026-09-01）：已完成。测试报告支持按项目分页查看执行历史，并追溯到不可变定义快照、断言结果、Run/Workflow、connection ID 与 Tool 快照。基线只允许对可用、未脱敏的等值断言实际值执行显式确认更新，并创建新 revision。版本化 JSON 包默认只导出当前测试/套件定义和 Server 引用别名，不包含凭证、解析后的 secret、执行历史或报告；导入要求逐个显式绑定当前项目 Server，完整校验后在单个 SQLite 事务内按复制、跳过或覆盖策略写入。完整验证为 Vitest `731/731`、Playwright `4/4`，migration 001–013 source/dist 字节一致，`npm pack --dry-run --json` 与独立安全质量复审通过。
 
 ## 18. 兼容与迁移
 
@@ -940,4 +957,3 @@ npm pack --dry-run --json
 
 1. 删除 Server 时，默认应当“阻止删除并要求先处理测试定义”，还是“允许删除并把测试标记为目标缺失”？本规范暂按前者设计。
 2. 1.5.0 是否需要无界面 CLI/CI Runner？本规范暂不包含，但 API、idempotency 和报告模型为后续扩展保留兼容空间。
-

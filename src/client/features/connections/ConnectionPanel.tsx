@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Plus } from "@phosphor-icons/react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import type {
   CatalogToolSummary,
   ConnectionSummary,
@@ -37,16 +38,9 @@ export interface ConnectionHeaderDraft {
   value: string;
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "无法管理连接配置";
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
 }
-
-const connectionStatusLabels: Record<ConnectionSummary["status"], string> = {
-  disconnected: "未连接",
-  connecting: "连接中",
-  connected: "已连接",
-  failed: "失败",
-};
 
 export function ConnectionPanel(props: ConnectionPanelProps) {
   return <ProjectScopedConnectionPanel key={props.projectId} {...props} />;
@@ -61,6 +55,7 @@ function ProjectScopedConnectionPanel({
   connectionUpdate = null,
   selectedTool = null,
 }: ConnectionPanelProps) {
+  const { t } = useTranslation("servers");
   const mounted = useRef(false);
   const submitLock = useRef(false);
   const dialogTrigger = useRef<HTMLButtonElement | null>(null);
@@ -145,7 +140,7 @@ function ProjectScopedConnectionPanel({
         }
       })
       .catch((cause: unknown) => {
-        if (active) setError(errorMessage(cause));
+        if (active) setError(errorMessage(cause, t("errors.manage")));
       });
     return () => {
       active = false;
@@ -267,11 +262,11 @@ function ProjectScopedConnectionPanel({
     for (const header of headers) {
       const headerName = header.name.trim();
       if (headerName === "" && header.value === "") continue;
-      if (headerName === "") throw new Error("Header 名称不能为空");
+      if (headerName === "") throw new Error(t("errors.headerNameRequired"));
       const normalizedName = headerName.toLowerCase();
-      if (seen.has(normalizedName)) throw new Error(`Header 名称重复：${headerName}`);
+      if (seen.has(normalizedName)) throw new Error(t("errors.duplicateHeader", { name: headerName }));
       if (authMode !== "none" && normalizedName === "authorization") {
-        throw new Error(`${authMode === "oauth" ? "OAuth" : "Bearer Token"} 连接的 Authorization Header 由认证方式管理`);
+        throw new Error(t("errors.managedAuthorization", { mode: authMode === "oauth" ? "OAuth" : "Bearer Token" }));
       }
       seen.add(normalizedName);
       result[headerName] = header.value;
@@ -280,14 +275,14 @@ function ProjectScopedConnectionPanel({
   }
 
   async function refresh(connectionId: string): Promise<void> {
-    const connectionName = connections?.find(({ id }) => id === connectionId)?.name ?? "Server";
+    const connectionName = connections?.find(({ id }) => id === connectionId)?.name ?? t("catalog.defaultServerName");
     const generation = (catalogGenerations.current.get(connectionId) ?? 0) + 1;
     catalogGenerations.current.set(connectionId, generation);
     setRefreshingConnectionIds((current) => new Set(current).add(connectionId));
     showCatalogToast({
       connectionId,
       kind: "loading",
-      message: `正在刷新 ${connectionName} 的 Tool 目录…`,
+      message: t("catalog.refreshing", { name: connectionName }),
     });
     try {
       const tools = await api.refreshTools(projectId, connectionId);
@@ -298,14 +293,14 @@ function ProjectScopedConnectionPanel({
       showCatalogToast({
         connectionId,
         kind: "success",
-        message: `${connectionName} 的 Tool 目录已更新。`,
+        message: t("catalog.refreshed", { name: connectionName }),
       }, 2_000);
     } catch (cause) {
       if (!mounted.current || catalogGenerations.current.get(connectionId) !== generation) return;
       showCatalogToast({
         connectionId,
         kind: "error",
-        message: `${connectionName} 的 Tool 目录刷新失败：${errorMessage(cause)}`,
+        message: t("catalog.refreshFailed", { name: connectionName, error: errorMessage(cause, t("errors.manage")) }),
       }, 4_000);
     } finally {
       if (mounted.current && catalogGenerations.current.get(connectionId) === generation) {
@@ -371,6 +366,25 @@ function ProjectScopedConnectionPanel({
     }));
   }
 
+  function replaceCatalogTool(updated: CatalogToolSummary): void {
+    if (!mounted.current) return;
+    setCatalogs((current) => ({
+      ...current,
+      [updated.connectionId]: (current[updated.connectionId] ?? []).map((item) =>
+        item.name === updated.name ? updated : item),
+    }));
+  }
+
+  async function toggleFavorite(tool: CatalogToolSummary): Promise<void> {
+    replaceCatalogTool(await api.setToolFavorite(projectId, tool.connectionId, tool.name, !tool.favorite));
+  }
+
+  function noteToolUsed(tool: CatalogToolSummary): void {
+    void api.markToolUsed(projectId, tool.connectionId, tool.name).then(replaceCatalogTool).catch(() => {
+      // Recent-use metadata is supplementary and must never block opening a Tool.
+    });
+  }
+
   async function connect(connection: ConnectionSummary): Promise<void> {
     setError(null);
     const generation = invalidateConnection(connection.id);
@@ -387,7 +401,7 @@ function ProjectScopedConnectionPanel({
       }
     } catch (cause) {
       if (mounted.current && catalogGenerations.current.get(connection.id) === generation) {
-        const message = errorMessage(cause);
+        const message = errorMessage(cause, t("errors.manage"));
         updateConnection({
           ...connection,
           status: "failed",
@@ -410,7 +424,7 @@ function ProjectScopedConnectionPanel({
       updateConnection(disconnected);
       onConnectionDisconnected(connection.id);
     } catch (cause) {
-      if (mounted.current) setError(errorMessage(cause));
+      if (mounted.current) setError(errorMessage(cause, t("errors.manage")));
     } finally {
       if (mounted.current) setPending(connection.id, false);
     }
@@ -462,7 +476,7 @@ function ProjectScopedConnectionPanel({
         closeForm();
       }
     } catch (cause) {
-      if (mounted.current) setError(errorMessage(cause));
+      if (mounted.current) setError(errorMessage(cause, t("errors.manage")));
     } finally {
       submitLock.current = false;
       if (mounted.current) {
@@ -489,7 +503,7 @@ function ProjectScopedConnectionPanel({
       setPendingDelete(null);
       queueMicrotask(() => addButton.current?.focus());
     } catch (cause) {
-      if (mounted.current) setError(errorMessage(cause));
+      if (mounted.current) setError(errorMessage(cause, t("errors.manage")));
     } finally {
       if (mounted.current) setDeleting(false);
     }
@@ -499,7 +513,7 @@ function ProjectScopedConnectionPanel({
     const name = connection.name.normalize("NFKC")
       .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "-")
       .replace(/\s+/g, " ").trim().slice(0, 80);
-    return `${name || "server"}-mcp-inspector.json`;
+    return `${name || t("panel.defaultExportName")}-mcp-inspector.json`;
   }
 
   async function exportConnection(connection: ConnectionSummary): Promise<void> {
@@ -516,9 +530,9 @@ function ProjectScopedConnectionPanel({
       link.click();
       link.remove();
       setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
-      showCatalogToast({ connectionId: connection.id, kind: "success", message: `${connection.name} 已导出` }, 2_000);
+      showCatalogToast({ connectionId: connection.id, kind: "success", message: t("panel.exported", { name: connection.name }) }, 2_000);
     } catch (cause) {
-      if (mounted.current) setError(errorMessage(cause));
+      if (mounted.current) setError(errorMessage(cause, t("errors.manage")));
     } finally {
       if (mounted.current) setExportingConnectionIds((current) => {
         const next = new Set(current); next.delete(connection.id); return next;
@@ -533,13 +547,13 @@ function ProjectScopedConnectionPanel({
   return (
     <section
       className={`connection-panel connection-panel--${mode}`}
-      aria-label={mode === "tools" ? "Tool 目录" : undefined}
+      aria-label={mode === "tools" ? t("panel.ariaTools") : undefined}
       aria-labelledby={mode === "tools" ? undefined : "connection-panel-title"}
     >
       {mode !== "tools" && <div className="connection-panel__heading">
         <div>
-          <h2 id="connection-panel-title">连接管理</h2>
-          <p>集中管理 MCP Server，保存配置后再手动连接。</p>
+          <h2 id="connection-panel-title">{t("panel.title")}</h2>
+          <p>{t("panel.description")}</p>
         </div>
         <button
           ref={addButton}
@@ -547,7 +561,7 @@ function ProjectScopedConnectionPanel({
           className="connection-add-button"
           disabled={connections === null}
           onClick={(event) => beginCreate(event.currentTarget)}
-        ><Plus size={16} weight="bold" aria-hidden="true" />添加连接</button>
+        ><Plus size={16} weight="bold" aria-hidden="true" />{t("panel.add")}</button>
       </div>}
 
       {error !== null && formMode === null && pendingDelete === null && (
@@ -557,113 +571,113 @@ function ProjectScopedConnectionPanel({
             <button
               type="button"
               className="button-secondary"
-              aria-label="重试加载连接配置"
+              aria-label={t("panel.retryAria")}
               onClick={() => setLoadAttempt((attempt) => attempt + 1)}
             >
-              重试
+              {t("panel.retry")}
             </button>
           )}
         </div>
       )}
 
       {mode !== "tools" && (connections === null && error === null ? (
-        <p role="status" className="connection-loading">正在加载连接配置…</p>
+        <p role="status" className="connection-loading">{t("panel.loading")}</p>
       ) : (
         <div className="connection-table-wrap">
-          <table className="connection-table" aria-label="连接列表">
+          <table className="connection-table" aria-label={t("panel.tableAria")}>
             <thead>
               <tr>
-                <th scope="col">连接名称</th>
-                <th scope="col">MCP URL</th>
-                <th scope="col">状态</th>
-                <th scope="col" aria-label="请求超时">超时</th>
-                <th scope="col" className="connection-table__actions-heading">操作</th>
+                <th scope="col">{t("panel.columns.name")}</th>
+                <th scope="col">{t("panel.columns.url")}</th>
+                <th scope="col">{t("panel.columns.status")}</th>
+                <th scope="col" aria-label={t("panel.columns.timeoutAria")}>{t("panel.columns.timeout")}</th>
+                <th scope="col" className="connection-table__actions-heading">{t("panel.columns.actions")}</th>
               </tr>
             </thead>
             <tbody>
               {connections?.length === 0 && (
                 <tr>
                   <td colSpan={5} className="connection-empty">
-                    <span>还没有连接配置。</span>
-                    <small>点击“添加连接”开始。</small>
+                    <span>{t("panel.empty")}</span>
+                    <small>{t("panel.emptyHint")}</small>
                   </td>
                 </tr>
               )}
               {connections?.map((connection) => (
                 <tr key={connection.id}>
-                  <td data-label="连接名称">
+                  <td data-label={t("panel.columns.name")}>
                     <strong>{connection.name}</strong>
                     <span className="connection-meta">
                       <span>Streamable HTTP</span><span aria-hidden="true"> · </span><span>{
                         connection.authMode === "oauth" ? "OAuth" :
-                          connection.authMode === "bearer" ? "Bearer Token" : "无认证"
+                          connection.authMode === "bearer" ? "Bearer Token" : t("panel.noAuth")
                       }</span>
                     </span>
                   </td>
-                  <td data-label="MCP URL"><span className="connection-url" title={connection.url}>{connection.url}</span></td>
-                  <td data-label="状态">
+                  <td data-label={t("panel.columns.url")}><span className="connection-url" title={connection.url}>{connection.url}</span></td>
+                  <td data-label={t("panel.columns.status")}>
                     {connection.authMode === "oauth" && connection.status === "disconnected" ? (
                       <span className="connection-authorization-state">
                         <span className={`connection-status connection-status--${connection.authorizationStatus}`}>
-                          {connection.authorizationStatus === "authorized" ? "已授权" :
-                            connection.authorizationStatus === "authorizing" ? "授权中" : "未授权"}
+                          {connection.authorizationStatus === "authorized" ? t("panel.authorization.authorized") :
+                            connection.authorizationStatus === "authorizing" ? t("panel.authorization.authorizing") : t("panel.authorization.unauthorized")}
                         </span>
-                        {connection.authorizationStatus === "authorized" && <span>待连接</span>}
+                        {connection.authorizationStatus === "authorized" && <span>{t("panel.authorization.pendingConnection")}</span>}
                       </span>
                     ) : (
                       <span className={`connection-status connection-status--${connection.status}`}>
-                        {connectionStatusLabels[connection.status]}
+                        {t(`panel.status.${connection.status}`)}
                       </span>
                     )}
                     {connection.lastError !== null && (
                       <span className="connection-last-error">{connection.lastError.message}</span>
                     )}
                   </td>
-                  <td data-label="请求超时"><span className="connection-timeout">{connection.timeoutMs.toLocaleString()} ms</span></td>
-                  <td data-label="操作">
+                  <td data-label={t("panel.columns.timeoutAria")}><span className="connection-timeout">{connection.timeoutMs.toLocaleString()} ms</span></td>
+                  <td data-label={t("panel.columns.actions")}>
                     <div className="connection-actions">
                       {connection.status === "connected" ? (
                         <button
                           type="button"
                           className="button-secondary"
                           disabled={pendingConnectionIds.has(connection.id)}
-                          aria-label={`断开 ${connection.name}`}
+                          aria-label={t("panel.actions.disconnectAria", { name: connection.name })}
                           onClick={() => void disconnect(connection)}
-                        >断开</button>
+                        >{t("panel.actions.disconnect")}</button>
                       ) : (
                         <button
                           type="button"
                           disabled={pendingConnectionIds.has(connection.id)}
-                          aria-label={`连接 ${connection.name}`}
+                          aria-label={t("panel.actions.connectAria", { name: connection.name })}
                           onClick={() => void connect(connection)}
                         >{pendingConnectionIds.has(connection.id)
-                          ? connection.authMode === "oauth" && connection.authorizationStatus !== "authorized" ? "授权中…" : "连接中…"
-                          : "连接"}</button>
+                          ? connection.authMode === "oauth" && connection.authorizationStatus !== "authorized" ? t("panel.actions.authorizing") : t("panel.actions.connecting")
+                          : t("panel.actions.connect")}</button>
                       )}
                       <button
                         type="button"
                         className="button-secondary"
                         disabled={pendingConnectionIds.has(connection.id) || deleting}
-                        aria-label={`编辑 ${connection.name}`}
+                        aria-label={t("panel.actions.editAria", { name: connection.name })}
                         onClick={(event) => beginEdit(connection, event.currentTarget)}
-                      >编辑</button>
+                      >{t("panel.actions.edit")}</button>
                       <button
                         type="button"
                         className="button-secondary"
                         disabled={pendingConnectionIds.has(connection.id) || exportingConnectionIds.has(connection.id) || deleting}
-                        aria-label={`导出 ${connection.name}`}
+                        aria-label={t("panel.actions.exportAria", { name: connection.name })}
                         onClick={() => void exportConnection(connection)}
-                      >{exportingConnectionIds.has(connection.id) ? "导出中…" : "导出"}</button>
+                      >{exportingConnectionIds.has(connection.id) ? t("panel.actions.exporting") : t("panel.actions.export")}</button>
                       <button
                         type="button"
                         className="button-quiet-danger"
-                        aria-label={`删除 ${connection.name}`}
+                        aria-label={t("panel.actions.deleteAria", { name: connection.name })}
                         onClick={(event) => {
                           dialogTrigger.current = event.currentTarget;
                           setError(null);
                           setPendingDelete(connection.id);
                         }}
-                      >删除</button>
+                      >{t("panel.actions.delete")}</button>
                     </div>
                   </td>
                 </tr>
@@ -680,13 +694,14 @@ function ProjectScopedConnectionPanel({
           folders={visibleConnections.length === 1 ? folders[visibleConnections[0]!.id] ?? [] : []}
           refreshingConnectionIds={refreshingConnectionIds}
           onRefresh={(connectionId) => void refresh(connectionId)}
-          onSelectTool={onSelectTool}
-          onOpenTool={onOpenTool}
+          onSelectTool={(tool) => { noteToolUsed(tool); onSelectTool(tool); }}
+          onOpenTool={(tool) => { noteToolUsed(tool); onOpenTool(tool); }}
           onDeleteTool={deleteTool}
           onCreateFolder={(name) => createFolder(visibleConnections[0]!.id, name)}
           onRenameFolder={renameFolder}
           onDeleteFolder={deleteFolder}
           onMoveTool={moveTool}
+          onToggleFavorite={toggleFavorite}
           selectedTool={selectedTool}
         />
       )}

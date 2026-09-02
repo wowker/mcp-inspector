@@ -9,20 +9,20 @@ describe("consumeBootstrapSession", () => {
     history.replaceState(null, "", "/");
   });
 
-  test("moves the query token into session storage and removes it from the URL", () => {
+  test("never reads or persists a session credential from the URL", () => {
     history.replaceState(null, "", "/workspace?project=one&session=secret#tools");
 
-    expect(consumeBootstrapSession()).toBe("secret");
-    expect(sessionStorage.getItem("mcp-inspector-session")).toBe("secret");
+    expect(consumeBootstrapSession()).toBeNull();
+    expect(sessionStorage.getItem("mcp-inspector-session")).toBeNull();
     expect(location.pathname).toBe("/workspace");
-    expect(location.search).toBe("?project=one");
+    expect(location.search).toBe("?project=one&session=secret");
     expect(location.hash).toBe("#tools");
   });
 
-  test("reuses the current tab session when the query token is absent", () => {
+  test("does not reuse a session credential from browser storage", () => {
     sessionStorage.setItem("mcp-inspector-session", "existing");
 
-    expect(consumeBootstrapSession()).toBe("existing");
+    expect(consumeBootstrapSession()).toBeNull();
     expect(location.search).toBe("");
   });
 });

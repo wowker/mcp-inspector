@@ -5,10 +5,12 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 import { AppToaster, confirmToast } from "./AppToaster.js";
+import { i18n } from "../i18n/index.js";
 
 afterEach(() => {
   toast.dismiss();
   cleanup();
+  void i18n.changeLanguage("zh-CN");
 });
 
 describe("AppToaster", () => {

@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { Toaster, toast } from "sonner";
+import { useTranslation } from "react-i18next";
 
 interface ConfirmToastOptions {
   message: string;
@@ -24,6 +25,7 @@ export function confirmToast(options: ConfirmToastOptions): string | number {
 }
 
 export function AppToaster() {
+  const { t } = useTranslation("app");
   const [theme, setTheme] = useState<"light" | "dark">(currentTheme);
 
   useEffect(() => {
@@ -52,7 +54,7 @@ export function AppToaster() {
       duration: 2_500,
       className: "app-toast",
       unstyled: true,
-      closeButtonAriaLabel: "关闭通知",
+      closeButtonAriaLabel: t("toaster.close"),
       classNames: {
         closeButton: "app-toast__close",
         actionButton: "app-toast__action",

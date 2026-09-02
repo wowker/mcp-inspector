@@ -34,7 +34,7 @@ describe("workflow API client", () => {
     const client = createApiClient("session");
     await expect(client.getToolWorkflow(projectId, connectionId, workflow.toolName)).resolves.toEqual(workflow);
     expect(fetchMock).toHaveBeenLastCalledWith(expect.stringContaining("catalog%2Fread%20item/workflow"), expect.objectContaining({
-      headers: expect.objectContaining({ "X-MCP-Inspector-Session": "session" }),
+      headers: expect.not.objectContaining({ "X-MCP-Inspector-Session": expect.anything() }),
     }));
 
     const updated = { ...workflow, revision: 2, before: { enabled: true, source: "export default async function before(ctx) {}" } };

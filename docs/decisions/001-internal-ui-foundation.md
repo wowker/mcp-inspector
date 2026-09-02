@@ -58,3 +58,14 @@ MCP Inspector 已经形成高密度调试工作区，包含多级导航、Tool C
 - 主题、可访问性、交互态和测试可以在 primitive 层统一验证。
 - 业务组件将逐步缩小，视觉问题不再依赖提高全局 CSS specificity 修复。
 - 若未来要更换 UI 技术栈，稳定 primitive contract 会形成明确迁移边界。
+
+## 初始执行记录（2026-08-31）
+
+第一批 Foundation 已落地为内部 `Button`、`IconButton`、`StatusBadge` 和 `Disclosure`，并只在 Tool Definition 进行了低风险 PoC 迁移。组件只使用既有 React、Phosphor Icons 和 `--ui-*` semantic tokens；未加入任何第三方组件依赖。聚焦交互、可访问性、中文/英文标签与主题 token 测试均已通过。构建 gzip 从 CSS `71.15 kB` / JS `268.58 kB` 变为 CSS `71.58 kB` / JS `269.11 kB`，增量已记录并可由该基础组件与迁移代码解释。
+
+## Overlay 与表单 primitives 执行记录（2026-08-31）
+
+- `Dialog` 负责所有通用 modal 的焦点进入、循环、返回与可控关闭；Feature 不再复制这部分监听器。
+- `Popover` 负责 anchor 位置、视口碰撞、resize/scroll 重定位和 dismissal；具体的 listbox/menu 键盘模型仍由 Feature 的领域组件拥有。
+- `FormField` 和 `Select` 以原生 label/select 语义为默认，优先保持 browser keyboard 与辅助技术行为。
+- 复用已有 `schema-*` 的 Radio、Checkbox 与 Switch token CSS；不因这次迁移引入第二套选择控件视觉系统。

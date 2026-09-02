@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RunDetail, WorkflowExecutionDetail } from "../../../api/api-client.js";
 import { AppToaster } from "../../../app/AppToaster.js";
 import { EmptyRunResultPanel, RunResultPanel } from "../RunResultPanel.js";
+import { i18n } from "../../../i18n/index.js";
 
 const run: RunDetail = {
   id: "00000000-0000-4000-8000-000000000801", projectId: "00000000-0000-4000-8000-000000000802",
@@ -12,7 +13,8 @@ const run: RunDetail = {
   toolSnapshotId: "00000000-0000-4000-8000-000000000804", toolSnapshotHash: "a".repeat(64),
   idempotencyKey: "once", status: "succeeded", createdAt: "2026-08-17T00:00:00.000Z",
   startedAt: "2026-08-17T00:00:00.010Z", completedAt: "2026-08-17T00:00:00.050Z",
-  durationMs: 40, networkDurationMs: 25, protocolVersion: "2025-06-18",
+  durationMs: 40, networkDurationMs: 25, pinned: false, replayedFromRunId: null,
+  protocolVersion: "2025-06-18",
   serverInfo: { name: "fixture", version: "1" }, clientInfo: { name: "MCP Inspector", version: "0.1" },
   request: { arguments: { value: 5 }, jsonrpc: { jsonrpc: "2.0", id: 1, method: "tools/call" }, http: null },
   response: { result: { structuredContent: { answer: 5 }, content: [
@@ -29,6 +31,17 @@ const run: RunDetail = {
 };
 
 describe("RunResultPanel", () => {
+  it("renders the run result workflow in English without changing the run identity", async () => {
+    await i18n.changeLanguage("en-US");
+    render(<RunResultPanel run={run} />);
+    expect(screen.getByRole("tab", { name: "Request & response" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("Succeeded")).toBeVisible();
+    expect(screen.getByText("Request arguments")).toBeVisible();
+    expect(screen.getByText("Response")).toBeVisible();
+    expect(screen.getByLabelText(`Details for run ${run.id}`)).toBeVisible();
+    await i18n.changeLanguage("zh-CN");
+  });
+
   afterEach(() => cleanup());
 
   it("renders hostile text and embedded resources inertly in server order", () => {
@@ -39,6 +52,17 @@ describe("RunResultPanel", () => {
     expect(document.querySelector("script")).toBeNull();
     expect(document.querySelector('a[href="https://evil.test/never-fetch"]')).toBeNull();
     expect(screen.getByText(/audio\/wav/)).toBeInTheDocument();
+  });
+
+  it("offers source comparison only for a direct replay run", () => {
+    const onCompare = vi.fn();
+    const { rerender } = render(<RunResultPanel run={run} onCompare={onCompare} />);
+    expect(screen.queryByRole("button", { name: "对比来源" })).not.toBeInTheDocument();
+
+    const replay = { ...run, replayedFromRunId: "00000000-0000-4000-8000-000000000805" };
+    rerender(<RunResultPanel run={replay} onCompare={onCompare} />);
+    fireEvent.click(screen.getByRole("button", { name: "对比来源" }));
+    expect(onCompare).toHaveBeenCalledWith(replay);
   });
 
   it("defaults to a compact request and result view with secondary details hidden", () => {
@@ -266,6 +290,13 @@ describe("RunResultPanel", () => {
     fireEvent.click(openDebug);
 
     expect(onOpenDebug).toHaveBeenCalledWith(run);
+  });
+
+  it("offers a Run as a test-case creation preview source", () => {
+    const onCreateTest = vi.fn();
+    render(<RunResultPanel run={run} onCreateTest={onCreateTest} />);
+    fireEvent.click(screen.getByRole("button", { name: "创建测试用例" }));
+    expect(onCreateTest).toHaveBeenCalledWith(run);
   });
 
   it("uses the same compact secondary-action treatment for every copy and save command", () => {

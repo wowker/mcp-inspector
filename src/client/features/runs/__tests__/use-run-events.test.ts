@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { InspectorApiClient, RunDetail, RunSummary } from "../../../api/api-client.js";
 import { consumeRunEventStream, useRunEvents, useRunPolling } from "../use-run-events.js";
+import "../../../i18n/index.js";
 
 describe("consumeRunEventStream", () => {
   afterEach(() => { vi.useRealTimers(); });
@@ -39,7 +40,8 @@ describe("consumeRunEventStream", () => {
     const base: RunDetail = { id: runId, projectId, connectionId: "00000000-0000-4000-8000-000000000823", tabId: null,
       toolName: "sum", toolSnapshotId: "00000000-0000-4000-8000-000000000824", toolSnapshotHash: "a".repeat(64), idempotencyKey: "once",
       status: "running", createdAt: "2026-08-17T00:00:00.000Z", startedAt: "2026-08-17T00:00:00.000Z", completedAt: null,
-      durationMs: null, networkDurationMs: null, protocolVersion: "2025-06-18", serverInfo: {}, clientInfo: {},
+      durationMs: null, networkDurationMs: null, pinned: false, replayedFromRunId: null,
+      protocolVersion: "2025-06-18", serverInfo: {}, clientInfo: {},
       request: { arguments: {}, jsonrpc: {}, http: null }, response: null, events: [event(1)] };
     const finished = { ...base, status: "succeeded" as const, completedAt: "2026-08-17T00:00:02.000Z", durationMs: 2_000,
       response: { result: { ok: true }, error: null, truncated: false, originalBytes: 11 }, events: [event(1), event(2, "succeeded")] };
@@ -60,7 +62,8 @@ describe("consumeRunEventStream", () => {
     const finished = { id: runId, projectId, connectionId: "00000000-0000-4000-8000-000000000823", tabId: null, toolName: "sum",
       toolSnapshotId: "00000000-0000-4000-8000-000000000824", toolSnapshotHash: "a".repeat(64), idempotencyKey: "once", status: "succeeded" as const,
       createdAt: "2026-08-17T00:00:00.000Z", startedAt: "2026-08-17T00:00:00.000Z", completedAt: "2026-08-17T00:00:01.000Z",
-      durationMs: 1_000, networkDurationMs: 900, protocolVersion: null, serverInfo: null, clientInfo: {}, request: { arguments: {}, jsonrpc: {}, http: null },
+      durationMs: 1_000, networkDurationMs: 900, pinned: false, replayedFromRunId: null,
+      protocolVersion: null, serverInfo: null, clientInfo: {}, request: { arguments: {}, jsonrpc: {}, http: null },
       response: { result: {}, error: null, truncated: false, originalBytes: 2 }, events: [{ runId, sequence: 7, kind: "run-status", occurredAt: "2026-08-17T00:00:01.000Z", payload: { status: "succeeded" } }] } satisfies RunDetail;
     const getRun = vi.fn().mockRejectedValueOnce(new Error("detail offline")).mockResolvedValueOnce(finished);
     const client = { getRun, openRunEventStream: vi.fn(), startRun: vi.fn() } as unknown as InspectorApiClient;
@@ -87,7 +90,8 @@ describe("consumeRunEventStream", () => {
     const running = { id: runId, projectId, connectionId: "00000000-0000-4000-8000-000000000823", tabId: null, toolName: "sum",
       toolSnapshotId: "00000000-0000-4000-8000-000000000824", toolSnapshotHash: "a".repeat(64), idempotencyKey: "once", status: "running" as const,
       createdAt: "2026-08-17T00:00:00.000Z", startedAt: "2026-08-17T00:00:00.000Z", completedAt: null, durationMs: null,
-      networkDurationMs: null, protocolVersion: null, serverInfo: null, clientInfo: {}, request: { arguments: {}, jsonrpc: {}, http: null },
+      networkDurationMs: null, pinned: false, replayedFromRunId: null,
+      protocolVersion: null, serverInfo: null, clientInfo: {}, request: { arguments: {}, jsonrpc: {}, http: null },
       response: null, events: [] } satisfies RunDetail;
     let streamSignal: AbortSignal | undefined;
     const client = { getRun: vi.fn(async () => running), openRunEventStream: vi.fn((_project: string, _run: string, _after: number, signal: AbortSignal) => {
@@ -104,7 +108,8 @@ describe("consumeRunEventStream", () => {
     const base: RunDetail = { id: runId, projectId: firstProject, connectionId: "00000000-0000-4000-8000-000000000823", tabId: null,
       toolName: "sum", toolSnapshotId: "00000000-0000-4000-8000-000000000824", toolSnapshotHash: "a".repeat(64), idempotencyKey: "once",
       status: "running", createdAt: "2026-08-17T00:00:00.000Z", startedAt: "2026-08-17T00:00:00.000Z", completedAt: null,
-      durationMs: null, networkDurationMs: null, protocolVersion: null, serverInfo: null, clientInfo: {}, request: { arguments: {}, jsonrpc: {}, http: null }, response: null, events: [] };
+      durationMs: null, networkDurationMs: null, pinned: false, replayedFromRunId: null,
+      protocolVersion: null, serverInfo: null, clientInfo: {}, request: { arguments: {}, jsonrpc: {}, http: null }, response: null, events: [] };
     let firstSignal: AbortSignal | undefined;
     const client = { getRun: vi.fn(async (project: string) => project === firstProject ? base : { ...base, projectId: nextProject, status: "succeeded" }),
       openRunEventStream: vi.fn((_project: string, _run: string, _after: number, signal: AbortSignal) => {
@@ -124,7 +129,7 @@ describe("useRunPolling", () => {
   const running: RunSummary = { id: runId, projectId, connectionId: "00000000-0000-4000-8000-000000000823", tabId,
     toolName: "sum", toolSnapshotId: "00000000-0000-4000-8000-000000000824", idempotencyKey: "once", status: "running",
     createdAt: "2026-08-17T00:00:00.000Z", startedAt: "2026-08-17T00:00:00.000Z", completedAt: null,
-    durationMs: null, networkDurationMs: null };
+    durationMs: null, networkDurationMs: null, pinned: false, replayedFromRunId: null };
   const finished: RunDetail = { ...running, status: "succeeded", completedAt: "2026-08-17T00:00:01.000Z", durationMs: 1_000,
     toolSnapshotHash: "a".repeat(64), protocolVersion: null, serverInfo: null, clientInfo: {}, request: { arguments: {}, jsonrpc: {}, http: null },
     response: { result: {}, error: null, truncated: false, originalBytes: 2 }, events: [] };

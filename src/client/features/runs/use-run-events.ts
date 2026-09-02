@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { decodeRunEvent, type InspectorApiClient, type RunDetail, type RunEvent } from "../../api/api-client.js";
+import { useTranslation } from "react-i18next";
 
 const terminal = new Set(["succeeded", "failed", "cancelled", "interrupted"]);
 const statuses = new Set(["queued", "connecting", "authorizing", "running", ...terminal]);
@@ -45,6 +46,7 @@ export interface RunEventState { run: RunDetail | null; error: string | null; ob
 const statusDelays = [1_000, 2_000, 4_000, 8_000];
 
 export function useRunPolling(api: InspectorApiClient, projectId: string, tabId: string, runId: string | null): RunEventState {
+  const { t } = useTranslation("runs");
   const [state, setState] = useState<RunEventState>({ run: null, error: null, observing: false });
   useEffect(() => {
     const controller = new AbortController(); let current = true;
@@ -70,14 +72,14 @@ export function useRunPolling(api: InspectorApiClient, projectId: string, tabId:
         } catch (cause) {
           if (!current || controller.signal.aborted) return;
           setState((previous) => ({ ...previous,
-            error: cause instanceof Error ? cause.message : "加载运行失败", observing: true }));
+            error: cause instanceof Error ? cause.message : t("errors.loadRun"), observing: true }));
           await wait(statusDelays[Math.min(attempt, statusDelays.length - 1)]!, controller.signal);
           attempt += 1;
         }
       }
     })().catch((cause: unknown) => {
       if (current && !controller.signal.aborted) setState({ run: null,
-        error: cause instanceof Error ? cause.message : "加载运行失败", observing: false });
+        error: cause instanceof Error ? cause.message : t("errors.loadRun"), observing: false });
     });
     return () => { current = false; controller.abort(); };
   }, [api, projectId, runId, tabId]);
@@ -85,6 +87,7 @@ export function useRunPolling(api: InspectorApiClient, projectId: string, tabId:
 }
 
 export function useRunEvents(api: InspectorApiClient, projectId: string, runId: string | null): RunEventState {
+  const { t } = useTranslation("runs");
   const [state, setState] = useState<RunEventState>({ run: null, error: null, observing: false });
   useEffect(() => {
     const controller = new AbortController(); let current = true;
@@ -98,7 +101,7 @@ export function useRunEvents(api: InspectorApiClient, projectId: string, runId: 
           try { authoritative = await api.getRun(projectId, runId); }
           catch (cause) {
             if (!current || controller.signal.aborted) return;
-            setState({ run: null, error: cause instanceof Error ? cause.message : "加载运行失败", observing: true });
+            setState({ run: null, error: cause instanceof Error ? cause.message : t("errors.loadRun"), observing: true });
             await wait(delays[Math.min(attempt, delays.length - 1)]!, controller.signal); attempt += 1;
           }
         }
@@ -143,12 +146,12 @@ export function useRunEvents(api: InspectorApiClient, projectId: string, runId: 
                 if (terminal.has(authoritative.status)) return;
               } catch (terminalCause) { cause = terminalCause; }
             }
-            setState((previous) => ({ ...previous, error: cause instanceof Error ? cause.message : "运行事件连接中断", observing: true }));
+            setState((previous) => ({ ...previous, error: cause instanceof Error ? cause.message : t("errors.eventInterrupted"), observing: true }));
             await wait(delays[Math.min(attempt, delays.length - 1)]!, controller.signal); attempt += 1;
           } finally { controller.signal.removeEventListener("abort", abortStream); streamController.abort(); }
         }
       } catch (cause) {
-        if (current && !controller.signal.aborted) setState({ run: null, error: cause instanceof Error ? cause.message : "加载运行失败", observing: false });
+        if (current && !controller.signal.aborted) setState({ run: null, error: cause instanceof Error ? cause.message : t("errors.loadRun"), observing: false });
       }
     })();
     return () => { current = false; controller.abort(); };

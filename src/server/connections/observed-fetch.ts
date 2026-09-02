@@ -1,6 +1,7 @@
 import type { FetchLike } from "@modelcontextprotocol/client";
 import type { WireObservation } from "./connection-runtime.js";
 import { isSensitiveHeaderName } from "../../shared/custom-headers.js";
+import { sanitizeSensitiveUrl } from "../../shared/sensitive-url.js";
 
 export const OBSERVATION_TEXT_LIMIT = 64 * 1024;
 type Observer = (event: WireObservation) => void;
@@ -18,9 +19,15 @@ function headersObject(headers: Headers, redactSensitiveInfo: boolean): Record<s
 
 export function redactWireObservation(event: WireObservation): WireObservation {
   if (event.kind !== "http-request" && event.kind !== "http-response") return event;
-  return { ...event, headers: Object.fromEntries(Object.entries(event.headers).map(([name, value]) => [
+  return { ...event,
+    ...(event.kind === "http-request" ? { url: sanitizeSensitiveUrl(event.url) } : {}),
+    headers: Object.fromEntries(Object.entries(event.headers).map(([name, value]) => [
     name, isSensitiveHeaderName(name) ? "[REDACTED]" : value,
   ])) };
+}
+
+export function sanitizeWireObservationUrl(event: WireObservation): WireObservation {
+  return event.kind === "http-request" ? { ...event, url: sanitizeSensitiveUrl(event.url) } : event;
 }
 
 function forwardingInit(request: Request): RequestInit {
@@ -143,7 +150,7 @@ async function observeRequest(
     at,
     exchangeId,
     method: request.method,
-    url: request.url,
+    url: sanitizeSensitiveUrl(request.url),
     headers: headersObject(request.headers, redactSensitiveInfo),
     body,
   });

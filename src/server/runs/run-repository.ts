@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { JsonObject } from "../../shared/tool-definition.js";
 import type { ProjectStore } from "../projects/project-store.js";
 import { RunEventBus } from "./run-event-bus.js";
 import type { RunDetail, RunError, RunEvent, RunListFilter, RunPage, RunStatus, RunSummary } from "./run-types.js";
@@ -8,7 +9,7 @@ interface RunRow {
   tool_snapshot_id: string; idempotency_key: string; status: RunStatus; created_at: string;
   started_at: string | null; completed_at: string | null; duration_ms: number | null;
   network_duration_ms: number | null; protocol_version: string | null;
-  server_info_json: string | null; client_info_json: string;
+  server_info_json: string | null; client_info_json: string; pinned: number; replayed_from_run_id: string | null;
 }
 interface RequestRow { arguments_json: string; jsonrpc_json: string; http_json: string | null }
 interface ResponseRow { result_json: string | null; error_json: string | null; truncated: number; original_bytes: number | null }
@@ -16,22 +17,23 @@ interface EventRow { run_id: string; sequence: number; kind: string; occurred_at
 
 const columns = `id, project_id, connection_id, tab_id, tool_name, tool_snapshot_id,
   idempotency_key, status, created_at, started_at, completed_at, duration_ms,
-  network_duration_ms, protocol_version, server_info_json, client_info_json`;
+  network_duration_ms, protocol_version, server_info_json, client_info_json, pinned, replayed_from_run_id`;
 const active: RunStatus[] = ["queued", "connecting", "authorizing", "running"];
 
 function parseJson(text: string, label: string): unknown {
   try { return JSON.parse(text) as unknown; } catch { throw new Error(`Stored Run ${label} is corrupt`); }
 }
-function objectJson(text: string, label: string): Record<string, unknown> {
+function objectJson(text: string, label: string): JsonObject {
   const parsed = parseJson(text, label);
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error(`Stored Run ${label} is invalid`);
-  return parsed as Record<string, unknown>;
+  return parsed as JsonObject;
 }
 function summary(row: RunRow): RunSummary {
   return { id: row.id, projectId: row.project_id, connectionId: row.connection_id, tabId: row.tab_id,
     toolName: row.tool_name, toolSnapshotId: row.tool_snapshot_id, idempotencyKey: row.idempotency_key,
     status: row.status, createdAt: row.created_at, startedAt: row.started_at, completedAt: row.completed_at,
-    durationMs: row.duration_ms, networkDurationMs: row.network_duration_ms };
+    durationMs: row.duration_ms, networkDurationMs: row.network_duration_ms,
+    pinned: row.pinned === 1, replayedFromRunId: row.replayed_from_run_id };
 }
 function event(row: EventRow): RunEvent {
   return { runId: row.run_id, sequence: row.sequence, kind: row.kind, occurredAt: row.occurred_at,
@@ -41,8 +43,14 @@ function event(row: EventRow): RunEvent {
 export interface NewRun {
   id: string; projectId: string; connectionId: string; tabId: string | null; toolName: string; toolSnapshotId: string;
   idempotencyKey: string; canonicalArguments: string; jsonrpc: unknown; clientInfo: Record<string, unknown>; createdAt: string;
+  replayedFromRunId?: string | null;
 }
-export interface ExistingIdentity { tabId: string | null; toolSnapshotId: string; canonicalArguments: string }
+export interface ExistingIdentity {
+  tabId: string | null;
+  toolSnapshotId: string;
+  canonicalArguments: string;
+  replayedFromRunId: string | null;
+}
 
 export class RunRepository {
   private readonly maxResponseBytes: number;
@@ -56,11 +64,12 @@ export class RunRepository {
     const operation = this.store.database.transaction(() => {
       const inserted = this.store.database.prepare(`INSERT INTO runs
         (id, project_id, connection_id, tab_id, tool_name, tool_snapshot_id, idempotency_key,
-         status, created_at, client_info_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)
+         status, created_at, client_info_json, replayed_from_run_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?)
         ON CONFLICT(project_id, idempotency_key) DO NOTHING`)
         .run(input.id, input.projectId, input.connectionId, input.tabId, input.toolName,
-          input.toolSnapshotId, input.idempotencyKey, input.createdAt, JSON.stringify(input.clientInfo));
+          input.toolSnapshotId, input.idempotencyKey, input.createdAt, JSON.stringify(input.clientInfo),
+          input.replayedFromRunId ?? null);
       if (inserted.changes === 0) {
         const previous = this.byIdempotency(input.projectId, input.idempotencyKey);
         if (previous === null) throw new Error("Conflicting Run could not be read");
@@ -75,7 +84,8 @@ export class RunRepository {
       const created = this.getSummary(input.projectId, input.id);
       if (created === null) throw new Error("Run was not persisted");
       return { run: created, created: true,
-        identity: { tabId: input.tabId, toolSnapshotId: input.toolSnapshotId, canonicalArguments: input.canonicalArguments }, queuedEvent };
+        identity: { tabId: input.tabId, toolSnapshotId: input.toolSnapshotId,
+          canonicalArguments: input.canonicalArguments, replayedFromRunId: input.replayedFromRunId ?? null }, queuedEvent };
     });
     const result = operation();
     if (result.queuedEvent !== null) this.bus.publish(result.queuedEvent);
@@ -88,6 +98,7 @@ export class RunRepository {
       WHERE r.project_id = ? AND r.idempotency_key = ?`).get(projectId, key) as (RunRow & { arguments_json: string }) | undefined;
     return row === undefined ? null : { run: summary(row), identity: {
       tabId: row.tab_id, toolSnapshotId: row.tool_snapshot_id, canonicalArguments: row.arguments_json,
+      replayedFromRunId: row.replayed_from_run_id,
     } };
   }
 
@@ -257,39 +268,63 @@ export class RunRepository {
       .all(...(limit === undefined ? [runId, after] : [runId, after, limit])) as EventRow[]).map(event);
   }
 
-  list(projectId: string, cursor?: string, limit = 50, filter: RunListFilter = {}): RunPage {
-    const { tabId, connectionId, toolName } = filter;
-    const cursorTabId = tabId ?? null;
-    const cursorConnectionId = connectionId ?? null;
-    const cursorToolName = toolName ?? null;
-    let boundary: { projectId: string; tabId: string | null; connectionId: string | null; toolName: string | null; createdAt: string; id: string } | undefined;
+  setPinned(projectId: string, runId: string, pinned: boolean): RunSummary | null {
+    const changed = this.store.database.prepare("UPDATE runs SET pinned = ? WHERE project_id = ? AND id = ?")
+      .run(Number(pinned), projectId, runId);
+    if (changed.changes !== 1) return null;
+    return this.getSummary(projectId, runId);
+  }
+
+  list(projectId: string, cursor?: string, filter: RunListFilter = {}): RunPage {
+    const { tabId, connectionId, toolName, status, origin, pinned, createdFrom, createdTo } = filter;
+    const limit = filter.limit ?? 50;
+    const filterIdentity = {
+      tabId: tabId ?? null,
+      connectionId: connectionId ?? null,
+      toolName: toolName ?? null,
+      status: status ?? null,
+      origin: origin ?? null,
+      pinned: pinned ?? null,
+      createdFrom: createdFrom ?? null,
+      createdTo: createdTo ?? null,
+      limit,
+      sort: "createdAtDesc",
+    } as const;
+    let boundary: { createdAt: string; id: string } | undefined;
     if (cursor !== undefined) {
       try {
         const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as unknown;
         if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error();
         const value = parsed as Record<string, unknown>;
-        if (value.projectId !== projectId || value.tabId !== cursorTabId || value.connectionId !== cursorConnectionId || value.toolName !== cursorToolName ||
+        if (value.projectId !== projectId || JSON.stringify(value.filter) !== JSON.stringify(filterIdentity) ||
             typeof value.createdAt !== "string" || Number.isNaN(Date.parse(value.createdAt)) ||
             new Date(value.createdAt).toISOString() !== value.createdAt ||
             typeof value.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.id)) throw new Error();
-        boundary = { projectId, tabId: cursorTabId, connectionId: cursorConnectionId, toolName: cursorToolName,
-          createdAt: value.createdAt, id: value.id };
+        boundary = { createdAt: value.createdAt, id: value.id };
       } catch { throw new Error("Run cursor is invalid"); }
     }
-    const rows = this.store.database.prepare(`SELECT ${columns} FROM runs WHERE project_id = ?
-      ${tabId === undefined ? "" : "AND tab_id = ?"}
-      ${connectionId === undefined ? "" : "AND connection_id = ?"}
-      ${toolName === undefined ? "" : "AND tool_name = ?"}
-      ${boundary === undefined ? "" : "AND (created_at < ? OR (created_at = ? AND id < ?))"}
-      ORDER BY created_at DESC, id DESC LIMIT ?`).all(...(boundary === undefined
-        ? [projectId, ...(tabId === undefined ? [] : [tabId]), ...(connectionId === undefined ? [] : [connectionId]),
-          ...(toolName === undefined ? [] : [toolName]), limit + 1]
-        : [projectId, ...(tabId === undefined ? [] : [tabId]), ...(connectionId === undefined ? [] : [connectionId]),
-          ...(toolName === undefined ? [] : [toolName]), boundary.createdAt, boundary.createdAt, boundary.id, limit + 1])) as RunRow[];
+    const clauses = ["project_id = ?"];
+    const parameters: Array<string | number> = [projectId];
+    if (tabId !== undefined) { clauses.push("tab_id = ?"); parameters.push(tabId); }
+    if (connectionId !== undefined) { clauses.push("connection_id = ?"); parameters.push(connectionId); }
+    if (toolName !== undefined) { clauses.push("tool_name = ?"); parameters.push(toolName); }
+    if (status !== undefined) { clauses.push("status = ?"); parameters.push(status); }
+    if (origin === "ORIGINAL") clauses.push("replayed_from_run_id IS NULL");
+    if (origin === "REPLAY") clauses.push("replayed_from_run_id IS NOT NULL");
+    if (pinned !== undefined) { clauses.push("pinned = ?"); parameters.push(Number(pinned)); }
+    if (createdFrom !== undefined) { clauses.push("created_at >= ?"); parameters.push(createdFrom); }
+    if (createdTo !== undefined) { clauses.push("created_at <= ?"); parameters.push(createdTo); }
+    if (boundary !== undefined) {
+      clauses.push("(created_at < ? OR (created_at = ? AND id < ?))");
+      parameters.push(boundary.createdAt, boundary.createdAt, boundary.id);
+    }
+    const rows = this.store.database.prepare(`SELECT ${columns} FROM runs
+      WHERE ${clauses.join(" AND ")} ORDER BY created_at DESC, id DESC LIMIT ?`)
+      .all(...parameters, limit + 1) as RunRow[];
     const page = rows.slice(0, limit).map(summary);
     const last = page.at(-1);
     return { runs: page, nextCursor: rows.length > limit && last !== undefined
-      ? Buffer.from(JSON.stringify({ projectId, tabId: cursorTabId, connectionId: cursorConnectionId,
-        toolName: cursorToolName, createdAt: last.createdAt, id: last.id })).toString("base64url") : null };
+      ? Buffer.from(JSON.stringify({ projectId, filter: filterIdentity,
+        createdAt: last.createdAt, id: last.id })).toString("base64url") : null };
   }
 }

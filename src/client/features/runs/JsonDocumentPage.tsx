@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BracketsCurly, Copy } from "@phosphor-icons/react";
+import { useTranslation } from "react-i18next";
 import { JsonViewer } from "./JsonViewer.js";
 import { isJsonDocumentMessage, jsonDocumentChannel, jsonViewerMessages, type JsonDocumentMessage } from "./json-document-bridge.js";
 
@@ -8,12 +9,15 @@ type DocumentState =
   | { status: "ready"; document: JsonDocumentMessage }
   | { status: "error"; message: string };
 
-function stringify(value: unknown): string {
+function stringify(value: unknown, fallback: string): string {
   try { return JSON.stringify(value, null, 2) ?? "null"; }
-  catch { return "[无法序列化]"; }
+  catch { return fallback; }
 }
 
 export function JsonDocumentPage() {
+  const { t } = useTranslation("runs");
+  const effectMessages = useRef({ unreadable: t("jsonViewer.unreadable"), timeout: t("jsonViewer.timeout") });
+  effectMessages.current = { unreadable: t("jsonViewer.unreadable"), timeout: t("jsonViewer.timeout") };
   const [state, setState] = useState<DocumentState>({ status: "loading" });
   const [copyError, setCopyError] = useState(false);
 
@@ -21,11 +25,11 @@ export function JsonDocumentPage() {
     const channelId = jsonDocumentChannel();
     const source = window.opener;
     if (channelId === null || source === null) {
-      setState({ status: "error", message: "无法读取 JSON，请从 Inspector 的请求结果重新打开。" });
+      setState({ status: "error", message: effectMessages.current.unreadable });
       return;
     }
     const timeout = window.setTimeout(() => setState((current) => current.status === "loading"
-      ? { status: "error", message: "JSON 传输超时，请返回 Inspector 后重试。" }
+      ? { status: "error", message: effectMessages.current.timeout }
       : current), 15_000);
     const receive = (event: MessageEvent<unknown>) => {
       if (event.origin !== window.location.origin || event.source !== source || !isJsonDocumentMessage(event.data, channelId)) return;
@@ -44,7 +48,7 @@ export function JsonDocumentPage() {
     if (state.status !== "ready") return;
     try {
       if (navigator.clipboard?.writeText === undefined) throw new Error("Clipboard unavailable");
-      await navigator.clipboard.writeText(stringify(state.document.value));
+      await navigator.clipboard.writeText(stringify(state.document.value, t("jsonViewer.unserializable")));
       setCopyError(false);
     } catch { setCopyError(true); }
   }
@@ -52,14 +56,14 @@ export function JsonDocumentPage() {
   return <main className="json-document-page">
     <header className="json-document-page__header">
       <div className="json-document-page__identity"><BracketsCurly size={20} weight="duotone" aria-hidden="true" />
-        <div><span>JSON Viewer</span><h1>{state.status === "ready" ? state.document.label : "请求结果"}</h1></div></div>
+        <div><span>JSON Viewer</span><h1>{state.status === "ready" ? state.document.label : t("jsonViewer.requestResult")}</h1></div></div>
       {state.status === "ready" && <div className="json-document-page__actions">
-        <button type="button" className="run-result-action" onClick={() => void copyJson()}><Copy size={15} aria-hidden="true" />复制 JSON</button>
-        {copyError && <span role="alert">复制失败，请手动选择内容</span>}
+        <button type="button" className="run-result-action" onClick={() => void copyJson()}><Copy size={15} aria-hidden="true" />{t("jsonViewer.copy")}</button>
+        {copyError && <span role="alert">{t("jsonViewer.copyFailed")}</span>}
       </div>}
     </header>
     <section className="json-document-page__content" aria-live="polite">
-      {state.status === "loading" && <p role="status">正在读取 JSON…</p>}
+      {state.status === "loading" && <p role="status">{t("jsonViewer.loading")}</p>}
       {state.status === "error" && <p role="alert">{state.message}</p>}
       {state.status === "ready" && <JsonViewer value={state.document.value} label={`${state.document.label} JSON`} defaultExpanded="all" />}
     </section>

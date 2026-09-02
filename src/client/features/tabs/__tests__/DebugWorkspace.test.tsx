@@ -13,6 +13,7 @@ import type {
   WorkflowExecutionDetail,
 } from "../../../api/api-client.js";
 import { AppToaster } from "../../../app/AppToaster.js";
+import { i18n } from "../../../i18n/index.js";
 import { DebugWorkspace } from "../DebugWorkspace.js";
 import { ParameterEditor } from "../ParameterEditor.js";
 import { TabStrip } from "../TabStrip.js";
@@ -21,6 +22,7 @@ const projectId = "00000000-0000-4000-8000-000000000601";
 const connectionId = "00000000-0000-4000-8000-000000000602";
 const tool: ToolDetailSummary = {
   tool: { projectId, connectionId, name: "sum", status: "current", folderId: null,
+    favorite: false, lastUsedAt: null,
     updatedAt: "2026-08-17T00:00:00.000Z", currentSnapshot: {
       id: "00000000-0000-4000-8000-000000000603", projectId, connectionId,
       toolName: "sum", contentHash: "a".repeat(64), createdAt: "2026-08-17T00:00:00.000Z",
@@ -65,7 +67,18 @@ function workflowExecution(tabId: string, status: WorkflowExecutionDetail["statu
 }
 
 describe("DebugWorkspace", () => {
-  afterEach(() => { cleanup(); sessionStorage.clear(); vi.useRealTimers(); });
+  afterEach(async () => { cleanup(); sessionStorage.clear(); vi.useRealTimers(); await i18n.changeLanguage("zh-CN"); });
+
+  it("renders the empty debug workspace in English", async () => {
+    await i18n.changeLanguage("en-US");
+    const api = { listTabs: vi.fn(async () => []) } as unknown as InspectorApiClient;
+
+    render(<DebugWorkspace api={api} projectId={projectId} />);
+
+    expect(await screen.findByRole("heading", { name: "Select a Tool to start debugging" })).toBeVisible();
+    expect(screen.getByText("Single-click reuses the current unpinned Tab; double-click opens a new Tab.")).toBeVisible();
+    expect(screen.getByRole("region", { name: "Tool debug workspace" })).toBeVisible();
+  });
 
   it("restores the active Tab selection across a workspace remount", async () => {
     const tabs = [tab("00000000-0000-4000-8000-000000000653", "sum", { a: 1 }),
@@ -281,11 +294,11 @@ describe("DebugWorkspace", () => {
     const updateTab = vi.fn(async (_project: string, _id: string, patch: Partial<DebugTabSummary>) => ({ ...saved, ...patch }));
     const api = { listTabs: vi.fn(async () => [saved]), getTool: vi.fn(async () => tool), updateTab } as unknown as InspectorApiClient;
     render(<DebugWorkspace api={api} projectId={projectId} />);
-    const resize = await screen.findByLabelText("请求区高度");
+    const resize = await screen.findByRole("separator", { name: "请求区高度" });
     const split = resize.closest(".request-result-split") as HTMLElement;
     vi.spyOn(split, "getBoundingClientRect").mockReturnValue({ top: 100, bottom: 600, left: 0, right: 1000,
       width: 1000, height: 500, x: 0, y: 100, toJSON: () => ({}) });
-    const control = resize.closest(".split-control") as HTMLElement & {
+    const control = resize as HTMLElement & {
       setPointerCapture: (id: number) => void; hasPointerCapture: (id: number) => boolean;
     };
     control.setPointerCapture = vi.fn(); control.hasPointerCapture = vi.fn(() => true);
@@ -294,6 +307,66 @@ describe("DebugWorkspace", () => {
     fireEvent.pointerMove(control, { pointerId: 7, clientY: 400 });
     await waitFor(() => expect(updateTab).toHaveBeenCalledWith(projectId, saved.id,
       expect.objectContaining({ viewState: expect.objectContaining({ splitRatio: 0.6 }) })));
+  });
+
+  it("exposes the Split Pane as a keyboard-adjustable separator", async () => {
+    const saved = tab("00000000-0000-4000-8000-000000000623", "sum", { a: 1 });
+    const updateTab = vi.fn(async (_project: string, _id: string, patch: Partial<DebugTabSummary>) => ({ ...saved, ...patch }));
+    const api = { listTabs: vi.fn(async () => [saved]), getTool: vi.fn(async () => tool), updateTab } as unknown as InspectorApiClient;
+    render(<DebugWorkspace api={api} projectId={projectId} />);
+
+    const separator = await screen.findByRole("separator", { name: "请求区高度" });
+    expect(separator).toHaveAttribute("aria-orientation", "horizontal");
+    expect(separator).toHaveAttribute("aria-valuemin", "20");
+    expect(separator).toHaveAttribute("aria-valuemax", "80");
+    expect(separator).toHaveAttribute("aria-valuenow", "50");
+
+    fireEvent.keyDown(separator, { key: "ArrowDown" });
+    expect(separator).toHaveAttribute("aria-valuenow", "52");
+    await waitFor(() => expect(updateTab).toHaveBeenCalledWith(projectId, saved.id,
+      expect.objectContaining({ viewState: expect.objectContaining({ splitRatio: 0.52 }) })));
+  });
+
+  it("applies Split Pane presets and restores both panes when a preset is selected", async () => {
+    const saved = { ...tab("00000000-0000-4000-8000-000000000624", "sum", { a: 1 }),
+      viewState: { editorScrollTop: 0, resultScrollTop: 0, splitRatio: 0.5,
+        requestExpanded: false, responseExpanded: true } };
+    const updateTab = vi.fn(async (_project: string, _id: string, patch: Partial<DebugTabSummary>) => ({ ...saved, ...patch }));
+    const api = { listTabs: vi.fn(async () => [saved]), getTool: vi.fn(async () => tool), updateTab } as unknown as InspectorApiClient;
+    render(<DebugWorkspace api={api} projectId={projectId} />);
+
+    expect(await screen.findByRole("button", { name: "展开参数" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "参数优先" }));
+
+    const separator = screen.getByRole("separator", { name: "请求区高度" });
+    expect(separator).toHaveAttribute("aria-valuenow", "65");
+    expect(screen.getByRole("button", { name: "收起参数" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "收起响应" })).toBeVisible();
+    await waitFor(() => expect(updateTab).toHaveBeenCalledWith(projectId, saved.id,
+      expect.objectContaining({ viewState: expect.objectContaining({
+        splitRatio: 0.65, requestExpanded: true, responseExpanded: true,
+      }) })));
+  });
+
+  it("keeps Split Pane preferences isolated by active Tab", async () => {
+    const first = tab("00000000-0000-4000-8000-000000000625", "sum", { a: 1 });
+    const second = { ...tab("00000000-0000-4000-8000-000000000626", "sum (2)", { a: 2 }), position: 1 };
+    const updateTab = vi.fn(async (_project: string, id: string, patch: Partial<DebugTabSummary>) => ({
+      ...(id === first.id ? first : second), ...patch,
+    }));
+    const api = { listTabs: vi.fn(async () => [first, second]), getTool: vi.fn(async () => tool), updateTab } as unknown as InspectorApiClient;
+    render(<DebugWorkspace api={api} projectId={projectId} />);
+    await screen.findByRole("tab", { name: "sum" });
+
+    fireEvent.click(await screen.findByRole("button", { name: "结果优先" }));
+    await waitFor(() => expect(updateTab).toHaveBeenCalledWith(projectId, first.id,
+      expect.objectContaining({ viewState: expect.objectContaining({ splitRatio: 0.35 }) })));
+    fireEvent.click(screen.getByRole("tab", { name: "sum (2)" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "sum (2)" })).toHaveAttribute("aria-selected", "true"));
+    fireEvent.click(await screen.findByRole("button", { name: "参数优先" }));
+
+    await waitFor(() => expect(updateTab).toHaveBeenCalledWith(projectId, second.id,
+      expect.objectContaining({ viewState: expect.objectContaining({ splitRatio: 0.65 }) })));
   });
 
   it("switches from valid Raw JSON to Form even when required Schema fields are missing", () => {
@@ -714,7 +787,8 @@ describe("DebugWorkspace", () => {
       toolSnapshotId: tool.tool.currentSnapshot.id, toolSnapshotHash: "a".repeat(64),
       idempotencyKey: "workflow-main", status: "failed", createdAt: "2026-08-27T00:00:00.002Z",
       startedAt: "2026-08-27T00:00:00.003Z", completedAt: "2026-08-27T00:00:00.008Z",
-      durationMs: 5, networkDurationMs: 3, protocolVersion: "2025-06-18", serverInfo: null,
+      durationMs: 5, networkDurationMs: 3, pinned: false, replayedFromRunId: null,
+      protocolVersion: "2025-06-18", serverInfo: null,
       clientInfo: { name: "mcp-inspector", version: "0.1.0" },
       request: { arguments: { a: 1 }, jsonrpc: { jsonrpc: "2.0", method: "tools/call" }, http: null },
       response: { result: null, error: { code: "TOOL_FAILED", message: "Tool 调用失败" },
@@ -839,6 +913,51 @@ describe("DebugWorkspace", () => {
     await waitFor(() => expect(screen.getByLabelText("payload")).toHaveValue('{\n  "fresh": true\n}'));
   });
 
+  it("retains an invalid deeply nested object draft when another Tab save is assigned", async () => {
+    const nestedTool = structuredClone(tool);
+    nestedTool.tool.currentSnapshot.definition.inputSchema = { type: "object", properties: {
+      note: { type: "string" },
+      profile: { type: "object", properties: {
+        preferences: { type: "object", properties: { locale: { type: "string" } } },
+      } },
+    } };
+    const tabs = [tab("00000000-0000-4000-8000-000000000691", "sum", {
+      note: "first", profile: { preferences: { locale: "en-US" } },
+    }), { ...tab("00000000-0000-4000-8000-000000000692", "sum (2)", {
+      note: "second", profile: { preferences: { locale: "zh-CN" } },
+    }), position: 1 }];
+    const api = {
+      listTabs: vi.fn(async () => tabs),
+      getTool: vi.fn(async () => nestedTool),
+      updateTab: vi.fn(async (_project: string, id: string, patch: Partial<DebugTabSummary>) => ({
+        ...tabs.find((item) => item.id === id)!, ...patch,
+      })),
+    } as unknown as InspectorApiClient;
+    render(<DebugWorkspace api={api} projectId={projectId} />);
+
+    const profileModes = await screen.findByRole("tablist", { name: "profile 编辑模式" });
+    fireEvent.click(within(profileModes).getByRole("tab", { name: "Raw JSON" }));
+    const firstDraft = screen.getByRole("textbox", { name: "profile 对象 JSON" });
+    fireEvent.change(firstDraft, { target: { value: '{"preferences":' } });
+
+    fireEvent.click(screen.getByRole("tab", { name: /sum \(2\)/ }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: /sum \(2\)/ })).toHaveAttribute("aria-selected", "true"));
+    const secondNote = await screen.findByRole("textbox", { name: "note" });
+    await waitFor(() => expect(secondNote).toHaveValue("second"));
+    fireEvent.change(secondNote, { target: { value: "saved elsewhere" } });
+    fireEvent.blur(secondNote);
+    await waitFor(() => expect(api.updateTab).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("tab", { name: /^sum$/ }));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "profile preferences locale" }))
+      .toHaveValue("en-US"));
+    const restoredProfile = screen.getByRole("group", { name: "profile 对象" });
+    const restoredModes = within(restoredProfile).getByRole("tablist", { name: "profile 编辑模式" });
+    fireEvent.click(within(restoredModes).getByRole("tab", { name: "Raw JSON" }));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "profile 对象 JSON" }))
+      .toHaveValue('{"preferences":'));
+  });
+
   it("reuses an active unpinned Tab for selection and always opens for a new-Tab intent", async () => {
     const saved = tab("00000000-0000-4000-8000-000000000629", "sum", {});
     const replaceTabTool = vi.fn(async () => saved); const openTab = vi.fn(async () => ({ ...saved,
@@ -860,7 +979,8 @@ describe("DebugWorkspace", () => {
       toolSnapshotId: tool.tool.currentSnapshot.id, toolSnapshotHash: "a".repeat(64),
       idempotencyKey: "restore-history", status: "succeeded", createdAt: "2026-08-25T01:00:00.000Z",
       startedAt: "2026-08-25T01:00:00.010Z", completedAt: "2026-08-25T01:00:00.020Z",
-      durationMs: 10, networkDurationMs: 8, protocolVersion: "2025-06-18", serverInfo: null,
+      durationMs: 10, networkDurationMs: 8, pinned: false, replayedFromRunId: null,
+      protocolVersion: "2025-06-18", serverInfo: null,
       clientInfo: { name: "mcp-inspector", version: "0.1.0" },
       request: { arguments: { a: 40, b: 2 }, jsonrpc: {}, http: null },
       response: { result: { structuredContent: { answer: 42 } }, error: null, truncated: false, originalBytes: 32 },
@@ -1149,7 +1269,8 @@ describe("DebugWorkspace", () => {
       toolName: "sum", toolSnapshotId: tool.tool.currentSnapshot.id, toolSnapshotHash: "a".repeat(64),
       idempotencyKey: "history-42", status: "succeeded", createdAt: "2026-08-25T01:00:00.000Z",
       startedAt: "2026-08-25T01:00:00.010Z", completedAt: "2026-08-25T01:00:00.020Z",
-      durationMs: 10, networkDurationMs: 8, protocolVersion: "2025-06-18", serverInfo: null,
+      durationMs: 10, networkDurationMs: 8, pinned: false, replayedFromRunId: null,
+      protocolVersion: "2025-06-18", serverInfo: null,
       clientInfo: { name: "mcp-inspector", version: "0.1.0" },
       request: { arguments: { a: 40, b: 2 }, jsonrpc: { jsonrpc: "2.0", method: "tools/call" }, http: null },
       response: { result: { structuredContent: { answer: 42 } }, error: null, truncated: false, originalBytes: 64 },
@@ -1191,6 +1312,23 @@ describe("DebugWorkspace", () => {
     expect(api.createSavedItem).toHaveBeenCalledWith(projectId, connectionId, "sum", expect.objectContaining({
       name: "bound case", payload: { a: 4 },
     }));
+  });
+
+  it("renders Tool Tab state and menu actions in English", async () => {
+    await i18n.changeLanguage("en-US");
+    const callbacks = { onSelect: vi.fn(), onCopyName: vi.fn(), onClose: vi.fn(), onDuplicate: vi.fn(), onPin: vi.fn(),
+      onCloseOthers: vi.fn(), onCloseRight: vi.fn(), onMove: vi.fn() };
+    const saved = { ...tab("00000000-0000-4000-8000-000000000643", "sum", {}), pinned: true };
+    const user = userEvent.setup();
+
+    render(<TabStrip tabs={[saved]} activeId={saved.id} dirtyIds={new Set([saved.id])} {...callbacks} />);
+
+    expect(screen.getByRole("tablist", { name: "Tool debug Tabs" })).toBeVisible();
+    expect(screen.getByRole("tab", { name: /sum, pinned/ })).toBeVisible();
+    await user.click(screen.getByLabelText("sum actions"));
+    expect(screen.getByRole("button", { name: "Copy name" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Duplicate Tab" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Unpin" })).toBeVisible();
   });
 
   it("invokes every Tab menu action from the keyboard", async () => {

@@ -21,6 +21,14 @@ describe("isolated script runner", () => {
     return runner;
   }
 
+  function makeAdversarialRunner(): ScriptRunner {
+    runner = createScriptRunner({
+      workerUrl: new URL("../../../../test-support/adversarial-script-worker.mjs", import.meta.url),
+      execArgv: [],
+    });
+    return runner;
+  }
+
   it("executes an async before script and returns only serializable staged state", async () => {
     const result = await makeRunner().run({
       evaluationId: randomUUID(),
@@ -224,5 +232,40 @@ describe("isolated script runner", () => {
       code: "SYNTAX_ERROR",
       phase: "after",
     });
+  });
+
+  it("enforces log limits again at the parent IPC boundary", async () => {
+    await expect(makeAdversarialRunner().run({
+      evaluationId: randomUUID(),
+      phase: "before",
+      source: "too-many-logs",
+      arguments: {}, response: null, variables: {}, environment: {},
+      limits: { maxLogs: 1 },
+    })).rejects.toMatchObject({ code: "OUTPUT_LIMIT" });
+  });
+
+  it("rejects duplicate host-call IDs without invoking the helper twice", async () => {
+    let calls = 0;
+    await expect(makeAdversarialRunner().run({
+      evaluationId: randomUUID(),
+      phase: "before",
+      source: "duplicate-host-call",
+      arguments: {}, response: null, variables: {}, environment: {},
+      onToolCall: async () => {
+        calls += 1;
+        await new Promise(() => undefined);
+        return null;
+      },
+    })).rejects.toMatchObject({ code: "IPC_INVALID" });
+    expect(calls).toBe(1);
+  });
+
+  it("rejects valid messages sent in the wrong IPC direction", async () => {
+    await expect(makeAdversarialRunner().run({
+      evaluationId: randomUUID(),
+      phase: "before",
+      source: "unexpected-direction",
+      arguments: {}, response: null, variables: {}, environment: {},
+    })).rejects.toMatchObject({ code: "IPC_INVALID" });
   });
 });

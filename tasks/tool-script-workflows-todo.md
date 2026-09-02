@@ -97,7 +97,7 @@
 
 ### Task 10: Security, quality, and packaging acceptance
 
-- [ ] Independent five-axis review and focused threat-model review have no Critical/Required findings.
+- [x] Independent five-axis review and focused threat-model review have no Critical/Required findings.
 - [x] `npm run verify`, dependency audit, migrations 001–011 byte checks, `git diff --check`, npm-pack contents, and process cleanup pass.
 - [x] README documents SDK, limits, side effects, variables, debugging, export/redaction, and failure semantics.
 - Dependencies: Tasks 1–9.

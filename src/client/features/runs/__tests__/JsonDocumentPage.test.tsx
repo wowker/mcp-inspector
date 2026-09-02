@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { i18n } from "../../../i18n/index.js";
 import { JsonDocumentPage } from "../JsonDocumentPage.js";
 
 describe("JsonDocumentPage", () => {
+  beforeEach(async () => { await i18n.changeLanguage("zh-CN"); });
   afterEach(() => cleanup());
 
   it("receives one same-origin document and renders fully expanded formatted JSON", async () => {
@@ -24,5 +26,15 @@ describe("JsonDocumentPage", () => {
     expect(screen.getByLabelText("结构化响应 JSON")).toHaveTextContent("nested");
     expect(screen.getByLabelText("结构化响应 JSON")).toHaveTextContent("answer");
     expect(screen.getAllByRole("button", { name: "收起 JSON" }).length).toBeGreaterThan(1);
+  });
+
+  it("renders standalone JSON document controls in English", async () => {
+    Object.defineProperty(window, "opener", { configurable: true, writable: true, value: null });
+    history.replaceState(null, "", "/json-viewer");
+    await i18n.changeLanguage("en-US");
+    render(<JsonDocumentPage />);
+
+    expect(screen.getByRole("heading", { name: "Request result" })).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveTextContent("Unable to read JSON");
   });
 });

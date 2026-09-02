@@ -11,6 +11,10 @@ export default defineConfig({
   server: {
     host: "127.0.0.1",
     port: 5173,
-    proxy: apiOrigin === undefined ? undefined : { "/api": apiOrigin },
+    proxy: apiOrigin === undefined ? undefined : {
+      "/api": apiOrigin,
+      "/bootstrap": apiOrigin,
+      "/oauth": apiOrigin,
+    },
   },
 });

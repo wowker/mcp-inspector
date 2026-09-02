@@ -121,16 +121,35 @@ describe("TabService", () => {
       const second = service.open({ projectId, connectionId, toolName: "sum" });
       const third = service.open({ projectId, connectionId, toolName: "sum" });
       service.update(second.id, projectId, { arguments: { marker: 2 }, rawText: "{\"marker\":2}", inputMode: "raw",
-        viewState: { editorScrollTop: 9, resultScrollTop: 10, splitRatio: 0.6 }, pinned: true });
+        viewState: { editorScrollTop: 9, resultScrollTop: 10, splitRatio: 0.6,
+          requestExpanded: false, responseExpanded: true }, pinned: true });
       const copy = service.duplicate(projectId, second.id);
       expect(copy).toMatchObject({ title: "sum (4)", arguments: { marker: 2 }, rawText: "{\"marker\":2}",
-        inputMode: "raw", pinned: false, lastRunId: null });
+        inputMode: "raw", pinned: false, lastRunId: null,
+        viewState: { splitRatio: 0.6, requestExpanded: false, responseExpanded: true } });
       expect(() => service.reorder(projectId, connectionId, [first.id, second.id])).toThrow(/invalid/i);
       expect(service.reorder(projectId, connectionId, [copy.id, third.id, first.id, second.id]).map(({ id, position }) => [id, position]))
         .toEqual([[copy.id, 0], [third.id, 1], [first.id, 2], [second.id, 3]]);
       service.update(second.id, projectId, { pinned: false });
       service.close(projectId, second.id);
       expect(service.open({ projectId, connectionId, toolName: "sum" }).title).toBe("sum (2)");
+    } finally { projects.close(); }
+  });
+
+  it("restores legacy Split Pane state with both panes expanded", () => {
+    const { projects, service } = fixture();
+    try {
+      const opened = service.open({ projectId, connectionId, toolName: "sum" });
+      projects.open(projectId).database.prepare("UPDATE debug_tabs SET view_state_json = ? WHERE id = ?")
+        .run('{"editorScrollTop":7,"resultScrollTop":8,"splitRatio":0.35}', opened.id);
+
+      expect(service.get(projectId, opened.id).viewState).toEqual({
+        editorScrollTop: 7,
+        resultScrollTop: 8,
+        splitRatio: 0.35,
+        requestExpanded: true,
+        responseExpanded: true,
+      });
     } finally { projects.close(); }
   });
 
@@ -158,11 +177,11 @@ describe("TabService", () => {
     } finally { projects.close(); }
   });
 
-  it("applies migrations 1-11 once and enforces Tab foreign keys", () => {
+  it("applies all current migrations once and enforces Tab foreign keys", () => {
     const { dataRoot, projects } = fixture();
     const store = projects.open(projectId);
     expect(store.database.prepare("SELECT version FROM schema_migrations ORDER BY version").all())
-      .toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((version) => ({ version })));
+      .toEqual(Array.from({ length: 18 }, (_, index) => ({ version: index + 1 })));
     expect(() => store.database.prepare(`INSERT INTO debug_tabs
       (id, project_id, connection_id, tool_name, title, position, pinned, input_mode,
        arguments_json, raw_text, view_state_json, created_at, updated_at)

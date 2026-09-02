@@ -36,7 +36,7 @@ const snapshot = {
 };
 const tool = {
   projectId, connectionId, name: definition.name, status: "current",
-  folderId: null,
+  folderId: null, favorite: false, lastUsedAt: null,
   updatedAt: "2026-08-17T12:00:00.000Z", currentSnapshot: snapshot,
 };
 
@@ -163,8 +163,8 @@ describe("Tool API response decoding", () => {
     await createApiClient("session").refreshTools(projectId, connectionId);
     expect(fetchMock).toHaveBeenCalledWith(
       `/api/projects/${projectId}/connections/${connectionId}/tools/refresh`,
-      expect.objectContaining({ method: "POST", headers: expect.objectContaining({
-        "X-MCP-Inspector-Session": "session",
+      expect.objectContaining({ method: "POST", headers: expect.not.objectContaining({
+        "X-MCP-Inspector-Session": expect.anything(),
       }) }),
     );
   });
@@ -174,10 +174,30 @@ describe("Tool API response decoding", () => {
     await createApiClient("session").deleteTool(projectId, connectionId, definition.name);
     expect(fetchMock).toHaveBeenCalledWith(
       `/api/projects/${projectId}/connections/${connectionId}/tools/catalog%2Fread%20item`,
-      expect.objectContaining({ method: "DELETE", headers: expect.objectContaining({
-        "X-MCP-Inspector-Session": "session",
+      expect.objectContaining({ method: "DELETE", headers: expect.not.objectContaining({
+        "X-MCP-Inspector-Session": expect.anything(),
       }) }),
     );
+  });
+
+  it("updates favorites and recent-use metadata through scoped Tool endpoints", async () => {
+    const client = createApiClient("session");
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ tool: { ...tool, favorite: true } }), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    }));
+    await expect(client.setToolFavorite(projectId, connectionId, definition.name, true))
+      .resolves.toEqual({ ...tool, favorite: true });
+    expect(fetchMock).toHaveBeenLastCalledWith(expect.stringContaining("/favorite"),
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ favorite: true }) }));
+
+    const lastUsedAt = "2026-08-17T12:01:00.000Z";
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ tool: { ...tool, lastUsedAt } }), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    }));
+    await expect(client.markToolUsed(projectId, connectionId, definition.name))
+      .resolves.toEqual({ ...tool, lastUsedAt });
+    expect(fetchMock).toHaveBeenLastCalledWith(expect.stringContaining("/recent-use"),
+      expect.objectContaining({ method: "POST" }));
   });
 
   it("strictly decodes folders and moves a URL-encoded Tool into one", async () => {

@@ -1,15 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { validateArguments, type SchemaIssue } from "../../shared/json-schema.js";
+import { runHistoryFilterSchema } from "../../shared/run-replay.js";
 import type { ConnectionService } from "../connections/connection-service.js";
 import { CallCancelledError, CallTimeoutError, McpConnectError, type WireObservation } from "../connections/connection-runtime.js";
-import { redactWireObservation } from "../connections/observed-fetch.js";
+import { redactWireObservation, sanitizeWireObservationUrl } from "../connections/observed-fetch.js";
 import type { ProjectService } from "../projects/project-service.js";
 import type { TabService } from "../tabs/tab-service.js";
 import { ToolRepository } from "../tools/tool-repository.js";
 import { RunEventBus } from "./run-event-bus.js";
 import { RunRepository } from "./run-repository.js";
-import type { RunDetail, RunEvent, RunPage, RunService, RunSummary, StartRunInput } from "./run-types.js";
+import type {
+  RunDetail, RunEvent, RunPage, RunService, RunSummary, StartReplayInvocationInput, StartRunInput,
+} from "./run-types.js";
 
 const uuid = z.string().uuid();
 const terminal = new Set(["succeeded", "failed", "cancelled", "interrupted"]);
@@ -18,6 +21,9 @@ export class RunNotFoundError extends Error { constructor() { super("Run not fou
 export class InvalidRunError extends Error { constructor(message = "Run payload is invalid") { super(message); this.name = "InvalidRunError"; } }
 export class RunIdempotencyConflictError extends Error { constructor() { super("Run idempotency conflict"); this.name = "RunIdempotencyConflictError"; } }
 export class InvalidRunCursorError extends Error { constructor() { super("Run cursor is invalid"); this.name = "InvalidRunCursorError"; } }
+export class RunToolSnapshotChangedError extends Error {
+  constructor() { super("Tool snapshot changed"); this.name = "RunToolSnapshotChangedError"; }
+}
 export class RunValidationError extends Error {
   constructor(readonly issues: SchemaIssue[]) { super("Run arguments are invalid"); this.name = "RunValidationError"; }
 }
@@ -90,6 +96,7 @@ export interface RunServiceWithEvents extends RunService {
     idempotencyKey: string;
     arguments: Record<string, unknown>;
   }): RunSummary;
+  startReplayInvocation(input: StartReplayInvocationInput): RunSummary;
   waitForTerminal(projectId: string, runId: string, signal?: AbortSignal): Promise<RunDetail>;
   close(): Promise<void>;
 }
@@ -142,7 +149,8 @@ export function createRunService(projects: ProjectService, connections: Connecti
     const observe = (observation: WireObservation) => {
       if (activeRun.observationsClosed || traceFailure) return;
       try {
-        const recordedObservation = redactSensitiveInfo ? redactWireObservation(observation) : observation;
+        const safeObservation = sanitizeWireObservationUrl(observation);
+        const recordedObservation = redactSensitiveInfo ? redactWireObservation(safeObservation) : safeObservation;
         repo.append(runId, recordedObservation.kind, recordedObservation.at, recordedObservation);
         if (recordedObservation.kind === "http-request" && fallbackRequestAt === null) {
           fallbackRequestAt = recordedObservation.at;
@@ -237,6 +245,8 @@ export function createRunService(projects: ProjectService, connections: Connecti
     toolName: string;
     idempotencyKey: string;
     arguments: Record<string, unknown>;
+    replayedFromRunId?: string | null;
+    expectedToolSnapshotId?: string;
   }): RunSummary {
     if (!uuid.safeParse(input.projectId).success ||
         (input.tabId !== null && !uuid.safeParse(input.tabId).success) ||
@@ -253,6 +263,9 @@ export function createRunService(projects: ProjectService, connections: Connecti
       input.toolName,
     );
     if (tool === null || tool.tool.status === "removed") throw new InvalidRunError("Tool is not available");
+    if (input.expectedToolSnapshotId !== undefined && tool.tool.currentSnapshot.id !== input.expectedToolSnapshotId) {
+      throw new RunToolSnapshotChangedError();
+    }
     const canonicalArguments = canonicalJson(input.arguments);
     const issues = validateArguments(tool.tool.currentSnapshot.definition.inputSchema, input.arguments);
     if (issues.length > 0) throw new RunValidationError(issues);
@@ -276,11 +289,13 @@ export function createRunService(projects: ProjectService, connections: Connecti
       },
       clientInfo,
       createdAt,
+      replayedFromRunId: input.replayedFromRunId ?? null,
     });
     if (!result.created) {
       if (result.identity.tabId !== input.tabId ||
           result.identity.toolSnapshotId !== tool.tool.currentSnapshot.id ||
-          result.identity.canonicalArguments !== canonicalArguments) {
+          result.identity.canonicalArguments !== canonicalArguments ||
+          result.identity.replayedFromRunId !== (input.replayedFromRunId ?? null)) {
         throw new RunIdempotencyConflictError();
       }
       return result.run;
@@ -330,6 +345,13 @@ export function createRunService(projects: ProjectService, connections: Connecti
     startInvocation(input) {
       return createAndSchedule({ ...input, tabId: null });
     },
+    startReplayInvocation(input) {
+      if (!uuid.safeParse(input.replayedFromRunId).success || !uuid.safeParse(input.expectedToolSnapshotId).success) {
+        throw new InvalidRunError();
+      }
+      requireRun(input.projectId, input.replayedFromRunId);
+      return createAndSchedule({ ...input, tabId: null });
+    },
     async waitForTerminal(projectId, runId, signal) {
       const current = requireRun(projectId, runId);
       if (terminal.has(current.status)) return current;
@@ -364,12 +386,21 @@ export function createRunService(projects: ProjectService, connections: Connecti
     cancel: cancelRun,
     list(projectId, cursor, filter = {}) {
       projects.open(projectId);
-      if (filter.tabId !== undefined) tabs.get(projectId, filter.tabId);
-      try { return repository(projectId).list(projectId, cursor, 50, filter); }
+      const parsed = runHistoryFilterSchema.safeParse(filter);
+      if (!parsed.success) throw new InvalidRunError();
+      if (parsed.data.tabId !== undefined) tabs.get(projectId, parsed.data.tabId);
+      try { return repository(projectId).list(projectId, cursor, parsed.data); }
       catch (error) {
         if (error instanceof Error && error.message === "Run cursor is invalid") throw new InvalidRunCursorError();
         throw error;
       }
+    },
+    setPinned(projectId, runId, pinned) {
+      if (typeof pinned !== "boolean") throw new InvalidRunError();
+      requireSummary(projectId, runId);
+      const updated = repository(projectId).setPinned(projectId, runId, pinned);
+      if (updated === null) throw new RunNotFoundError();
+      return updated;
     },
     getSummary: requireSummary,
     get: requireRun,
