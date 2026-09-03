@@ -319,7 +319,7 @@ export interface InspectorApiClient {
   previewTestCaseFromSavedItem(projectId: string, savedItemId: string): Promise<TestCaseCreationPreview>;
   startTestExecution(projectId: string, testCaseId: string, idempotencyKey: string,
     input?: StartTestExecutionRequest): Promise<TestExecutionDetail>;
-  listTestExecutions(projectId: string, input?: { cursor?: string; limit?: number }): Promise<TestExecutionReportPage>;
+  listTestExecutions(projectId: string, input?: { testCaseId?: string; cursor?: string; limit?: number }): Promise<TestExecutionReportPage>;
   updateTestExecutionBaseline(projectId: string, executionId: string,
     input: { revision: number; confirm: true }): Promise<UpdateTestExecutionBaselineResult>;
   getTestExecution(projectId: string, executionId: string): Promise<TestExecutionDetail>;
@@ -1607,6 +1607,7 @@ export function createApiClient(_legacySessionToken?: string): InspectorApiClien
     },
     async listTestExecutions(projectId, input = {}) {
       const search = new URLSearchParams();
+      if (input.testCaseId !== undefined) search.set("testCaseId", input.testCaseId);
       if (input.cursor !== undefined) search.set("cursor", input.cursor);
       if (input.limit !== undefined) search.set("limit", String(input.limit));
       const query = search.size === 0 ? "" : `?${search.toString()}`;

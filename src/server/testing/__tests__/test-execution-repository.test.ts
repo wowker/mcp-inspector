@@ -106,6 +106,18 @@ describe("TestExecutionRepository", () => {
     } finally { await connections.close(); projects.close(); }
   });
 
+  it("filters execution reports by test case identity", async () => {
+    const { projects, connections, testCase, repository } = fixture();
+    try {
+      repository.create({ id: executionId, projectId, testCase, idempotencyKey: "filtered-report",
+        requestHash: "hash", inputs: {}, createdAt: "2026-09-01T00:00:00.000Z" });
+      expect(repository.list(projectId, 10, null, testCase.id).items).toEqual([
+        expect.objectContaining({ id: executionId, testCaseId: testCase.id }),
+      ]);
+      expect(repository.list(projectId, 10, null, "00000000-0000-4000-8000-000000001599").items).toEqual([]);
+    } finally { await connections.close(); projects.close(); }
+  });
+
   it("persists all scenario attempts and assertions in one terminal transition", async () => {
     const { projects, connections, testCase, repository } = fixture();
     try {

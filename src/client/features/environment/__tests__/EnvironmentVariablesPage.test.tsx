@@ -75,6 +75,21 @@ describe("EnvironmentVariablesPage", () => {
     expect(screen.getByRole("button", { name: "Save variable" })).toBeVisible();
   });
 
+  it("searches Server choices by name while retaining the connection ID", async () => {
+    const api = {
+      listConnections: vi.fn().mockResolvedValue([{ id: connectionId, projectId, name: "OAuth Server" }]),
+      listEnvironmentVariables: vi.fn().mockResolvedValue([]), setEnvironmentVariable: vi.fn(), deleteEnvironmentVariable: vi.fn(),
+    } as unknown as InspectorApiClient;
+    const user = userEvent.setup();
+    render(<EnvironmentVariablesPage api={api} projectId={projectId} />);
+
+    await user.click(await screen.findByRole("tab", { name: "Server 变量" }));
+    await user.click(screen.getByRole("combobox", { name: "选择 Server" }));
+    await user.type(screen.getByRole("searchbox", { name: "搜索 Server" }), "oauth");
+    await user.click(screen.getByRole("option", { name: "OAuth Server" }));
+    expect(api.listEnvironmentVariables).toHaveBeenCalledWith(projectId, connectionId);
+  });
+
   it("manages connection-scoped profiles and renders a secret-safe preview", async () => {
     const profileId = "00000000-0000-4000-8000-000000000905";
     const profile = {

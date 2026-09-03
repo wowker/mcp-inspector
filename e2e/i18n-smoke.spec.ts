@@ -57,11 +57,8 @@ test("opens the primary workflow in English from the persisted locale", async ({
       .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
       .analyze();
     expect(lightA11y.violations).toEqual([]);
-    const visualMasks = [
-      page.locator(".run-result__sticky-header > header"),
-      page.locator(".run-overview"),
-    ];
-    await expect(page).toHaveScreenshot("tool-debug-en-light.png", { animations: "disabled", mask: visualMasks });
+    const visualRegressionStyles = join(process.cwd(), "e2e", "visual-regression.css");
+    await expect(page).toHaveScreenshot("tool-debug-en-light.png", { animations: "disabled", stylePath: visualRegressionStyles });
     await expect(page.locator("html")).toHaveAttribute("lang", "en-US");
     await expect(page.locator("html")).toHaveAttribute("data-color-mode", "light");
     const theme = page.getByRole("button", { name: "Switch to dark theme" });
@@ -74,7 +71,7 @@ test("opens the primary workflow in English from the persisted locale", async ({
       .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
       .analyze();
     expect(darkA11y.violations).toEqual([]);
-    await expect(page).toHaveScreenshot("tool-debug-en-dark.png", { animations: "disabled", mask: visualMasks });
+    await expect(page).toHaveScreenshot("tool-debug-en-dark.png", { animations: "disabled", stylePath: visualRegressionStyles });
   } finally {
     await mcp?.stop();
     await inspector?.close();

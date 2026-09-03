@@ -1,6 +1,14 @@
 export const zhCNEnvironment = {
   title: "环境变量",
   description: "集中管理连接认证与脚本可复用的配置值。",
+  help: {
+    trigger: "了解环境变量", close: "关闭环境变量说明", summary: "配置中心",
+    sections: { purpose: "模块用途", configure: "如何配置", use: "如何使用", effect: "产生效果" },
+    purpose: { one: "集中维护项目与 Server 可复用的配置值，避免在连接和脚本中重复填写。", two: "敏感值会隐藏显示，并与普通文本、JSON 值分开管理。" },
+    configure: { one: "选择项目或 Server 作用域，填写变量名称、类型和值后保存。", two: "需要多套配置时可创建环境 Profile，并通过继承和覆盖组合变量。" },
+    use: { one: "在 Header、Bearer Token 或脚本中使用双花括号包裹变量名进行引用，例如 API_TOKEN。", two: "连接前可预览 Profile 的最终值、来源与缺失引用。" },
+    effect: { one: "Server 同名变量覆盖项目变量，Profile 覆盖按继承链解析。", two: "解析值仅用于执行，不会写回连接配置，也不会暴露敏感值。" },
+  },
   view: { label: "环境配置视图", variables: "变量", profiles: "环境 Profile" },
   scope: {
     label: "变量作用域",
@@ -9,6 +17,8 @@ export const zhCNEnvironment = {
     serverLabel: "Server",
     selectServer: "选择 Server",
     noServers: "暂无 Server",
+    searchServer: "搜索 Server",
+    noMatchingServers: "没有匹配的 Server",
   },
   hint: {
     beforeReference: "在 Header 或 Bearer Token 中使用",
@@ -63,6 +73,8 @@ export const zhCNEnvironment = {
     empty: "尚未创建 Profile。", inherits: "继承自 {{name}}", createTitle: "创建环境 Profile",
     editTitle: "Profile 详情", detailsHint: "使用稳定 Profile ID；名称仅用于展示。",
     name: "名称", description: "描述", parent: "继承", noParent: "不继承",
+    searchProfile: "搜索环境 Profile", noMatchingProfiles: "没有匹配的环境 Profile",
+    clearParent: "清除父 Profile", clearPreviewProfile: "使用基础变量",
     save: "保存 Profile", delete: "删除 Profile", overridesTitle: "变量覆盖",
     overridesHint: "覆盖基础变量，或使用“不设置”显式移除继承值。", scopeLabel: "Profile 变量作用域",
     mode: "覆盖方式", modeValue: "设置值", modeUnset: "不设置", saveOverride: "保存覆盖",

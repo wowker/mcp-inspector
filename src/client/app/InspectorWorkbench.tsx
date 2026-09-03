@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import {
   BracketsCurly,
   ClockCounterClockwise,
@@ -23,6 +24,7 @@ import { LanguageSwitcher } from "../i18n/LanguageSwitcher.js";
 import { TestCasesPage, type TestCaseSourceIntent } from "../features/testing/TestCasesPage.js";
 import { TestSuitesPage } from "../features/testing/TestSuitesPage.js";
 import { TestReportsPage } from "../features/testing/TestReportsPage.js";
+import { ServerTab } from "./ServerTab.js";
 
 type WorkbenchPage = "servers" | "tools" | "environment" | "testing" | "suites" | "reports" | "history";
 
@@ -53,17 +55,34 @@ function NavIcon({ type, active }: { type: WorkbenchPage; active: boolean }) {
   return <ClockCounterClockwise {...iconProps} />;
 }
 
+function useCompactSidebar(): boolean {
+  const query = "(max-width: 900px)";
+  const [compact, setCompact] = useState(() => typeof window.matchMedia === "function" && window.matchMedia(query).matches);
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia(query);
+    const update = () => setCompact(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  return compact;
+}
+
 export function InspectorWorkbench({ api, project, version }: InspectorWorkbenchProps) {
   const { t } = useTranslation("app");
   const [page, setPage] = useState<WorkbenchPage>("servers");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [catalogWidth, setCatalogWidth] = useState(300);
   const [theme, setTheme] = useState<ThemeMode>(() => applyInitialTheme());
+  const compactSidebar = useCompactSidebar();
   const [servers, setServers] = useState<ServerWorkspaceState>({ tabs: [], activeId: null });
   const [toolIntent, setToolIntent] = useState<ToolOpenIntent | null>(null);
+  const toolIntentSequence = useRef(0);
   const [activeTool, setActiveTool] = useState<{ connectionId: string; name: string } | null>(null);
   const [oauthConnectionUpdate, setOauthConnectionUpdate] = useState<ConnectionSummary | null>(null);
   const [testCaseSourceIntent, setTestCaseSourceIntent] = useState<TestCaseSourceIntent | null>(null);
+  const closedServerIds = useRef(new Set<string>());
   const serversRef = useRef(servers); serversRef.current = servers;
   const pageLabels: Record<WorkbenchPage, string> = {
     servers: t("workbench.nav.servers"), tools: t("workbench.nav.tools"),
@@ -98,6 +117,7 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
   }, [api, project.id]);
 
   function activateServer(connection: ConnectionSummary): void {
+    closedServerIds.current.delete(connection.id);
     setServers((current) => ({
       tabs: [...current.tabs.filter(({ id }) => id !== connection.id), connection],
       activeId: connection.id,
@@ -106,6 +126,7 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
   }
 
   function removeServer(connectionId: string): void {
+    closedServerIds.current.add(connectionId);
     setServers((current) => {
       const tabs = current.tabs.filter(({ id }) => id !== connectionId);
       return { tabs, activeId: current.activeId === connectionId ? tabs[0]?.id ?? null : current.activeId };
@@ -113,11 +134,23 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
   }
 
   function restoreConnectedServers(connections: ConnectionSummary[]): void {
-    const connected = connections.filter(({ status }) => status === "connected");
+    const connected = connections.filter(({ id, status }) => status === "connected" && !closedServerIds.current.has(id));
     setServers((current) => ({
       tabs: connected,
       activeId: connected.some(({ id }) => id === current.activeId) ? current.activeId : connected[0]?.id ?? null,
     }));
+  }
+
+  async function closeServer(connectionId: string): Promise<void> {
+    try {
+      const disconnected = await api.disconnectConnection(project.id, connectionId);
+      if (disconnected.id !== connectionId || disconnected.projectId !== project.id || disconnected.status !== "disconnected") {
+        throw new Error("Connection identity or status mismatch");
+      }
+      removeServer(connectionId);
+    } catch {
+      toast.error(t("workbench.errors.closeServerFailed"));
+    }
   }
 
   function selectServer(connectionId: string): void {
@@ -144,12 +177,12 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
       tabs: current.tabs.some(({ id }) => id === connection.id) ? current.tabs : [...current.tabs, connection],
       activeId: connection.id,
     }));
-    setToolIntent((current) => ({
-      sequence: (current?.sequence ?? 0) + 1,
+    setToolIntent({
+      sequence: ++toolIntentSequence.current,
       tool: detail.tool,
       newTab: true,
       restoreRun: run,
-    }));
+    });
     setPage("tools");
   }
 
@@ -208,9 +241,14 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
           ))}
         </nav>
         <div className="workbench-sidebar__footer">
-          <span className="service-indicator"><i aria-hidden="true" /> <span>{t("workbench.localService", { version })}</span></span>
+          <div className="workbench-sidebar__service-row">
+            <span className="service-indicator" aria-label={t("workbench.localService", { version })}>
+              <i aria-hidden="true" />
+              <span title={t("workbench.localService", { version })}>{t("workbench.localService", { version })}</span>
+            </span>
+          </div>
           {!sidebarCollapsed && <div className="sidebar-controls">
-            <LanguageSwitcher />
+            <LanguageSwitcher variant={compactSidebar ? "compact" : "select"} />
             <button
               type="button"
               className="theme-toggle"
@@ -237,26 +275,23 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
           ><SidebarSimple size={19} aria-hidden="true" /></button>
         )}
         <header className="server-tabbar">
-          <div className="server-tabs" role="tablist" aria-label={t("workbench.connectedServers")}>
+          <div className="server-tabs">
+            <div className="sr-only" role="tablist" aria-label={t("workbench.connectedServers")}
+              aria-owns={servers.tabs.map(({ id }) => `server-tab-${id}`).join(" ")} />
             {servers.tabs.map((connection, index) => (
-              <button
+              <ServerTab
                 key={connection.id}
-                id={`server-tab-${connection.id}`}
-                type="button"
-                role="tab"
-                aria-controls="server-tool-panel"
-                aria-selected={page === "tools" && servers.activeId === connection.id}
+                connection={connection}
+                selected={page === "tools" && servers.activeId === connection.id}
                 tabIndex={(
                   page === "tools" && servers.activeId === connection.id
                 ) || (
                   page === "servers" && index === 0
                 ) ? 0 : -1}
-                onClick={() => selectServer(connection.id)}
+                onSelect={() => selectServer(connection.id)}
+                onClose={() => closeServer(connection.id)}
                 onKeyDown={(event) => navigateServerTabs(event, index)}
-              >
-                <i aria-hidden="true" />
-                <span>{connection.name}</span>
-              </button>
+              />
             ))}
             {servers.tabs.length === 0 && <span className="server-tabs__empty">{t("workbench.noConnectedServers")}</span>}
           </div>
@@ -308,8 +343,8 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
                       mode="tools"
                       connectionFilterId={servers.activeId}
                       selectedTool={activeTool}
-                      onSelectTool={(tool) => setToolIntent((current) => ({ sequence: (current?.sequence ?? 0) + 1, tool, newTab: true }))}
-                      onOpenTool={(tool) => setToolIntent((current) => ({ sequence: (current?.sequence ?? 0) + 1, tool, newTab: true }))}
+                      onSelectTool={(tool) => setToolIntent({ sequence: ++toolIntentSequence.current, tool, newTab: true })}
+                      onOpenTool={(tool) => setToolIntent({ sequence: ++toolIntentSequence.current, tool, newTab: true })}
                     />
                   </aside>
                   <div
@@ -330,7 +365,8 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
                     }}
                   ><span aria-hidden="true" /></div>
                   <DebugWorkspace api={api} projectId={project.id} connectionId={servers.activeId}
-                    toolIntent={toolIntent} onActiveToolChange={setActiveTool} onCreateTestFromSaved={createTestFromSaved} />
+                    toolIntent={toolIntent} onActiveToolChange={setActiveTool} onCreateTestFromSaved={createTestFromSaved}
+                    onToolIntentHandled={(sequence) => setToolIntent((current) => current?.sequence === sequence ? null : current)} />
                 </div>
               )}
             </section>

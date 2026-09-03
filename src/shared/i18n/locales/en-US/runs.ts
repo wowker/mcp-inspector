@@ -8,6 +8,26 @@ export const enUSRuns = {
   },
   page: {
     title: "Run history", description: "Review every Tool call in this project and trace its request, response, and protocol activity.",
+    help: {
+      trigger: "Learn about Run history", close: "Close Run history help", summary: "Call archive",
+      sections: { purpose: "Purpose", configure: "How to configure", use: "How to use", effect: "Effects" },
+      purpose: { one: "Store and inspect every Tool call in the project with its request, response, and protocol events.", two: "Provide a traceable starting point for diagnosis, replay, and result comparison." },
+      configure: { one: "No setup is required; a run record is created automatically after a Tool executes.", two: "Combine filters for Tool, connection ID, status, origin, pin state, and time range." },
+      use: { one: "Apply filters, select a record on the left, and inspect arguments, results, HTTP, RPC, and timeline on the right.", two: "Pin important records, open the debugger, create a test case, replay, or compare with the source." },
+      effect: { one: "Filtering changes only the current list and never deletes or edits historical data.", two: "Replay creates a newly linked Run while preserving the original record and snapshot information." },
+    },
+    filterHelp: {
+      title: "Filter reference", trigger: "Learn about Run filters", close: "Close Run filter help", summary: "Filter fields",
+      sections: { toolName: "Tool name", connectionId: "Connection ID", status: "Status", origin: "Origin", pinned: "Pin state", time: "From and To" },
+      items: {
+        toolName: "Filters by the complete Tool name recorded when the Run executed.",
+        connectionId: "Filters by the connection's stable UUID, not its display name or URL.",
+        status: "Filters by the current or final Run state: queued, connecting, authorizing, running, succeeded, failed, cancelled, or interrupted.",
+        origin: "An original Run was started directly; a replay Run is a new Run created by re-executing a historical record.",
+        pinned: "Shows only pinned or unpinned records. Pinning preserves an important record without changing its result.",
+        time: "Filters by Run creation time. Local browser date-time values are converted to standard timestamps before submission.",
+      },
+    },
     listAria: "Run records", selectTitle: "Select a run",
     selectDescription: "Its arguments, response, RPC, HTTP, and timeline will appear here.",
     loadingDetail: "Loading run details…", openFailed: "Unable to open debugger",

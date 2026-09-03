@@ -16,7 +16,7 @@ interface ResolvedValue {
   value?: JsonValue;
 }
 
-interface ScenarioError {
+export interface ScenarioError {
   code: string;
   message: string;
 }
@@ -38,6 +38,7 @@ export interface ScenarioInvocationResult {
   runId: string;
   workflowExecutionId: string | null;
   succeeded?: boolean;
+  error?: ScenarioError;
 }
 
 export interface ScenarioRunStepResult {
@@ -78,7 +79,7 @@ export interface RunScenarioInput {
   signal?: AbortSignal;
 }
 
-class ScenarioRunnerError extends Error {
+export class ScenarioRunnerError extends Error {
   constructor(readonly code: string, message: string) {
     super(message);
   }
@@ -340,7 +341,10 @@ async function runStep(
       let current: ScenarioRunStepResult = {
         stepId: step.id, position, attempt, status: passed ? "PASSED" : "FAILED",
         argumentsValue: cloneJson(argumentsValue), runId: invocation.runId,
-        workflowExecutionId: invocation.workflowExecutionId, assertions: allAssertions, error: null,
+        workflowExecutionId: invocation.workflowExecutionId, assertions: allAssertions,
+        error: !passed && invocation.succeeded === false
+          ? invocation.error ?? { code: "TOOL_EXECUTION_FAILED", message: "Tool execution failed" }
+          : null,
       };
       stepResponses.set(step.id, invocation.sources.MCP_RESULT);
       if (terminalAttempt) {
@@ -403,6 +407,7 @@ export async function runScenario(
         error = stepResults.at(-1)?.error ?? { code: "TEST_EXECUTION_FAILED", message: "Scenario step execution failed" };
       } else if (stepStatus !== "PASSED") {
         status = status === "ERROR" ? status : "FAILED";
+        error ??= stepResults.at(-1)?.error ?? null;
       }
       if (stepStatus !== "PASSED") {
         if (step.onFailure !== "CONTINUE" || input.definition.failurePolicy === "STOP") skipRemaining = true;

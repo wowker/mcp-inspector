@@ -116,6 +116,13 @@ describe("test case API client", () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("test-executions?limit=25");
   });
 
+  it("scopes test execution history to one test case", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ items: [], nextCursor: null }), { status: 200 }));
+    const api = createApiClient("session");
+    await expect(api.listTestExecutions(projectId, { testCaseId, limit: 25 })).resolves.toEqual({ items: [], nextCursor: null });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(`testCaseId=${testCaseId}`);
+  });
+
   it("updates a baseline with an explicit confirmation body", async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ testCase: { ...definition, revision: 2 }, updatedAssertions: 1 }), { status: 200 }));
     const api = createApiClient("session");

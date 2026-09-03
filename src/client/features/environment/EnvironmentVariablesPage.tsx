@@ -4,6 +4,8 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { confirmToast } from "../../app/AppToaster.js";
 import type { ConnectionSummary, EnvironmentVariable, InspectorApiClient } from "../../api/api-client.js";
+import { SearchableSelect } from "../../components/forms/SearchableSelect.js";
+import { ModuleHelpPopover } from "../../components/overlays/ModuleHelpPopover.js";
 import "./environment-variables.css";
 
 interface Props {
@@ -118,7 +120,11 @@ export function EnvironmentVariablesPage({ api, projectId }: Props) {
 
   return <section className="environment-page" aria-labelledby="environment-page-title">
     <header className="page-heading environment-page__heading">
-      <div><h1 id="environment-page-title">{t("title")}</h1><p>{t("description")}</p></div>
+      <div><div className="module-heading-title"><h1 id="environment-page-title">{t("title")}</h1>
+        <ModuleHelpPopover moduleName={t("title")} triggerLabel={t("help.trigger")} closeLabel={t("help.close")}
+          summary={t("help.summary")} description={t("description")} sections={(["purpose", "configure", "use", "effect"] as const).map((section) => ({
+            id: section, title: t(`help.sections.${section}`), items: [t(`help.${section}.one`), t(`help.${section}.two`)],
+          }))} /></div><p>{t("description")}</p></div>
     </header>
     <div className="environment-page__view" role="tablist" aria-label={t("view.label")}>
       <button type="button" role="tab" aria-selected={view === "variables"} onClick={() => setView("variables")}>{t("view.variables")}</button>
@@ -131,10 +137,11 @@ export function EnvironmentVariablesPage({ api, projectId }: Props) {
       <button type="button" role="tab" aria-selected={scope === "project"} onClick={() => setScope("project")}>{t("scope.project")}</button>
       <button type="button" role="tab" aria-selected={scope === "server"} onClick={() => setScope("server")}>{t("scope.server")}</button>
       {scope === "server" && <label>{t("scope.serverLabel")}
-        <select className="ui-input" aria-label={t("scope.selectServer")} value={connectionId} onChange={(event) => setConnectionId(event.target.value)}>
-          {connections.length === 0 && <option value="">{t("scope.noServers")}</option>}
-          {connections.map((connection) => <option key={connection.id} value={connection.id}>{connection.name}</option>)}
-        </select>
+        <SearchableSelect ariaLabel={t("scope.selectServer")} value={connectionId || null}
+          options={connections.map((connection) => ({ value: connection.id, label: connection.name }))}
+          onChange={(nextConnectionId) => setConnectionId(nextConnectionId ?? "")}
+          placeholder={t("scope.noServers")} searchPlaceholder={t("scope.searchServer")}
+          emptyMessage={t("scope.noMatchingServers")} />
       </label>}
     </div>
     <p className="environment-page__hint">{t("hint.beforeReference")} <code>{"{{VARIABLE_NAME}}"}</code>{t("hint.afterReference")}</p>

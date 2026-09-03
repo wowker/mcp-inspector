@@ -12,6 +12,7 @@ import type {
 import { confirmToast } from "../../app/AppToaster.js";
 import { Button } from "../../components/actions/Button.js";
 import { IconButton } from "../../components/actions/IconButton.js";
+import { SearchableSelect } from "../../components/forms/SearchableSelect.js";
 import { Select } from "../../components/forms/Select.js";
 import { jsonValueSchema, type JsonValue } from "../../../shared/tool-definition.js";
 
@@ -207,8 +208,11 @@ export function EnvironmentProfilesPanel({ api, projectId, connections }: Props)
             {selected !== null && <Button variant="danger" disabled={busy} onClick={removeProfile}><Trash size={16} />{t("profiles.delete")}</Button>}</div></div>
         <div className="environment-profile-form">
           <label>{t("profiles.name")}<input className="ui-input" value={name} onChange={(event) => setName(event.target.value)} /></label>
-          <label>{t("profiles.parent")}<Select value={parentProfileId} onChange={(event) => setParentProfileId(event.target.value)}><option value="">{t("profiles.noParent")}</option>
-            {profiles.filter(({ id }) => id !== selectedId).map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</Select></label>
+          <label>{t("profiles.parent")}<SearchableSelect value={parentProfileId || null}
+            options={profiles.filter(({ id }) => id !== selectedId).map((profile) => ({ value: profile.id, label: profile.name }))}
+            onChange={(nextProfileId) => setParentProfileId(nextProfileId ?? "")} clearable
+            placeholder={t("profiles.noParent")} searchPlaceholder={t("profiles.searchProfile")}
+            emptyMessage={t("profiles.noMatchingProfiles")} clearLabel={t("profiles.clearParent")} /></label>
           <label className="environment-profile-form__description">{t("profiles.description")}<textarea className="ui-input" value={description} onChange={(event) => setDescription(event.target.value)} /></label>
         </div>
       </section>
@@ -218,8 +222,11 @@ export function EnvironmentProfilesPanel({ api, projectId, connections }: Props)
         <div className="environment-profile-toolbar" role="group" aria-label={t("profiles.scopeLabel")}>
           <button type="button" data-selected={scope === "project"} onClick={() => setScope("project")}>{t("scope.project")}</button>
           <button type="button" data-selected={scope === "server"} onClick={() => setScope("server")}>{t("scope.server")}</button>
-          {scope === "server" && <Select aria-label={t("scope.selectServer")} value={connectionId} onChange={(event) => setConnectionId(event.target.value)}>
-            {connections.map((connection) => <option key={connection.id} value={connection.id}>{connection.name}</option>)}</Select>}
+          {scope === "server" && <SearchableSelect ariaLabel={t("scope.selectServer")} value={connectionId || null}
+            options={connections.map((connection) => ({ value: connection.id, label: connection.name }))}
+            onChange={(nextConnectionId) => setConnectionId(nextConnectionId ?? "")}
+            placeholder={t("scope.noServers")} searchPlaceholder={t("scope.searchServer")}
+            emptyMessage={t("scope.noMatchingServers")} />}
         </div>
         <div className="environment-profile-variable-editor">
           <label>{t("editor.name")}<input className="ui-input" value={variableName} onChange={(event) => setVariableName(event.target.value)} /></label>
@@ -240,8 +247,16 @@ export function EnvironmentProfilesPanel({ api, projectId, connections }: Props)
       <section className="environment-profile-section" aria-labelledby="profile-preview-title">
         <div className="environment-profile-section__heading"><div><h2 id="profile-preview-title">{t("profiles.previewTitle")}</h2><p>{t("profiles.previewHint")}</p></div></div>
         <div className="environment-profile-preview-controls">
-          <Select aria-label={t("scope.selectServer")} value={connectionId} onChange={(event) => setConnectionId(event.target.value)}><option value="">{t("scope.noServers")}</option>{connections.map((connection) => <option key={connection.id} value={connection.id}>{connection.name}</option>)}</Select>
-          <Select aria-label={t("profiles.previewProfile")} value={candidateProfileId} onChange={(event) => setCandidateProfileId(event.target.value)}><option value="">{t("profiles.baseVariables")}</option>{profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</Select>
+          <SearchableSelect ariaLabel={t("scope.selectServer")} value={connectionId || null}
+            options={connections.map((connection) => ({ value: connection.id, label: connection.name }))}
+            onChange={(nextConnectionId) => setConnectionId(nextConnectionId ?? "")}
+            placeholder={t("scope.noServers")} searchPlaceholder={t("scope.searchServer")}
+            emptyMessage={t("scope.noMatchingServers")} />
+          <SearchableSelect ariaLabel={t("profiles.previewProfile")} value={candidateProfileId || null}
+            options={profiles.map((profile) => ({ value: profile.id, label: profile.name }))}
+            onChange={(nextProfileId) => setCandidateProfileId(nextProfileId ?? "")} clearable
+            placeholder={t("profiles.baseVariables")} searchPlaceholder={t("profiles.searchProfile")}
+            emptyMessage={t("profiles.noMatchingProfiles")} clearLabel={t("profiles.clearPreviewProfile")} />
           <Button disabled={busy || connectionId === ""} onClick={() => void loadPreview()}>{t("profiles.preview")}</Button>
           <Button variant="primary" disabled={busy || connectionId === "" || (connections.find(({ id }) => id === connectionId)?.status === "connected")} onClick={() => void activate()}>{t("profiles.activate")}</Button>
           <span className="environment-profile-active">{t("profiles.active", { name: activeProfileId === null ? t("profiles.baseVariables") : profileById.get(activeProfileId)?.name ?? "—" })}</span>

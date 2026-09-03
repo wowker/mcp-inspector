@@ -1,4 +1,4 @@
-import { Play, Plus, Stop, Trash } from "@phosphor-icons/react";
+import { ArrowDown, ArrowUp, DotsSixVertical, MagnifyingGlass, Play, Plus, Stop, Trash, X } from "@phosphor-icons/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -10,6 +10,8 @@ import type { TestSuiteExecutionDetail } from "../../../shared/testing/test-suit
 import { Button } from "../../components/actions/Button.js";
 import { StatusBadge } from "../../components/feedback/StatusBadge.js";
 import { Dialog } from "../../components/overlays/Dialog.js";
+import { ModuleHelpPopover } from "../../components/overlays/ModuleHelpPopover.js";
+import { filterSearchableOptions } from "../../components/forms/SearchableSelect.js";
 
 interface Props { api: InspectorApiClient; projectId: string }
 interface Draft { id: string | null; revision: number | null; name: string; description: string; tags: string;
@@ -56,6 +58,8 @@ export function TestSuitesPage({ api, projectId }: Props) {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [execution, setExecution] = useState<TestSuiteExecutionDetail | null>(null);
   const [saving, setSaving] = useState(false);
+  const [memberQuery, setMemberQuery] = useState("");
+  const [draggedMemberId, setDraggedMemberId] = useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [destructiveOpen, setDestructiveOpen] = useState(false);
 
@@ -95,6 +99,16 @@ export function TestSuitesPage({ api, projectId }: Props) {
     } catch { if (detailVersion.current === current) toast.error(t("suite.loadFailed")); }
   }
   const selected = useMemo(() => new Set(draft?.members.map(({ testCaseId }) => testCaseId) ?? []), [draft?.members]);
+  const candidateCases = useMemo(() => {
+    const candidates = cases.filter((item) => !selected.has(item.id));
+    const byId = new Map(candidates.map((item) => [item.id, item]));
+    return filterSearchableOptions(candidates.map((item) => ({
+      value: item.id, label: item.name, keywords: [item.description, ...item.tags],
+    })), memberQuery).flatMap(({ value }) => {
+      const item = byId.get(value);
+      return item === undefined ? [] : [item];
+    });
+  }, [cases, memberQuery, selected]);
   function toggle(testCaseId: string) {
     if (draft === null) return;
     const existing = draft.members.find(({ testCaseId: id }) => id === testCaseId);
@@ -119,8 +133,20 @@ export function TestSuitesPage({ api, projectId }: Props) {
       ])) }));
     }).catch(() => toast.error(t("suite.loadMemberFailed")));
   }
+  function moveMember(memberId: string, targetIndex: number) {
+    if (draft === null) return;
+    const sourceIndex = draft.members.findIndex(({ id }) => id === memberId);
+    if (sourceIndex < 0 || targetIndex < 0 || targetIndex >= draft.members.length || sourceIndex === targetIndex) return;
+    const members = [...draft.members];
+    const [member] = members.splice(sourceIndex, 1);
+    if (member === undefined) return;
+    members.splice(targetIndex, 0, member);
+    setDraft({ ...draft, members: members.map((item, position) => ({ ...item, position })) });
+  }
   async function save() {
-    if (draft === null || draft.name.trim() === "" || draft.members.length === 0) return;
+    if (draft === null) return;
+    if (draft.name.trim() === "") { toast.error(t("suite.requiredName")); return; }
+    if (draft.members.length === 0) { toast.error(t("suite.requiredMember")); return; }
     setSaving(true);
     const definition = { name: draft.name.trim(), description: draft.description,
       tags: draft.tags.split(",").map((tag) => tag.trim()).filter(Boolean), members: draft.members,
@@ -202,38 +228,81 @@ export function TestSuitesPage({ api, projectId }: Props) {
     } catch { toast.error(t("suite.deleteFailed")); }
     finally { setSaving(false); }
   }
+  function createSuite() {
+    detailVersion.current += 1; executionVersion.current += 1; setDraft(emptyDraft()); setExecution(null); setCaseDetails({}); setMemberInputs({});
+  }
 
   return <section className="testing-page suite-page" aria-labelledby="suite-page-title">
-    <header className="page-heading testing-page__heading testing-page__heading--compact"><div><h1 id="suite-page-title">{t("suite.title")}</h1><p>{t("suite.description")}</p></div>
-      <Button variant="primary" onClick={() => { detailVersion.current += 1; executionVersion.current += 1; setDraft(emptyDraft()); setExecution(null); setCaseDetails({}); setMemberInputs({}); }}><Plus size={16} />{t("suite.new")}</Button></header>
+    <header className="page-heading testing-page__heading testing-page__heading--compact"><div><div className="module-heading-title"><h1 id="suite-page-title">{t("suite.title")}</h1>
+      <ModuleHelpPopover moduleName={t("suite.title")} triggerLabel={t("help.suite.trigger")} closeLabel={t("help.suite.close")}
+        summary={t("help.suite.summary")} description={t("suite.description")} sections={(["purpose", "configure", "use", "effect"] as const).map((section) => ({
+          id: section, title: t(`help.sections.${section}`), items: [t(`help.suite.${section}.one`), t(`help.suite.${section}.two`)],
+        }))} /></div><p>{t("suite.description")}</p></div></header>
     <div className="testing-workspace">
-      <aside className="testing-case-list"><header><h2>{t("suite.list")}</h2><span>{suites.length}</span></header>
+      <aside className="testing-case-list" aria-label={t("suite.list")}><header><h2>{t("suite.list")}</h2><span>{suites.length}</span></header>
+        <div className="testing-list-create-actions testing-list-create-actions--single"><Button variant="primary" onClick={createSuite}><Plus size={16} />{t("suite.new")}</Button></div>
         {suites.length === 0 ? <p className="testing-list-status">{t("suite.empty")}</p> : <ul>{suites.map((suite) => <li key={suite.id}>
           <button type="button" aria-current={draft?.id === suite.id ? "true" : undefined} onClick={() => void select(suite.id)}>
             <span><strong>{suite.name}</strong><small>{t("suite.memberCount", { count: suite.memberCount })}</small></span></button></li>)}</ul>}
       </aside>
       <div className="testing-editor-shell">{draft === null ? <div className="testing-editor-placeholder"><p>{t("suite.selectHint")}</p></div> : <div className="testing-editor">
         <header className="testing-editor__header"><div><h2>{draft.id === null ? t("suite.new") : draft.name}</h2><p>{t("suite.editorHint")}</p></div>
-          <div className="testing-editor__actions"><Button variant="secondary" loading={saving} onClick={() => void save()}>{t("editor.save")}</Button>
-            {draft.id !== null && <Button variant="primary" onClick={() => void run()}><Play size={15} />{t("suite.run")}</Button>}
-            {execution !== null && !terminal.has(execution.status) && <Button variant="danger" onClick={() => void cancel()}><Stop size={15} />{t("execution.cancel")}</Button>}
+          <div className="testing-editor__actions">{draft.id !== null && (execution !== null && !terminal.has(execution.status)
+            ? <Button variant="danger" onClick={() => void cancel()}><Stop size={15} />{t("execution.cancel")}</Button>
+            : <Button variant="primary" onClick={() => void run()}><Play size={15} />{t("suite.run")}</Button>)}
+            <Button variant="secondary" loading={saving} onClick={() => void save()}>{t("suite.save")}</Button>
             {draft.id !== null && <Button variant="danger" aria-label={t("suite.delete")} onClick={() => setDeleteOpen(true)}><Trash size={15} />{t("suite.delete")}</Button>}</div></header>
         <section className="testing-editor-section suite-basics"><label>{t("editor.name")}<input className="ui-input" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label>
           <label>{t("editor.description")}<input className="ui-input" value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} /></label>
           <label>{t("editor.tags")}<input className="ui-input" value={draft.tags} onChange={(e) => setDraft({ ...draft, tags: e.target.value })} /></label>
-          <label>{t("suite.concurrency")}<select className="ui-input" value={draft.concurrency} onChange={(e) => setDraft({ ...draft, concurrency: Number(e.target.value) })}>
-            {[1,2,3,4,5,6,7,8].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+          <label>{t("suite.concurrency")}<input className="ui-input" type="number" inputMode="numeric" min={1} max={8} step={1}
+            value={draft.concurrency} onChange={(event) => {
+              const value = Number(event.target.value);
+              const concurrency = Number.isFinite(value) ? Math.min(8, Math.max(1, Math.trunc(value))) : 1;
+              setDraft({ ...draft, concurrency });
+            }} /></label>
           <label className="testing-enabled"><input type="checkbox" checked={draft.stopOnFailure} onChange={(e) => setDraft({ ...draft, stopOnFailure: e.target.checked })} />{t("suite.stopOnFailure")}</label></section>
-        <section className="testing-editor-section"><h3>{t("suite.members")}</h3><div className="suite-members">{cases.map((item) => {
-          const member = draft.members.find(({ testCaseId }) => testCaseId === item.id);
-          const detail = caseDetails[item.id];
-          return <div className="suite-member" key={item.id}><label>
-            <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggle(item.id)} /><span><strong>{item.name}</strong><small>{t(item.kind === "scenario" ? "list.scenario" : "list.tool")}</small></span>
-          </label>{member !== undefined && detail?.kind === "scenario" && <ScenarioMemberInputs memberId={member.id} definition={detail}
-            values={memberInputs[member.id] ?? {}} onChange={(name, value) => setMemberInputs((current) => ({
-              ...current, [member.id]: { ...current[member.id], [name]: value },
-            }))} />}</div>;
-        })}</div></section>
+        <section className="testing-editor-section"><h3>{t("suite.members")}</h3>
+          <div className="suite-member-workspace">
+            <section className="suite-member-column" aria-label={t("suite.candidates")}><header><h4>{t("suite.candidates")}</h4>
+              <label className="suite-member-search"><MagnifyingGlass size={15} aria-hidden="true" /><span className="sr-only">{t("suite.searchMembers")}</span>
+                <input className="ui-input" aria-label={t("suite.searchMembers")} value={memberQuery}
+                  onChange={(event) => setMemberQuery(event.target.value)} /></label></header>
+              {candidateCases.length === 0 ? <p className="testing-empty-copy">{t("suite.noCandidates")}</p> : <ul>{candidateCases.map((item) => <li key={item.id}>
+                <span><strong>{item.name}</strong><small>{t(item.kind === "scenario" ? "list.scenario" : "list.tool")}</small></span>
+                <Button variant="quiet" aria-label={t("suite.addMember", { name: item.name })} onClick={() => toggle(item.id)}><Plus size={15} aria-hidden="true" />{t("suite.addMember", { name: item.name })}</Button>
+              </li>)}</ul>}
+            </section>
+            <section className="suite-member-column" aria-label={t("suite.selectedMembers")}><header><h4>{t("suite.selectedMembers")}</h4><span>{draft.members.length}</span></header>
+              {draft.members.length === 0 ? <p className="testing-empty-copy">{t("suite.noMembers")}</p> : <ol>{draft.members.map((member, index) => {
+                const item = cases.find(({ id }) => id === member.testCaseId);
+                const detail = caseDetails[member.testCaseId];
+                const name = item?.name ?? member.testCaseId;
+                return <li key={member.id} draggable aria-label={t("suite.memberAria", { name })}
+                  data-dragging={draggedMemberId === member.id || undefined}
+                  onDragStart={(event) => { setDraggedMemberId(member.id); event.dataTransfer?.setData("text/plain", member.id); }}
+                  onDragEnd={() => setDraggedMemberId(null)} onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => { event.preventDefault(); const sourceId = draggedMemberId ?? event.dataTransfer?.getData("text/plain") ?? "";
+                    moveMember(sourceId, index); setDraggedMemberId(null); }}>
+                  <div className="suite-member-summary"><span className="suite-member-drag-handle" title={t("suite.dragMember", { name })}>
+                    <DotsSixVertical size={16} aria-hidden="true" /></span><label>
+                  <input type="checkbox" checked={member.isEnabled} aria-label={t("suite.memberEnabled", { name })}
+                    onChange={(event) => setDraft({ ...draft, members: draft.members.map((value) => value.id === member.id ? { ...value, isEnabled: event.target.checked } : value) })} />
+                  <span><strong>{name}</strong><small>{item === undefined ? "" : t(item.kind === "scenario" ? "list.scenario" : "list.tool")}</small></span></label>
+                  <div className="suite-member-actions"><Button variant="quiet" aria-label={t("suite.moveMemberUp", { name })} disabled={index === 0}
+                    onClick={() => moveMember(member.id, index - 1)}><ArrowUp size={15} aria-hidden="true" /></Button>
+                    <Button variant="quiet" aria-label={t("suite.moveMemberDown", { name })} disabled={index === draft.members.length - 1}
+                      onClick={() => moveMember(member.id, index + 1)}><ArrowDown size={15} aria-hidden="true" /></Button>
+                    <Button variant="quiet" aria-label={t("suite.removeMember", { name })} onClick={() => toggle(member.testCaseId)}><X size={15} aria-hidden="true" /></Button></div></div>
+                  {detail?.kind === "scenario" && <ScenarioMemberInputs memberId={member.id} definition={detail}
+                    values={memberInputs[member.id] ?? {}} onChange={(inputName, value) => setMemberInputs((current) => ({
+                      ...current, [member.id]: { ...current[member.id], [inputName]: value },
+                    }))} />}
+                </li>;
+              })}</ol>}
+            </section>
+          </div>
+        </section>
         {execution !== null && <section className="suite-report"><header><h3>{t("suite.report")}</h3><StatusBadge status={execution.status === "PASSED" ? "success" : terminal.has(execution.status) ? "danger" : "pending"}>{t(`execution.status.${execution.status}`)}</StatusBadge></header>
           <ol>{execution.items.map((item) => <li key={item.id}><span>{cases.find(({ id }) => id === item.testCaseId)?.name ?? item.testCaseId}</span><StatusBadge status={item.status === "PASSED" ? "success" : terminal.has(item.status) ? "danger" : "pending"}>{t(`execution.status.${item.status}`)}</StatusBadge></li>)}</ol></section>}
       </div>}</div>

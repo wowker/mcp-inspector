@@ -7,7 +7,9 @@ import { automatedTestsExportEnvelopeSchema, type AutomatedTestsExportEnvelope }
 import type { TestExecutionDetail, TestExecutionReportSummary } from "../../../shared/testing/test-execution.js";
 import { Button } from "../../components/actions/Button.js";
 import { StatusBadge } from "../../components/feedback/StatusBadge.js";
+import { SearchableSelect } from "../../components/forms/SearchableSelect.js";
 import { Dialog } from "../../components/overlays/Dialog.js";
+import { ModuleHelpPopover } from "../../components/overlays/ModuleHelpPopover.js";
 import { Select } from "../../components/forms/Select.js";
 import { TestExecutionPanel } from "./TestExecutionPanel.js";
 import "./testing.css";
@@ -122,14 +124,19 @@ export function TestReportsPage({ api, projectId }: Props) {
   }
 
   return <section className="testing-page testing-reports" aria-labelledby="testing-reports-title">
-    <header className="page-heading testing-page__heading testing-page__heading--compact"><div>
-      <h1 id="testing-reports-title">{t("report.title")}</h1><p>{t("report.description")}</p>
-    </div><div className="testing-page__create-actions">
-      <Button variant="secondary" loading={transferring} onClick={() => void exportDefinitions()}><DownloadSimple size={16} />{t("report.export")}</Button>
-      <Button variant="secondary" onClick={() => fileInput.current?.click()}><UploadSimple size={16} />{t("report.import")}</Button>
-      <Button variant="secondary" onClick={load}><ArrowClockwise size={16} />{t("report.refresh")}</Button>
-      <input ref={fileInput} className="testing-transfer-file" type="file" accept="application/json,.json"
-        aria-label={t("report.importFile")} onChange={(event) => void chooseImport(event.target.files?.[0])} />
+    <header className="page-heading testing-page__heading testing-page__heading--compact"><div className="testing-report-heading-copy">
+      <div className="module-heading-title"><h1 id="testing-reports-title">{t("report.title")}</h1>
+        <ModuleHelpPopover moduleName={t("report.title")} triggerLabel={t("help.report.trigger")} closeLabel={t("help.report.close")}
+          summary={t("help.report.summary")} description={t("report.description")} sections={(["purpose", "configure", "use", "effect"] as const).map((section) => ({
+            id: section, title: t(`help.sections.${section}`), items: [t(`help.report.${section}.one`), t(`help.report.${section}.two`)],
+          }))} /></div><p>{t("report.description")}</p>
+      <div className="testing-page__create-actions">
+        <Button variant="secondary" loading={transferring} onClick={() => void exportDefinitions()}><DownloadSimple size={16} />{t("report.export")}</Button>
+        <Button variant="secondary" onClick={() => fileInput.current?.click()}><UploadSimple size={16} />{t("report.import")}</Button>
+        <Button variant="secondary" onClick={load}><ArrowClockwise size={16} />{t("report.refresh")}</Button>
+        <input ref={fileInput} className="testing-transfer-file" type="file" accept="application/json,.json"
+          aria-label={t("report.importFile")} onChange={(event) => void chooseImport(event.target.files?.[0])} />
+      </div>
     </div></header>
     <div className="testing-workspace">
       <aside className="testing-case-list" aria-label={t("report.list")}><header><h2>{t("report.list")}</h2><span>{items.length}</span></header>
@@ -164,11 +171,15 @@ export function TestReportsPage({ api, projectId }: Props) {
         <p id="test-import-description">{t("report.importDescription")}</p>
         <div className="testing-transfer-bindings">{importEnvelope.connections.map((connection) => <label key={connection.alias}>
           <span>{connection.name} <code>{connection.alias}</code></span>
-          <Select aria-label={t("report.bindServer", { name: connection.name })} value={bindings[connection.alias] ?? ""}
-            onChange={(event) => setBindings((current) => ({ ...current, [connection.alias]: event.target.value }))}>
-            <option value="">{t("report.selectServer")}</option>
-            {connections.map((server) => <option key={server.id} value={server.id}>{server.name}</option>)}
-          </Select>
+          <SearchableSelect ariaLabel={t("report.bindServer", { name: connection.name })}
+            value={bindings[connection.alias] ?? null}
+            options={connections.map((server) => ({ value: server.id, label: server.name }))}
+            onChange={(serverId) => setBindings((current) => {
+              if (serverId !== null) return { ...current, [connection.alias]: serverId };
+              const next = { ...current }; delete next[connection.alias]; return next;
+            })}
+            placeholder={t("report.selectServer")} searchPlaceholder={t("report.searchServer")}
+            emptyMessage={t("report.noMatchingServers")} clearable clearLabel={t("report.clearServer")} />
         </label>)}</div>
         <label className="testing-transfer-policy"><span>{t("report.conflictPolicy")}</span><Select value={conflictPolicy}
           aria-label={t("report.conflictPolicy")}

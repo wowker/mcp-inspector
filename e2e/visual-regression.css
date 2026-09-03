@@ -1,0 +1,4 @@
+.run-result__sticky-header > header,
+.run-overview {
+  visibility: hidden !important;
+}

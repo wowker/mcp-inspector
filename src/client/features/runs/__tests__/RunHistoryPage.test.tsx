@@ -42,4 +42,20 @@ describe("RunHistoryPage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("请输入有效的连接 ID");
     expect(listRuns).toHaveBeenCalledTimes(1);
   });
+
+  it("explains every Run filter from the filter heading help", async () => {
+    const listRuns = vi.fn(async () => ({ runs: [], nextCursor: null }));
+    render(<RunHistoryPage api={{ listRuns, setRunPinned: vi.fn() } as unknown as InspectorApiClient}
+      projectId={projectId} onOpenDebug={vi.fn()} />);
+    await waitFor(() => expect(listRuns).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "了解运行筛选" }));
+    const help = screen.getByRole("dialog", { name: "筛选项说明" });
+    expect(help).toHaveTextContent("Tool 名称");
+    expect(help).toHaveTextContent("连接 ID");
+    expect(help).toHaveTextContent("状态");
+    expect(help).toHaveTextContent("来源");
+    expect(help).toHaveTextContent("固定状态");
+    expect(help).toHaveTextContent("开始与结束时间");
+  });
 });

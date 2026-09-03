@@ -343,7 +343,8 @@ export function ToolTree({
       {tool.status !== "removed" && activeFolders.length > 0 && <ToolFolderSelect
         ariaLabel={t("catalog.moveAria", { name: tool.name })} disabled={movingToolName !== null}
         folderId={tool.folderId} folders={activeFolders} title={t("catalog.moveTitle")}
-        unfiledLabel={t("catalog.unfiled")} onChange={(folderId) => void move(tool, folderId)} />}
+        unfiledLabel={t("catalog.unfiled")} searchPlaceholder={t("catalog.searchFolders")}
+        emptyMessage={t("catalog.noMatchingFolders")} onChange={(folderId) => void move(tool, folderId)} />}
     </li>;
   }
 

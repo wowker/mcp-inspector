@@ -7,6 +7,7 @@ import { RunHistory } from "./RunHistory.js";
 import { RunResultPanel } from "./RunResultPanel.js";
 import { ReplayDialog } from "./ReplayDialog.js";
 import { ComparisonDialog } from "./ComparisonDialog.js";
+import { ModuleHelpPopover } from "../../components/overlays/ModuleHelpPopover.js";
 import { useRunEvents } from "./use-run-events.js";
 import { useTranslation } from "react-i18next";
 
@@ -67,13 +68,22 @@ export function RunHistoryPage({ api, projectId, onOpenDebug, onCreateTest }: {
 
   return <section className="history-page" aria-labelledby="history-page-title">
     <header className="page-heading page-heading--compact history-page__heading">
-      <div><h1 id="history-page-title">{t("page.title")}</h1><p>{t("page.description")}</p></div>
+      <div><div className="module-heading-title"><h1 id="history-page-title">{t("page.title")}</h1>
+        <ModuleHelpPopover moduleName={t("page.title")} triggerLabel={t("page.help.trigger")} closeLabel={t("page.help.close")}
+          summary={t("page.help.summary")} description={t("page.description")} sections={(["purpose", "configure", "use", "effect"] as const).map((section) => ({
+            id: section, title: t(`page.help.sections.${section}`), items: [t(`page.help.${section}.one`), t(`page.help.${section}.two`)],
+          }))} /></div><p>{t("page.description")}</p></div>
     </header>
     <div className="history-page__layout">
       <aside className="history-page__list" aria-label={t("page.listAria")}>
         <section className="history-filters" aria-labelledby="history-filters-title">
           <div className="history-filters__heading"><FunnelSimple size={16} aria-hidden="true" />
-            <h2 id="history-filters-title">{t("page.filters.title")}</h2></div>
+            <h2 id="history-filters-title">{t("page.filters.title")}</h2>
+            <ModuleHelpPopover moduleName={t("page.filterHelp.title")} triggerLabel={t("page.filterHelp.trigger")}
+              closeLabel={t("page.filterHelp.close")} summary={t("page.filterHelp.summary")}
+              sections={(["toolName", "connectionId", "status", "origin", "pinned", "time"] as const).map((section) => ({
+                id: section, title: t(`page.filterHelp.sections.${section}`), items: [t(`page.filterHelp.items.${section}`)],
+              }))} /></div>
           <div className="history-filters__grid">
             <label>{t("page.filters.toolName")}<input value={draft.toolName} onChange={(event) => setDraft({ ...draft, toolName: event.target.value })} /></label>
             <label>{t("page.filters.connectionId")}<input className="ui-mono" value={draft.connectionId}

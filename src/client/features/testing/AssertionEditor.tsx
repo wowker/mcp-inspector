@@ -4,13 +4,15 @@ import type { AssertionDefinition } from "../../../shared/testing/assertions.js"
 import { Button } from "../../components/actions/Button.js";
 import { IconButton } from "../../components/actions/IconButton.js";
 import { FormField } from "../../components/forms/FormField.js";
-import { Select } from "../../components/forms/Select.js";
+import { SearchableSelect } from "../../components/forms/SearchableSelect.js";
+import { ModuleHelpPopover } from "../../components/overlays/ModuleHelpPopover.js";
 import type { AssertionDraft } from "./test-case-draft.js";
 import { assertionNeedsExpected, parseAssertionExpected } from "./test-case-draft.js";
 
 interface Props {
   value: AssertionDraft[];
   onChange: (value: AssertionDraft[]) => void;
+  hideTitle?: boolean;
 }
 
 const sources: AssertionDefinition["source"][] = ["MCP_RESULT", "MCP_ERROR", "RUN", "HTTP", "WORKFLOW", "VARIABLE"];
@@ -28,12 +30,13 @@ function newAssertion(index: number): AssertionDraft {
   };
 }
 
-export function AssertionEditor({ value, onChange }: Props) {
+export function AssertionEditor({ value, onChange, hideTitle = false }: Props) {
   const { t } = useTranslation("testing");
   function update(index: number, patch: Partial<AssertionDraft["definition"]> & { expectedText?: string }): void {
+    const { expectedText, ...definitionPatch } = patch;
     onChange(value.map((item, itemIndex) => itemIndex !== index ? item : {
-      definition: { ...item.definition, ...patch },
-      expectedText: patch.expectedText ?? item.expectedText,
+      definition: { ...item.definition, ...definitionPatch },
+      expectedText: expectedText ?? item.expectedText,
     }));
   }
   function move(index: number, offset: -1 | 1): void {
@@ -43,9 +46,17 @@ export function AssertionEditor({ value, onChange }: Props) {
     [next[index], next[target]] = [next[target]!, next[index]!];
     onChange(next);
   }
-  return <section className="testing-assertions" aria-labelledby="testing-assertions-title">
+  return <section className="testing-assertions"
+    {...(hideTitle ? { "aria-label": t("editor.assertions") } : { "aria-labelledby": "testing-assertions-title" })}>
     <div className="testing-section-heading">
-      <h3 id="testing-assertions-title">{t("editor.assertions")}</h3>
+      <div className="module-heading-title">{!hideTitle && <h3 id="testing-assertions-title">{t("editor.assertions")}</h3>}
+        <ModuleHelpPopover moduleName={t("assertion.help.title")} triggerLabel={t("assertion.help.trigger")}
+          closeLabel={t("assertion.help.close")} summary={t("assertion.help.summary")}
+          sections={( ["purpose", "configure", "syntax"] as const).map((section) => ({
+            id: section, title: t(`assertion.help.${section}.title`),
+            items: [t(`assertion.help.${section}.one`), t(`assertion.help.${section}.two`)],
+          }))} />
+      </div>
       <Button variant="secondary" onClick={() => onChange([...value, newAssertion(value.length)])}>
         <Plus size={15} aria-hidden="true" />{t("assertion.add")}
       </Button>
@@ -61,10 +72,16 @@ export function AssertionEditor({ value, onChange }: Props) {
             <IconButton label={t("assertion.remove", { index: index + 1 })} icon={<Trash size={16} />} onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))} />
           </div></header>
           <div className="testing-assertion-grid">
-            <FormField htmlFor={`${item.definition.id}-source`} label={t("assertion.source")}><Select id={`${item.definition.id}-source`} value={item.definition.source}
-              onChange={(event) => update(index, { source: event.target.value as AssertionDefinition["source"] })}>{sources.map((source) => <option key={source}>{source}</option>)}</Select></FormField>
-            <FormField htmlFor={`${item.definition.id}-operator`} label={t("assertion.operator")}><Select id={`${item.definition.id}-operator`} value={item.definition.operator}
-              onChange={(event) => update(index, { operator: event.target.value as AssertionDefinition["operator"] })}>{operators.map((operator) => <option key={operator}>{operator}</option>)}</Select></FormField>
+            <FormField htmlFor={`${item.definition.id}-source`} label={t("assertion.source")}><SearchableSelect id={`${item.definition.id}-source`}
+              value={item.definition.source} options={sources.map((source) => ({ value: source, label: source }))}
+              onChange={(source) => { if (source !== null) update(index, { source }); }}
+              placeholder={t("assertion.selectSource")} searchPlaceholder={t("assertion.searchSource")}
+              emptyMessage={t("assertion.noMatchingSources")} required /></FormField>
+            <FormField htmlFor={`${item.definition.id}-operator`} label={t("assertion.operator")}><SearchableSelect id={`${item.definition.id}-operator`}
+              value={item.definition.operator} options={operators.map((operator) => ({ value: operator, label: operator }))}
+              onChange={(operator) => { if (operator !== null) update(index, { operator }); }}
+              placeholder={t("assertion.selectOperator")} searchPlaceholder={t("assertion.searchOperator")}
+              emptyMessage={t("assertion.noMatchingOperators")} required /></FormField>
             <FormField htmlFor={`${item.definition.id}-path`} label={t("assertion.path")}><input id={`${item.definition.id}-path`} className="ui-input" value={item.definition.path}
               placeholder={t("assertion.pathPlaceholder")} onChange={(event) => update(index, { path: event.target.value })} /></FormField>
             {assertionNeedsExpected(item.definition.operator) && <FormField htmlFor={`${item.definition.id}-expected`} label={t("assertion.expected")}

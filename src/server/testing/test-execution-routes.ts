@@ -39,6 +39,7 @@ export function createTestExecutionRoutes(executions: TestExecutionService): Hon
     const rawLimit = context.req.query("limit");
     try {
       return context.json(executions.list(context.req.param("projectId"), {
+        ...(context.req.query("testCaseId") === undefined ? {} : { testCaseId: context.req.query("testCaseId") }),
         ...(context.req.query("cursor") === undefined ? {} : { cursor: context.req.query("cursor") }),
         ...(rawLimit === undefined ? {} : { limit: Number(rawLimit) }),
       }));

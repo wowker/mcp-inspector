@@ -179,9 +179,14 @@ export class TestExecutionRepository {
     return toDetail(row, steps, assertions);
   }
 
-  list(projectId: string, limit: number, cursor: TestExecutionCursorPosition | null): TestExecutionRepositoryPage {
+  list(projectId: string, limit: number, cursor: TestExecutionCursorPosition | null,
+    testCaseId?: string): TestExecutionRepositoryPage {
     const where = ["e.project_id = ?"];
     const params: unknown[] = [projectId];
+    if (testCaseId !== undefined) {
+      where.push("e.test_case_id = ?");
+      params.push(testCaseId);
+    }
     if (cursor !== null) {
       where.push("(e.created_at < ? OR (e.created_at = ? AND e.id < ?))");
       params.push(cursor.createdAt, cursor.createdAt, cursor.id);

@@ -159,6 +159,17 @@ describe("DebugWorkspace", () => {
     expect(onExecute).toHaveBeenCalledTimes(1);
   });
 
+  it("marks the whole-arguments Raw JSON editor as the compact resizable input", () => {
+    const rawTab = { ...tab("00000000-0000-4000-8000-000000000622", "sum", {}),
+      inputMode: "raw" as const, rawText: "{}" };
+    render(<ParameterEditor tab={rawTab} schema={tool.tool.currentSnapshot.definition.inputSchema}
+      onChange={vi.fn()} onExecute={vi.fn()} />);
+
+    const editor = screen.getByRole("textbox", { name: "完整 arguments JSON" });
+    expect(editor).toHaveClass("raw-arguments-input");
+    expect(editor).toHaveAttribute("rows", "8");
+  });
+
   it("defers missing required fields when an enabled before script will run", () => {
     const onExecute = vi.fn();
     const requiredSchema = { type: "object", properties: { required_value: { type: "string" } }, required: ["required_value"] };
@@ -336,6 +347,15 @@ describe("DebugWorkspace", () => {
     render(<DebugWorkspace api={api} projectId={projectId} />);
 
     expect(await screen.findByRole("button", { name: "展开参数" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "参数优先" })).not.toBeInTheDocument();
+    const settingsTrigger = screen.getByRole("button", { name: "设置" });
+    fireEvent.click(settingsTrigger);
+    const settings = screen.getByRole("dialog", { name: "调试配置" });
+    expect(settings).toBeVisible();
+    fireEvent.keyDown(settings, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "调试配置" })).not.toBeInTheDocument();
+    await waitFor(() => expect(settingsTrigger).toHaveFocus());
+    fireEvent.click(settingsTrigger);
     fireEvent.click(screen.getByRole("button", { name: "参数优先" }));
 
     const separator = screen.getByRole("separator", { name: "请求区高度" });
@@ -358,11 +378,13 @@ describe("DebugWorkspace", () => {
     render(<DebugWorkspace api={api} projectId={projectId} />);
     await screen.findByRole("tab", { name: "sum" });
 
+    fireEvent.click(screen.getByRole("button", { name: "设置" }));
     fireEvent.click(await screen.findByRole("button", { name: "结果优先" }));
     await waitFor(() => expect(updateTab).toHaveBeenCalledWith(projectId, first.id,
       expect.objectContaining({ viewState: expect.objectContaining({ splitRatio: 0.35 }) })));
     fireEvent.click(screen.getByRole("tab", { name: "sum (2)" }));
     await waitFor(() => expect(screen.getByRole("tab", { name: "sum (2)" })).toHaveAttribute("aria-selected", "true"));
+    fireEvent.click(screen.getByRole("button", { name: "设置" }));
     fireEvent.click(await screen.findByRole("button", { name: "参数优先" }));
 
     await waitFor(() => expect(updateTab).toHaveBeenCalledWith(projectId, second.id,
@@ -578,7 +600,7 @@ describe("DebugWorkspace", () => {
       schema={{ type: "object", properties: {
         taxable: { type: "boolean", description: "Whether products are taxable." },
         mode: { type: "string", enum: ["both", "specifications_only", "overview_only"] },
-        image_strategy: { type: "string", enum: ["selected_only", "all", "primary", "none"] },
+        image_strategy: { type: "string", enum: ["selected_only", "all", "primary", "none", "thumbnail", "gallery", "hero", "zoom", "mobile", "desktop"] },
       }, required: ["mode"] }} onChange={onChange} />);
 
     const taxable = screen.getByRole("checkbox", { name: "taxable" });
@@ -601,8 +623,8 @@ describe("DebugWorkspace", () => {
     expect(strategy).toHaveAttribute("aria-haspopup", "listbox");
     fireEvent.click(strategy);
     expect(screen.getByRole("listbox", { name: "image_strategy" })).toBeVisible();
-    expect(screen.getByRole("option", { name: "请选择" })).toBeVisible();
-    expect(screen.getByRole("option", { name: "all" })).toHaveClass("schema-enum-select__option--selected");
+    expect(screen.getByRole("searchbox", { name: "搜索可选值" })).toBeVisible();
+    expect(screen.getByRole("option", { name: "all" })).toHaveAttribute("aria-selected", "true");
     fireEvent.click(screen.getByRole("option", { name: "primary" }));
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ arguments: expect.objectContaining({ image_strategy: "primary" }) }));
 
@@ -882,7 +904,7 @@ describe("DebugWorkspace", () => {
     } as unknown as InspectorApiClient;
     render(<DebugWorkspace api={api} projectId={projectId} />);
 
-    const execute = await screen.findByRole("button", { name: /执行/ });
+    const execute = await screen.findByRole("button", { name: "流水线执行中…" });
     await waitFor(() => expect(api.getActiveWorkflowExecution).toHaveBeenCalledWith(
       projectId, current.id, expect.any(AbortSignal),
     ));
@@ -1250,16 +1272,71 @@ describe("DebugWorkspace", () => {
     expect((await screen.findByText("请求保存成功")).closest("[data-sonner-toast]")).toHaveClass("app-toast");
   });
 
+  it("saves the active Tool arguments directly as a test case", async () => {
+    const current = tab("00000000-0000-4000-8000-000000000657", "sum", { a: 4, api_token: "omit-me" });
+    const createTestCase = vi.fn(async (_projectId, definition) => ({
+      ...definition, id: "00000000-0000-4000-8000-000000000658", projectId, revision: 1,
+      createdAt: "2026-09-03T00:00:00.000Z", updatedAt: "2026-09-03T00:00:00.000Z",
+    }));
+    const api = { listTabs: vi.fn(async () => [current]), getTool: vi.fn(async () => tool), updateTab: vi.fn(),
+      createTestCase } as unknown as InspectorApiClient;
+    const user = userEvent.setup(); render(<><AppToaster /><DebugWorkspace api={api} projectId={projectId} /></>);
+
+    await user.click(await screen.findByRole("button", { name: "保存为测试用例" }));
+
+    expect(createTestCase).toHaveBeenCalledWith(projectId, expect.objectContaining({
+      kind: "tool", target: { connectionId, toolName: "sum" }, arguments: { a: 4 }, assertions: [],
+    }));
+    expect(await screen.findByText(/测试用例已保存.*疑似敏感字段已省略/)).toBeVisible();
+  });
+
+  it("prevents duplicate direct test-case saves while the first request is pending", async () => {
+    const current = tab("00000000-0000-4000-8000-000000000659", "sum", { a: 4 });
+    let resolveSave!: (value: any) => void;
+    const createTestCase = vi.fn(() => new Promise((resolve) => { resolveSave = resolve; }));
+    const api = { listTabs: vi.fn(async () => [current]), getTool: vi.fn(async () => tool), updateTab: vi.fn(),
+      createTestCase } as unknown as InspectorApiClient;
+    render(<DebugWorkspace api={api} projectId={projectId} />);
+
+    const save = await screen.findByRole("button", { name: "保存为测试用例" });
+    fireEvent.click(save); fireEvent.click(save);
+    expect(createTestCase).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolveSave({ kind: "tool", projectId, target: { connectionId, toolName: "sum" } });
+      await Promise.resolve();
+    });
+  });
+
   it("shows current Tab history records without repeating the view title", async () => {
     const current = tab("00000000-0000-4000-8000-000000000660", "sum", { a: 1, b: 2 });
     const api = { listTabs: vi.fn(async () => [current]), getTool: vi.fn(async () => tool), updateTab: vi.fn(),
       listRuns: vi.fn(async () => ({ runs: [], nextCursor: null })) } as unknown as InspectorApiClient;
     const user = userEvent.setup(); render(<DebugWorkspace api={api} projectId={projectId} />);
 
-    await user.click(await screen.findByRole("button", { name: "当前 Tab 历史" }));
+    const views = await screen.findByRole("navigation", { name: "当前 Tab 视图" });
+    expect([...views.querySelectorAll("button")].map((button) => button.textContent)).toEqual([
+      "调试", "Tool 定义", "已保存", "脚本", "执行历史",
+    ]);
+    await user.click(await screen.findByRole("button", { name: "执行历史" }));
 
     expect(await screen.findByText("暂无运行记录")).toBeVisible();
-    expect(screen.queryByRole("heading", { name: "当前 Tab 历史" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "执行历史" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the debug settings action available across every editable Tool view", async () => {
+    const current = tab("00000000-0000-4000-8000-000000000663", "sum", { a: 1, b: 2 });
+    const api = { listTabs: vi.fn(async () => [current]), getTool: vi.fn(async () => tool), updateTab: vi.fn(),
+      listSavedItems: vi.fn(async () => []), getToolWorkflow: vi.fn(async () => workflow),
+      getActiveWorkflowExecution: vi.fn(async () => null),
+      listRuns: vi.fn(async () => ({ runs: [], nextCursor: null })) } as unknown as InspectorApiClient;
+    const user = userEvent.setup();
+    render(<DebugWorkspace api={api} projectId={projectId} />);
+
+    await screen.findByRole("button", { name: "设置" });
+    for (const view of ["Tool 定义", "已保存", "脚本", "执行历史"]) {
+      await user.click(screen.getByRole("button", { name: view }));
+      expect(screen.getByRole("button", { name: "设置" })).toBeVisible();
+    }
   });
 
   it("loads a selected history request and response back into the current debug view", async () => {
@@ -1281,7 +1358,7 @@ describe("DebugWorkspace", () => {
       listRuns: vi.fn(async () => ({ runs: [run], nextCursor: null })), getRun: vi.fn(async () => run),
       startRun: vi.fn() } as unknown as InspectorApiClient;
     const user = userEvent.setup(); render(<DebugWorkspace api={api} projectId={projectId} />);
-    await user.click(await screen.findByRole("button", { name: "当前 Tab 历史" }));
+    await user.click(await screen.findByRole("button", { name: "执行历史" }));
 
     await user.click(await screen.findByRole("button", { name: `打开运行 ${run.id}` }));
 

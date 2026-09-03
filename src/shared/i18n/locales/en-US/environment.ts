@@ -1,6 +1,14 @@
 export const enUSEnvironment = {
   title: "Environment variables",
   description: "Manage reusable configuration values for connection authentication and scripts.",
+  help: {
+    trigger: "Learn about Environment variables", close: "Close Environment variables help", summary: "Configuration center",
+    sections: { purpose: "Purpose", configure: "How to configure", use: "How to use", effect: "Effects" },
+    purpose: { one: "Maintain reusable project and Server values in one place instead of repeating them in connections and scripts.", two: "Manage sensitive values separately from ordinary text and JSON while keeping them hidden in the interface." },
+    configure: { one: "Choose the project or Server scope, enter a variable name, type, and value, then save it.", two: "Create environment profiles when you need multiple configurations, using inheritance and overrides to compose values." },
+    use: { one: "Reference variables in Headers, Bearer Tokens, or scripts by wrapping a name such as API_TOKEN in double braces.", two: "Preview a profile before connecting to inspect final values, sources, and missing references." },
+    effect: { one: "A Server variable overrides a project variable with the same name, and profile overrides follow the inheritance chain.", two: "Resolved values are used only at execution time; they are not written back to connection settings or exposed as secrets." },
+  },
   view: { label: "Environment configuration view", variables: "Variables", profiles: "Environment profiles" },
   scope: {
     label: "Variable scope",
@@ -9,6 +17,8 @@ export const enUSEnvironment = {
     serverLabel: "Server",
     selectServer: "Select Server",
     noServers: "No Servers",
+    searchServer: "Search Servers",
+    noMatchingServers: "No matching Servers",
   },
   hint: {
     beforeReference: "Use",
@@ -63,6 +73,8 @@ export const enUSEnvironment = {
     empty: "No profiles have been created.", inherits: "Inherits {{name}}", createTitle: "Create environment profile",
     editTitle: "Profile details", detailsHint: "Profiles use stable IDs; names are display labels only.",
     name: "Name", description: "Description", parent: "Inherits", noParent: "No parent",
+    searchProfile: "Search environment profiles", noMatchingProfiles: "No matching environment profiles",
+    clearParent: "Clear parent profile", clearPreviewProfile: "Use base variables",
     save: "Save profile", delete: "Delete profile", overridesTitle: "Variable overrides",
     overridesHint: "Override base variables or explicitly remove inherited values with Unset.", scopeLabel: "Profile variable scope",
     mode: "Override mode", modeValue: "Set value", modeUnset: "Unset", saveOverride: "Save override",

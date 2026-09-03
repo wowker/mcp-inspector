@@ -69,6 +69,27 @@ describe("runScenario", () => {
     expect(result.steps.at(-1)).toMatchObject({ stepId: "cleanup", status: "PASSED" });
   });
 
+  it("preserves a safe Tool invocation reason on the failed step and scenario", async () => {
+    const scenario = definition();
+    scenario.steps = [scenario.steps[0]!];
+    scenario.steps[0]!.extractors = [];
+    scenario.cleanupSteps = [];
+    const result = await runScenario({ definition: scenario, inputs: { storeId: "s-1" } }, {
+      invoke: async () => ({
+        sources: {}, runId: "failed-run", workflowExecutionId: null, succeeded: false,
+        error: { code: "MCP_CONNECT_FAILED", message: "Unable to connect to MCP server" },
+      }),
+      wait: async () => undefined,
+      resolveEnvironment: async () => undefined,
+    });
+
+    expect(result).toMatchObject({
+      status: "FAILED",
+      error: { code: "MCP_CONNECT_FAILED", message: "Unable to connect to MCP server" },
+      steps: [{ status: "FAILED", error: { code: "MCP_CONNECT_FAILED" }, runId: "failed-run" }],
+    });
+  });
+
   it("evaluates scenario assertions from execution-scoped variables", async () => {
     const scenario = definition();
     scenario.steps = [scenario.steps[0]!];

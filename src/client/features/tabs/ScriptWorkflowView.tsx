@@ -3,6 +3,7 @@ import { ArrowLineDown, CaretRight, FloppyDisk, Play } from "@phosphor-icons/rea
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { confirmToast } from "../../app/AppToaster.js";
+import { Switch } from "../../components/forms/Switch.js";
 import type {
   InspectorApiClient,
   ToolWorkflow,
@@ -256,10 +257,12 @@ export function ScriptWorkflowView({ api, projectId, connectionId, toolName, arg
         return <section className={`script-phase script-phase--${phase}`} key={phase}>
           <div className="script-phase__heading"><div><span className="script-phase__order">{phase === "before" ? "01" : "02"}</span>
             <h2>{t(`phase.${phase}.label`)}</h2><p>{t(`phase.${phase}.description`)}</p></div>
-            <label className="ui-switch"><input type="checkbox" checked={script.enabled} onChange={(event) => updatePhase(phase, {
-              enabled: event.target.checked,
-              source: event.target.checked && script.source.trim() === "" ? templates[phase] : script.source,
-            })} /><span aria-hidden="true" />{script.enabled ? t("status.enabled") : t("status.disabled")}</label></div>
+            <Switch checked={script.enabled} ariaLabel={t(`phase.${phase}.label`)}
+              onLabel={t("status.enabled")} offLabel={t("status.disabled")}
+              onChange={(enabled) => updatePhase(phase, {
+                enabled,
+                source: enabled && script.source.trim() === "" ? templates[phase] : script.source,
+              })} /></div>
           <textarea aria-label={t(`phase.${phase}.sourceAria`)} spellCheck={false} value={script.source}
             placeholder={templates[phase]} onChange={(event) => updatePhase(phase, { source: event.target.value })} />
           {phase === "after" && <textarea className="script-phase__response" aria-label={t("afterResponse.aria")} spellCheck={false}

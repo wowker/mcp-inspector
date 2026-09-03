@@ -1,7 +1,8 @@
-import { MagnifyingGlass } from "@phosphor-icons/react";
+import { MagnifyingGlass, Plus } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import type { TestCaseSummary } from "../../../shared/testing/test-case.js";
 import { StatusBadge } from "../../components/feedback/StatusBadge.js";
+import { Button } from "../../components/actions/Button.js";
 
 interface Props {
   items: TestCaseSummary[];
@@ -12,10 +13,11 @@ interface Props {
   onQueryChange: (query: string) => void;
   onSelect: (id: string) => void;
   onRetry: () => void;
-  onCreate: () => void;
+  onCreateTool: () => void;
+  onCreateScenario: () => void;
 }
 
-export function TestCaseList({ items, selectedId, loading, error, query, onQueryChange, onSelect, onRetry, onCreate }: Props) {
+export function TestCaseList({ items, selectedId, loading, error, query, onQueryChange, onSelect, onRetry, onCreateTool, onCreateScenario }: Props) {
   const { t } = useTranslation("testing");
   return <aside className="testing-case-list" aria-labelledby="testing-case-list-title">
     <header><h2 id="testing-case-list-title">{t("list.title")}</h2><span>{items.length}</span></header>
@@ -23,11 +25,15 @@ export function TestCaseList({ items, selectedId, loading, error, query, onQuery
       <span className="sr-only">{t("list.search")}</span>
       <input value={query} placeholder={t("list.search")} onChange={(event) => onQueryChange(event.target.value)} />
     </label>
+    <div className="testing-list-create-actions">
+      <Button variant="secondary" onClick={onCreateTool}><Plus size={16} />{t("newCase")}</Button>
+      <Button variant="secondary" onClick={onCreateScenario}><Plus size={16} />{t("newScenario")}</Button>
+    </div>
     {loading && <p role="status" className="testing-list-status">{t("list.loading")}</p>}
     {!loading && error !== null && <div role="alert" className="testing-list-error"><strong>{t("list.loadFailed")}</strong><p>{error}</p>
       <button type="button" onClick={onRetry}>{t("list.loadFailed")}</button></div>}
     {!loading && error === null && items.length === 0 && <div className="testing-list-empty">
-      <strong>{t("list.emptyTitle")}</strong><p>{t("list.emptyHint")}</p><button type="button" onClick={onCreate}>{t("newCase")}</button>
+      <strong>{t("list.emptyTitle")}</strong><p>{t("list.emptyHint")}</p>
     </div>}
     {!loading && error === null && items.length > 0 && <ul>
       {items.map((item) => <li key={item.id}><button type="button" aria-current={selectedId === item.id ? "true" : undefined}

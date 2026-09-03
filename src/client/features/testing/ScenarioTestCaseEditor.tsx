@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, FloppyDisk, Play, Plus, Stop, Trash } from "@phosphor-icons/react";
+import { ArrowDown, ArrowUp, ClockCounterClockwise, FloppyDisk, Play, Plus, Stop, Trash } from "@phosphor-icons/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -8,7 +8,10 @@ import type { JsonObject } from "../../../shared/tool-definition.js";
 import { Button } from "../../components/actions/Button.js";
 import { IconButton } from "../../components/actions/IconButton.js";
 import { FormField } from "../../components/forms/FormField.js";
+import { SearchableSelect } from "../../components/forms/SearchableSelect.js";
 import { Select } from "../../components/forms/Select.js";
+import { Switch } from "../../components/forms/Switch.js";
+import { Disclosure } from "../../components/layout/Disclosure.js";
 import { ParameterEditor } from "../tabs/ParameterEditor.js";
 import { ScenarioStepPolicies } from "./ScenarioStepPolicies.js";
 import { addScenarioStep, moveScenarioStep, removeScenarioStep, type ScenarioStepDraft,
@@ -30,14 +33,17 @@ interface Props {
   executing: boolean;
   onExecute: () => void;
   onCancelExecution: () => void;
+  onOpenHistory: () => void;
 }
 
 type StepSection = "main" | "cleanup";
 
 export function ScenarioTestCaseEditor({ api, projectId, draft, connections, saving, onChange, onSave, onCancel,
-  onDelete, executionInputs, onExecutionInputChange, canExecute, executing, onExecute, onCancelExecution }: Props) {
+  onDelete, executionInputs, onExecutionInputChange, canExecute, executing, onExecute, onCancelExecution, onOpenHistory }: Props) {
   const { t } = useTranslation("testing");
   const [selectedStepId, setSelectedStepId] = useState<string | null>(draft.steps[0]?.id ?? draft.cleanupSteps[0]?.id ?? null);
+  const [basicsExpanded, setBasicsExpanded] = useState(draft.id === null);
+  const [configurationExpanded, setConfigurationExpanded] = useState(draft.id === null);
   const [tools, setTools] = useState<CatalogToolSummary[]>([]);
   const [loadingTools, setLoadingTools] = useState(false);
   const toolVersion = useRef(0);
@@ -55,6 +61,9 @@ export function ScenarioTestCaseEditor({ api, projectId, draft, connections, sav
     if (selectedStepId !== null && allSteps.some(({ step }) => step.id === selectedStepId)) return;
     setSelectedStepId(allSteps[0]?.step.id ?? null);
   }, [allSteps, selectedStepId]);
+
+  useEffect(() => setBasicsExpanded(draft.id === null), [draft.id]);
+  useEffect(() => setConfigurationExpanded(draft.id === null), [draft.id]);
 
   useEffect(() => {
     const connectionId = selectedStep?.connectionId ?? "";
@@ -136,14 +145,23 @@ export function ScenarioTestCaseEditor({ api, projectId, draft, connections, sav
       <textarea id={`scenario-mapping-literal-${index}`} className="ui-input" rows={2} value={mapping.literalText ?? JSON.stringify(source.value)}
         onChange={(event) => updateMapping(index, { literalText: event.target.value })} /></FormField>;
     if (source.kind === "SCENARIO_INPUT") return <FormField htmlFor={`scenario-mapping-input-${index}`} label={t("scenario.inputName")}>
-      <Select id={`scenario-mapping-input-${index}`} value={source.name} onChange={(event) => updateMapping(index, { source: { ...source, name: event.target.value } })}>
-        <option value="">{t("scenario.selectInput")}</option>{draft.inputs.map(({ name }) => <option key={name}>{name}</option>)}</Select></FormField>;
+      <SearchableSelect id={`scenario-mapping-input-${index}`} value={source.name || null}
+        options={draft.inputs.filter(({ name }) => name !== "").map(({ name, description }) => ({ value: name, label: name, description }))}
+        onChange={(name) => updateMapping(index, { source: { ...source, name: name ?? "" } })}
+        placeholder={t("scenario.selectInput")} searchPlaceholder={t("scenario.searchInput")} emptyMessage={t("scenario.noMatchingInputs")}
+        clearable clearLabel={t("scenario.clearInput")} /></FormField>;
     if (source.kind === "VARIABLE") return <FormField htmlFor={`scenario-mapping-variable-${index}`} label={t("scenario.variableName")}>
-      <Select id={`scenario-mapping-variable-${index}`} value={source.name} onChange={(event) => updateMapping(index, { source: { ...source, name: event.target.value } })}>
-        <option value="">{t("scenario.selectVariable")}</option>{priorVariables.map((name) => <option key={name}>{name}</option>)}</Select></FormField>;
+      <SearchableSelect id={`scenario-mapping-variable-${index}`} value={source.name || null}
+        options={priorVariables.map((name) => ({ value: name, label: name }))}
+        onChange={(name) => updateMapping(index, { source: { ...source, name: name ?? "" } })}
+        placeholder={t("scenario.selectVariable")} searchPlaceholder={t("scenario.searchVariable")} emptyMessage={t("scenario.noMatchingVariables")}
+        clearable clearLabel={t("scenario.clearVariable")} /></FormField>;
     if (source.kind === "STEP_RESPONSE") return <><FormField htmlFor={`scenario-mapping-step-${index}`} label={t("scenario.sourceStep")}>
-      <Select id={`scenario-mapping-step-${index}`} value={source.stepId} onChange={(event) => updateMapping(index, { source: { ...source, stepId: event.target.value } })}>
-        <option value="">{t("scenario.selectPriorStep")}</option>{priorSteps.map((step) => <option key={step.id} value={step.id}>{step.name}</option>)}</Select></FormField>
+      <SearchableSelect id={`scenario-mapping-step-${index}`} value={source.stepId || null}
+        options={priorSteps.map((step) => ({ value: step.id, label: step.name, keywords: [step.id] }))}
+        onChange={(stepId) => updateMapping(index, { source: { ...source, stepId: stepId ?? "" } })}
+        placeholder={t("scenario.selectPriorStep")} searchPlaceholder={t("scenario.searchPriorStep")} emptyMessage={t("scenario.noMatchingSteps")}
+        clearable clearLabel={t("scenario.clearPriorStep")} /></FormField>
       <FormField htmlFor={`scenario-mapping-path-${index}`} label={t("scenario.responsePath")}><input id={`scenario-mapping-path-${index}`} className="ui-input"
         value={source.path} onChange={(event) => updateMapping(index, { source: { ...source, path: event.target.value } })} /></FormField></>;
     return <><FormField htmlFor={`scenario-mapping-scope-${index}`} label={t("scenario.environmentScope")}><Select id={`scenario-mapping-scope-${index}`}
@@ -159,23 +177,28 @@ export function ScenarioTestCaseEditor({ api, projectId, draft, connections, sav
       {executing
         ? <Button variant="secondary" onClick={onCancelExecution}><Stop size={15} weight="fill" />{t("execution.cancel")}</Button>
         : <Button variant="primary" disabled={!canExecute} onClick={onExecute}><Play size={15} weight="fill" />{t("execution.runScenario")}</Button>}
-      {onDelete !== undefined && <Button variant="danger" onClick={onDelete}><Trash size={15} />{t("editor.delete")}</Button>}
-      <Button variant="secondary" onClick={onCancel}>{t("editor.cancel")}</Button>
+      <Button variant="secondary" disabled={draft.id === null} onClick={onOpenHistory}>
+        <ClockCounterClockwise size={15} />{t("execution.history")}</Button>
       <Button variant="primary" loading={saving} loadingLabel={t("editor.saving")} onClick={onSave}><FloppyDisk size={15} />{t("editor.save")}</Button>
+      <Button variant="secondary" onClick={onCancel}>{t("editor.cancel")}</Button>
+      {onDelete !== undefined && <Button variant="danger" onClick={onDelete}><Trash size={15} />{t("editor.delete")}</Button>}
     </div></header>
-    <section className="scenario-basics">
+    <Disclosure label={t("editor.basics")} expanded={basicsExpanded} onExpandedChange={setBasicsExpanded}
+      className="testing-basics-disclosure" contentClassName="scenario-basics">
       <FormField htmlFor="scenario-name" label={t("editor.name")} required><input id="scenario-name" className="ui-input" maxLength={120}
         value={draft.name} onChange={(event) => onChange({ ...draft, name: event.target.value })} /></FormField>
       <FormField htmlFor="scenario-description" label={t("editor.description")}><input id="scenario-description" className="ui-input" maxLength={2000}
         value={draft.description} onChange={(event) => onChange({ ...draft, description: event.target.value })} /></FormField>
-      <FormField htmlFor="scenario-tags" label={t("editor.tags")}><input id="scenario-tags" className="ui-input" value={draft.tagsText}
-        onChange={(event) => onChange({ ...draft, tagsText: event.target.value })} /></FormField>
+      <Switch className="testing-enabled" checked={draft.isEnabled} label={t("editor.enabled")}
+        onLabel={t("editor.enabledOn")} offLabel={t("editor.enabledOff")}
+        showState={false}
+        onChange={(isEnabled) => onChange({ ...draft, isEnabled })} />
+    </Disclosure>
+    <Disclosure label={t("scenario.configuration")} expanded={configurationExpanded} onExpandedChange={setConfigurationExpanded}
+      className="testing-basics-disclosure" contentClassName="scenario-configuration">
       <FormField htmlFor="scenario-failure-policy" label={t("scenario.failurePolicy")}><Select id="scenario-failure-policy" value={draft.failurePolicy}
         onChange={(event) => onChange({ ...draft, failurePolicy: event.target.value as ScenarioTestCaseDraft["failurePolicy"] })}>
         <option value="STOP">{t("scenario.stop")}</option><option value="CONTINUE">{t("scenario.continue")}</option></Select></FormField>
-      <label className="testing-enabled"><input type="checkbox" checked={draft.isEnabled}
-        onChange={(event) => onChange({ ...draft, isEnabled: event.target.checked })} /><span>{t("editor.enabled")}</span></label>
-    </section>
     {draft.inputs.length > 0 && <section className="scenario-execution-inputs" aria-labelledby="scenario-execution-inputs-title">
       <header><div><h3 id="scenario-execution-inputs-title">{t("execution.scenarioInputs")}</h3><p>{t("execution.scenarioInputsHint")}</p></div></header>
       <div>{draft.inputs.map((input) => <FormField key={input.name} htmlFor={`scenario-execution-input-${input.name}`}
@@ -200,12 +223,18 @@ export function ScenarioTestCaseEditor({ api, projectId, draft, connections, sav
           <h3>{t("scenario.stepSettings")}</h3>
           <FormField htmlFor="scenario-step-name" label={t("scenario.stepName")} required><input id="scenario-step-name" className="ui-input"
             value={selectedStep.name} onChange={(event) => replaceStep({ ...selectedStep, name: event.target.value })} /></FormField>
-          <FormField htmlFor="scenario-step-connection" label={t("editor.connection")} required><Select id="scenario-step-connection"
-            value={selectedStep.connectionId} onChange={(event) => { setTools([]); replaceStep({ ...selectedStep, connectionId: event.target.value, toolName: "", fixedArguments: {} }); }}>
-            <option value="">{t("editor.selectConnection")}</option>{connections.map((connection) => <option key={connection.id} value={connection.id}>{connection.name}</option>)}</Select></FormField>
-          <FormField htmlFor="scenario-step-tool" label={t("editor.tool")} required><Select id="scenario-step-tool" value={selectedStep.toolName}
-            disabled={selectedStep.connectionId === "" || loadingTools} onChange={(event) => replaceStep({ ...selectedStep, toolName: event.target.value, fixedArguments: {} })}>
-            <option value="">{loadingTools ? t("editor.loadingTools") : t("editor.selectTool")}</option>{tools.map((tool) => <option key={tool.name} value={tool.name}>{tool.name}</option>)}</Select></FormField>
+          <FormField htmlFor="scenario-step-connection" label={t("editor.connection")} required><SearchableSelect id="scenario-step-connection"
+            value={selectedStep.connectionId || null} options={connections.map((connection) => ({ value: connection.id, label: connection.name }))}
+            onChange={(connectionId) => { setTools([]); replaceStep({ ...selectedStep, connectionId: connectionId ?? "", toolName: "", fixedArguments: {} }); }}
+            placeholder={t("editor.selectConnection")} searchPlaceholder={t("editor.searchConnection")} emptyMessage={t("editor.noConnections")}
+            clearable clearLabel={t("editor.clearConnection")} required /></FormField>
+          <FormField htmlFor="scenario-step-tool" label={t("editor.tool")} required><SearchableSelect id="scenario-step-tool"
+            value={selectedStep.toolName || null} options={tools.map((tool) => ({ value: tool.name, label: tool.name, keywords: [tool.currentSnapshot.definition.description ?? ""] }))}
+            disabled={selectedStep.connectionId === ""} loading={loadingTools}
+            onChange={(toolName) => replaceStep({ ...selectedStep, toolName: toolName ?? "", fixedArguments: {} })}
+            placeholder={loadingTools ? t("editor.loadingTools") : t("editor.selectTool")} searchPlaceholder={t("editor.searchTool")}
+            emptyMessage={t("editor.noTools")} loadingMessage={t("editor.loadingTools")}
+            clearable clearLabel={t("editor.clearTool")} required /></FormField>
           <FormField htmlFor="scenario-on-failure" label={t("scenario.onFailure")}><Select id="scenario-on-failure" value={selectedStep.onFailure}
             onChange={(event) => replaceStep({ ...selectedStep, onFailure: event.target.value as ScenarioStepDraft["onFailure"] })}>
             <option value="STOP">{t("scenario.stop")}</option><option value="CONTINUE">{t("scenario.continue")}</option>
@@ -255,5 +284,6 @@ export function ScenarioTestCaseEditor({ api, projectId, draft, connections, sav
           ? <p>{t("scenario.noIssues")}</p> : <ul>{issues.map((issue, index) => <li key={`${issue}-${index}`}>{issue}</li>)}</ul>}</section>
       </aside>
     </div>
+    </Disclosure>
   </article>;
 }

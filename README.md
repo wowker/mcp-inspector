@@ -103,11 +103,16 @@ export default async function before(ctx) {
 
 - [MCP Inspector 1.5.0 自动化测试设计与开发规范](docs/AUTOMATED-TESTING-1.5.0.md)
 - [MCP Inspector 2.0.0 升级规划](docs/UPGRADE-2.0.0.md)
+- [MCP Inspector 2.0.1 更新计划](docs/UPGRADE-2.0.1.md)
+- [MCP Inspector 2.0.2 更新计划](docs/UPGRADE-2.0.2.md)
+- [MCP Inspector 2.0.3 更新计划](docs/UPGRADE-2.0.3.md)
+- [MCP Inspector 2.0.4 更新计划](docs/UPGRADE-2.0.4.md)
+- [MCP Inspector 2.0.5 更新计划](docs/UPGRADE-2.0.5.md)
 - [前端 UI 与交互开发规范](docs/FRONTEND-DEVELOPMENT-STANDARDS.md)
 - [ADR-001：采用项目内部 UI Foundation](docs/decisions/001-internal-ui-foundation.md)
 - [Tool 前置与后置脚本规范](docs/SPEC-tool-script-workflows.md)
 
-所有后续前端功能、页面和组件必须遵循前端开发规范；面向 2.0.0 的功能还必须满足升级规划中的兼容、安全和验收边界。
+所有后续前端功能、页面和组件必须遵循前端开发规范；面向 2.x 的功能还必须满足对应版本计划中的兼容、安全和验收边界。
 
 开发模式同时启动本地 API 和 Vite 客户端：
 

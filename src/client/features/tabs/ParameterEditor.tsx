@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CaretRight, Play } from "@phosphor-icons/react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
@@ -22,13 +22,15 @@ interface Props {
   tab: DebugTabSummary; schema: Record<string, unknown>;
   onChange: (patch: Partial<DebugTabSummary>) => void; onExecute?: () => void;
   onSaveRequest?: (argumentsValue: Record<string, unknown>) => void;
-  layoutControls?: ReactNode;
+  onSaveAsTestCase?: (argumentsValue: Record<string, unknown>) => void;
+  savingTestCase?: boolean;
   executing?: boolean;
   showExecute?: boolean;
   workflowEnabled?: boolean;
   deferRequiredValidation?: boolean;
   expanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
+  showExpandToggle?: boolean;
   subtreeDrafts?: Readonly<Record<string, { text: string; base: string }>>;
   onSubtreeDraftChange?: (path: string, text: string, base: string) => void;
 }
@@ -61,9 +63,11 @@ function initialOptionalValue(field: SchemaField): unknown {
   return null;
 }
 
-export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveRequest, layoutControls, executing = false, workflowEnabled = false,
+export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveRequest, onSaveAsTestCase, savingTestCase = false,
+  executing = false, workflowEnabled = false,
   deferRequiredValidation = false,
-  showExecute = true, expanded: controlledExpanded, onExpandedChange, subtreeDrafts = {}, onSubtreeDraftChange }: Props) {
+  showExecute = true, expanded: controlledExpanded, onExpandedChange, showExpandToggle = true,
+  subtreeDrafts = {}, onSubtreeDraftChange }: Props) {
   const { t } = useTranslation("tools");
   const [rawTouched, setRawTouched] = useState(false);
   const [localExpanded, setLocalExpanded] = useState(true);
@@ -128,7 +132,7 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveReques
   }}>
     <div className="editor-toolbar">
       <div className="editor-primary-actions">
-        <button type="button" className="editor-collapse" aria-expanded={expanded}
+        {showExpandToggle && <button type="button" className="editor-collapse" aria-expanded={expanded}
           aria-controls={`parameter-content-${tab.id}`} aria-label={expanded ? t("parameter.collapse") : t("parameter.expand")}
           title={expanded ? t("parameter.collapse") : t("parameter.expand")} onClick={() => {
             const next = !expanded;
@@ -136,7 +140,7 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveReques
             onExpandedChange?.(next);
           }}>
           <CaretRight size={18} weight="bold" aria-hidden="true" />
-        </button>
+        </button>}
         <div className="editor-mode-group">
           <div role="tablist" aria-label={t("parameter.modes")} onKeyDown={(event) => {
             if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
@@ -154,8 +158,13 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveReques
             : workflowEnabled ? t("parameter.executeWorkflow") : t("parameter.execute")}
         </button>}
       </div>
-      <div className="editor-actions">{layoutControls}{onSaveRequest !== undefined && <button type="button" className="run-result-action" disabled={inputMode === "raw" && !parsed.ok}
+      <div className="editor-actions">{onSaveRequest !== undefined && <button type="button" className="run-result-action" disabled={inputMode === "raw" && !parsed.ok}
         onClick={() => onSaveRequest(inputMode === "raw" && parsed.ok ? parsed.value : tab.arguments)}>{t("parameter.saveRequest")}</button>}
+        {onSaveAsTestCase !== undefined && <button type="button" className="run-result-action"
+          aria-label={t("parameter.saveAsTestCase")}
+          disabled={savingTestCase || (inputMode === "raw" && !parsed.ok)}
+          onClick={() => onSaveAsTestCase(inputMode === "raw" && parsed.ok ? parsed.value : tab.arguments)}>
+          {savingTestCase ? t("parameter.savingTestCase") : t("parameter.saveTestCaseShort")}</button>}
         <button type="button" className="run-result-action" onClick={() => void navigator.clipboard?.writeText(
         inputMode === "raw" && parsed.ok ? formatRawArguments(parsed.value) : formatRawArguments(tab.arguments))}>{t("parameter.copyArguments")}</button></div>
     </div>
@@ -181,7 +190,7 @@ export function ParameterEditor({ tab, schema, onChange, onExecute, onSaveReques
     </div>}
     {inputMode === "raw" ? <div id={`panel-raw-${tab.id}`} role="tabpanel" aria-labelledby={`mode-raw-${tab.id}`} className="raw-arguments-panel">
       <div className="raw-arguments-heading"><label htmlFor={`raw-${tab.id}`}>{t("parameter.wholeJson")}</label><span>{t("parameter.jsonObject")}</span></div>
-      <textarea id={`raw-${tab.id}`} value={rawText} onChange={(event) => rawChanged(event.target.value)}
+      <textarea id={`raw-${tab.id}`} className="raw-arguments-input" rows={8} value={rawText} onChange={(event) => rawChanged(event.target.value)}
         onBlur={() => commitRaw()} aria-invalid={!parsed.ok || blockingIssues.length > 0}
         aria-describedby={!parsed.ok || blockingIssues.length > 0 ? rawErrorId : undefined} />
       {!parsed.ok && (rawTouched || inputMode === "raw") && <p id={rawErrorId} role="alert">

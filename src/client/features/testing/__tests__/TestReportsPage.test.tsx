@@ -29,6 +29,10 @@ describe("TestReportsPage", () => {
     expect(container.querySelector(".testing-page__heading--compact")).toContainElement(
       screen.getByRole("heading", { name: "测试报告", level: 1 }),
     );
+    const description = screen.getByText("查看执行历史、断言结果与完整调用追溯。");
+    const actions = container.querySelector<HTMLElement>(".testing-page__create-actions");
+    expect(description.parentElement).toContainElement(actions);
+    expect(description.compareDocumentPosition(actions!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("loads a historical report and resolves its Run to the Tool snapshot", async () => {
@@ -88,7 +92,9 @@ describe("TestReportsPage", () => {
     await user.upload(screen.getByLabelText("选择自动化测试 JSON 文件"), file);
     const dialog = await screen.findByRole("dialog", { name: "导入自动化测试" });
     expect(screen.getByRole("button", { name: "确认导入" })).toBeDisabled();
-    await user.selectOptions(screen.getByLabelText("为 Source API 绑定 Server"), targetConnectionId);
+    await user.click(screen.getByRole("combobox", { name: "为 Source API 绑定 Server" }));
+    await user.type(screen.getByRole("searchbox", { name: "搜索可绑定的 Server" }), "Target");
+    await user.click(screen.getByRole("option", { name: "Target API" }));
     await user.selectOptions(screen.getByRole("combobox", { name: /冲突处理/ }), "OVERWRITE");
     await user.click(screen.getByRole("button", { name: "确认导入" }));
     await waitFor(() => expect(dialog).not.toBeInTheDocument());

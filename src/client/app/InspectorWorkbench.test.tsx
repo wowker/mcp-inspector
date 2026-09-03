@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DebugTabSummary, InspectorApiClient, ProjectSummary, RunDetail, ToolDetailSummary } from "../api/api-client.js";
@@ -89,9 +89,9 @@ function api(): InspectorApiClient {
     listSavedItems: vi.fn(), getSavedItem: vi.fn(), createSavedItem: vi.fn(), deleteSavedItem: vi.fn(),
     listTestCases: vi.fn().mockResolvedValue({ items: [], nextCursor: null }), getTestCase: vi.fn(), createTestCase: vi.fn(), updateTestCase: vi.fn(), deleteTestCase: vi.fn(),
     previewTestCaseFromRun: vi.fn(), previewTestCaseFromSavedItem: vi.fn(),
-    listTestSuites: vi.fn(), getTestSuite: vi.fn(), createTestSuite: vi.fn(), updateTestSuite: vi.fn(), deleteTestSuite: vi.fn(),
+    listTestSuites: vi.fn().mockResolvedValue({ items: [] }), getTestSuite: vi.fn(), createTestSuite: vi.fn(), updateTestSuite: vi.fn(), deleteTestSuite: vi.fn(),
     startTestSuiteExecution: vi.fn(), getTestSuiteExecution: vi.fn(), cancelTestSuiteExecution: vi.fn(),
-    startTestExecution: vi.fn(), listTestExecutions: vi.fn(), updateTestExecutionBaseline: vi.fn(), getTestExecution: vi.fn(), cancelTestExecution: vi.fn(),
+    startTestExecution: vi.fn(), listTestExecutions: vi.fn().mockResolvedValue({ items: [], nextCursor: null }), updateTestExecutionBaseline: vi.fn(), getTestExecution: vi.fn(), cancelTestExecution: vi.fn(),
     exportAutomatedTests: vi.fn(), importAutomatedTests: vi.fn(),
   };
 }
@@ -99,6 +99,74 @@ function api(): InspectorApiClient {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); void i18n.changeLanguage("zh-CN"); });
 
 describe("InspectorWorkbench", () => {
+  it("separates the local service status from footer controls so long versions cannot cover actions", () => {
+    const { container } = render(<InspectorWorkbench api={api()} project={project}
+      version="2.0.2-rc.1+desktop.long-build" />);
+
+    const footer = container.querySelector(".workbench-sidebar__footer");
+    expect(footer?.querySelector(".workbench-sidebar__service-row")).toHaveTextContent(
+      "本地服务 v2.0.2-rc.1+desktop.long-build",
+    );
+    expect(footer?.querySelector(".sidebar-controls")).toContainElement(
+      screen.getByRole("button", { name: "切换到深色主题" }),
+    );
+    expect(screen.getByText("本地服务 v2.0.2-rc.1+desktop.long-build")).toHaveAttribute(
+      "title", "本地服务 v2.0.2-rc.1+desktop.long-build",
+    );
+  });
+
+  it("uses an accessible compact language picker in a narrow sidebar", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
+      matches: true,
+      media: "(max-width: 900px)",
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    render(<InspectorWorkbench api={api()} project={project} version="2.0.2" />);
+
+    const picker = screen.getByRole("button", { name: "界面语言" });
+    expect(screen.queryByRole("combobox", { name: "界面语言" })).not.toBeInTheDocument();
+    await user.click(picker);
+    expect(screen.getByRole("option", { name: "简体中文" })).toHaveFocus();
+    await user.keyboard("{ArrowDown}{Enter}");
+
+    expect(document.documentElement).toHaveAttribute("lang", "en-US");
+    expect(screen.getByRole("button", { name: "Interface language" })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("opens structured module help beside each supported page title", async () => {
+    const user = userEvent.setup();
+    render(<InspectorWorkbench api={api()} project={project} version="2.0.2" />);
+
+    const modules = [
+      { navigation: "环境变量", trigger: "了解环境变量", title: "环境变量", description: "集中管理连接认证与脚本可复用的配置值。" },
+      { navigation: "自动化测试", trigger: "了解自动化测试", title: "自动化测试", description: "配置可重复执行的 Tool 参数、断言和超时策略。" },
+      { navigation: "测试套件", trigger: "了解测试套件", title: "测试套件", description: "组合单 Tool 与场景用例，并以有限并发执行。" },
+      { navigation: "测试报告", trigger: "了解测试报告", title: "测试报告", description: "查看执行历史、断言结果与完整调用追溯。" },
+      { navigation: "运行历史", trigger: "了解运行历史", title: "运行历史", description: "查看项目内所有 Tool 调用，按时间回溯请求、响应和协议轨迹。" },
+    ] as const;
+
+    for (const module of modules) {
+      await user.click(screen.getByRole("button", { name: module.navigation }));
+      const title = await screen.findByRole("heading", { name: module.title, level: 1 });
+      const trigger = screen.getByRole("button", { name: module.trigger });
+      expect(title.parentElement).toContainElement(trigger);
+      await user.click(trigger);
+      const dialog = screen.getByRole("dialog", { name: module.title });
+      expect(dialog).toHaveTextContent(module.description);
+      for (const section of ["模块用途", "如何配置", "如何使用", "产生效果"]) {
+        expect(within(dialog).getByRole("heading", { name: section, level: 3 })).toBeVisible();
+      }
+      await user.click(within(dialog).getByRole("button", { name: `关闭${module.title}说明` }));
+      expect(trigger).toHaveFocus();
+    }
+  });
+
   it("switches locale in place without rebuilding the active Server workspace", async () => {
     await i18n.changeLanguage("zh-CN");
     const user = userEvent.setup();
@@ -117,6 +185,10 @@ describe("InspectorWorkbench", () => {
     expect(document.documentElement).toHaveAttribute("lang", "en-US");
     expect(localStorage.getItem("mcp-inspector.locale")).toBe("en-US");
     expect(document.cookie).toContain("mcp_inspector_locale=en-US");
+
+    await user.click(screen.getByRole("button", { name: "Environment" }));
+    await user.click(await screen.findByRole("button", { name: "Learn about Environment variables" }));
+    expect(screen.getByRole("heading", { name: "How to configure", level: 3 })).toBeVisible();
 
     await i18n.changeLanguage("zh-CN");
   });
@@ -184,6 +256,38 @@ describe("InspectorWorkbench", () => {
     expect(client.refreshTools).toHaveBeenCalledTimes(1);
   });
 
+  it("disconnects a closed Server tab and does not restore it while switching Servers and Tools", async () => {
+    const user = userEvent.setup();
+    const client = api();
+    const connected = { ...connection, status: "connected" as const, authorizationStatus: "authorized" as const };
+    const disconnected = { ...connected, status: "disconnected" as const };
+    vi.mocked(client.listConnections).mockResolvedValueOnce([connected]).mockResolvedValue([disconnected]);
+    vi.mocked(client.disconnectConnection).mockResolvedValue(disconnected);
+    render(<InspectorWorkbench api={client} project={project} version="2.0.5" />);
+
+    await user.click(await screen.findByRole("tab", { name: "Supplier MCP" }));
+    const trigger = screen.getByRole("button", { name: "Supplier MCP Server 操作" });
+    await user.click(trigger);
+    expect(screen.getByRole("menu", { name: "Supplier MCP Server 操作" })).toBeVisible();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu", { name: "Supplier MCP Server 操作" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+
+    await user.click(trigger);
+    await user.click(screen.getByRole("menuitem", { name: "关闭 Server 页签" }));
+    await waitFor(() => expect(client.disconnectConnection).toHaveBeenCalledWith(project.id, connection.id));
+    await waitFor(() => expect(screen.queryByRole("tab", { name: "Supplier MCP" })).not.toBeInTheDocument());
+    expect(screen.getByText("选择一个已连接的 Server 开始调试")).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Servers" }));
+    expect(await screen.findByText("已授权")).toBeVisible();
+    expect(screen.getByText("待连接")).toBeVisible();
+    expect(screen.queryByRole("tab", { name: "Supplier MCP" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Tools" }));
+    expect(screen.queryByRole("tab", { name: "Supplier MCP" })).not.toBeInTheDocument();
+    expect(screen.getByText("选择一个已连接的 Server 开始调试")).toBeVisible();
+  });
+
   it("loads the saved catalog without refreshing when entering Tools from the sidebar", async () => {
     const user = userEvent.setup();
     const client = api();
@@ -240,6 +344,56 @@ describe("InspectorWorkbench", () => {
     expect(client.openTab).toHaveBeenCalledWith(project.id, connection.id, "get_price");
     expect(client.replaceTabTool).not.toHaveBeenCalled();
     expect(screen.getByRole("tab", { name: "sum" })).toBeVisible();
+  });
+
+  it("does not reopen the last Tool intent after navigating away and back", async () => {
+    const user = userEvent.setup();
+    const client = api();
+    const connected = { ...connection, status: "connected" as const };
+    const opened = restoredTab({ toolName: "sum", title: "sum" });
+    let persistedTabs: DebugTabSummary[] = [];
+    vi.mocked(client.listConnections).mockResolvedValue([connected]);
+    vi.mocked(client.listTools).mockResolvedValue([historyTool.tool]);
+    vi.mocked(client.listTabs).mockImplementation(async () => persistedTabs);
+    vi.mocked(client.openTab).mockImplementation(async () => { persistedTabs = [opened]; return opened; });
+    vi.mocked(client.getTool).mockResolvedValue(historyTool);
+    vi.mocked(client.markToolUsed).mockResolvedValue(historyTool.tool);
+    render(<InspectorWorkbench api={client} project={project} version="2.0.3" />);
+
+    await user.click(await screen.findByRole("tab", { name: "Supplier MCP" }));
+    await user.click(await screen.findByRole("button", { name: "sum" }));
+    await screen.findByRole("tab", { name: "sum" });
+    expect(client.openTab).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: "自动化测试" }));
+    await screen.findByRole("heading", { name: "自动化测试" });
+    await user.click(screen.getByRole("button", { name: "Tools" }));
+    await screen.findByRole("tab", { name: "sum" });
+    expect(client.openTab).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps Tool intent sequences monotonic after earlier intents are cleared", async () => {
+    const user = userEvent.setup();
+    const client = api();
+    const connected = { ...connection, status: "connected" as const };
+    const first = restoredTab({ toolName: "sum", title: "sum" });
+    const second = restoredTab({ id: "00000000-0000-4000-8000-000000000710", toolName: "sum", title: "sum (2)", position: 1 });
+    vi.mocked(client.listConnections).mockResolvedValue([connected]);
+    vi.mocked(client.listTools).mockResolvedValue([historyTool.tool]);
+    vi.mocked(client.listTabs).mockResolvedValue([]);
+    vi.mocked(client.openTab).mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+    vi.mocked(client.getTool).mockResolvedValue(historyTool);
+    vi.mocked(client.markToolUsed).mockResolvedValue(historyTool.tool);
+    render(<InspectorWorkbench api={client} project={project} version="2.0.3" />);
+
+    await user.click(await screen.findByRole("tab", { name: "Supplier MCP" }));
+    const toolButton = await screen.findByRole("button", { name: "sum" });
+    await user.click(toolButton);
+    await screen.findByRole("tab", { name: /^sum$/ });
+    await user.click(toolButton);
+    await screen.findByRole("tab", { name: "sum (2)" });
+
+    expect(client.openTab).toHaveBeenCalledTimes(2);
   });
 
   it("returns to Servers after OAuth authorization and waits for a later connection before opening Tools", async () => {

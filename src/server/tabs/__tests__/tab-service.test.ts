@@ -56,7 +56,7 @@ describe("TabService", () => {
       const bearer = service.open({ projectId, connectionId: bearerConnectionId, toolName: "sum" });
 
       expect(service.list(projectId, connectionId).map(({ id, title }) => [id, title]))
-        .toEqual([[oauthFirst.id, "sum"], [oauthSecond.id, "sum (2)"]]);
+        .toEqual([[oauthFirst.id, "sum"], [oauthSecond.id, "sum （2）"]]);
       expect(service.list(projectId, bearerConnectionId).map(({ id, title }) => [id, title]))
         .toEqual([[bearer.id, "sum"]]);
 
@@ -76,13 +76,25 @@ describe("TabService", () => {
       expect(second).toMatchObject({ arguments: {}, rawText: "" });
       expect(first.id).not.toBe(second.id);
       expect(first.title).toBe("sum");
-      expect(second.title).toBe("sum (2)");
+      expect(second.title).toBe("sum （2）");
       service.update(first.id, projectId, { arguments: { a: 1, b: 2 }, inputMode: "form" });
       service.update(second.id, projectId, {
         arguments: { a: 10, b: 20 }, inputMode: "raw", rawText: "{\n  \"a\": 10,\n  \"b\": 20\n}",
       });
       expect(service.get(projectId, first.id).arguments).toEqual({ a: 1, b: 2 });
       expect(service.get(projectId, second.id).arguments).toEqual({ a: 10, b: 20 });
+    } finally { projects.close(); }
+  });
+
+  it("allocates canonical full-width duplicate titles and treats legacy punctuation variants as occupied", () => {
+    const { projects, service } = fixture();
+    try {
+      service.open({ projectId, connectionId, toolName: "sum" });
+      const second = service.open({ projectId, connectionId, toolName: "sum" });
+      expect(second.title).toBe("sum （2）");
+
+      service.update(second.id, projectId, { title: "sum（2）" });
+      expect(service.open({ projectId, connectionId, toolName: "sum" }).title).toBe("sum （3）");
     } finally { projects.close(); }
   });
 
@@ -124,7 +136,7 @@ describe("TabService", () => {
         viewState: { editorScrollTop: 9, resultScrollTop: 10, splitRatio: 0.6,
           requestExpanded: false, responseExpanded: true }, pinned: true });
       const copy = service.duplicate(projectId, second.id);
-      expect(copy).toMatchObject({ title: "sum (4)", arguments: { marker: 2 }, rawText: "{\"marker\":2}",
+      expect(copy).toMatchObject({ title: "sum （4）", arguments: { marker: 2 }, rawText: "{\"marker\":2}",
         inputMode: "raw", pinned: false, lastRunId: null,
         viewState: { splitRatio: 0.6, requestExpanded: false, responseExpanded: true } });
       expect(() => service.reorder(projectId, connectionId, [first.id, second.id])).toThrow(/invalid/i);
@@ -132,7 +144,7 @@ describe("TabService", () => {
         .toEqual([[copy.id, 0], [third.id, 1], [first.id, 2], [second.id, 3]]);
       service.update(second.id, projectId, { pinned: false });
       service.close(projectId, second.id);
-      expect(service.open({ projectId, connectionId, toolName: "sum" }).title).toBe("sum (2)");
+      expect(service.open({ projectId, connectionId, toolName: "sum" }).title).toBe("sum （2）");
     } finally { projects.close(); }
   });
 

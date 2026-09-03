@@ -100,7 +100,7 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     await expect(commerceFolder).toHaveAttribute("aria-expanded", "true");
     await expect(page.locator(".tool-folder-group").filter({ has: commerceFolder }).getByRole("button", { name: "echo", exact: true })).toBeVisible();
 
-    const titles = ["sum", ...Array.from({ length: 7 }, (_, index) => `sum (${index + 2})`)];
+    const titles = ["sum", ...Array.from({ length: 7 }, (_, index) => `sum （${index + 2}）`)];
     for (let index = 0; index < 8; index += 1) {
       await sumTool.dblclick();
       await expect(page.getByRole("tab", { name: titles[index], exact: true })).toBeVisible();
@@ -399,17 +399,14 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     await expect(page.getByRole("tabpanel", { name: "请求与结果" })).toBeVisible();
     expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
       .analyze()).violations).toEqual([]);
-    const visualMasks = [
-      page.locator(".run-result__sticky-header > header"),
-      page.locator(".run-overview"),
-    ];
-    await expect(page).toHaveScreenshot("tool-debug-zh-light.png", { animations: "disabled", mask: visualMasks });
+    const visualRegressionStyles = join(process.cwd(), "e2e", "visual-regression.css");
+    await expect(page).toHaveScreenshot("tool-debug-zh-light.png", { animations: "disabled", stylePath: visualRegressionStyles });
     await page.getByRole("button", { name: "切换到深色主题" }).click();
     await expect(page.locator("html")).toHaveAttribute("data-color-mode", "dark");
     await page.waitForTimeout(50);
     expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
       .analyze()).violations).toEqual([]);
-    await expect(page).toHaveScreenshot("tool-debug-zh-dark.png", { animations: "disabled", mask: visualMasks });
+    await expect(page).toHaveScreenshot("tool-debug-zh-dark.png", { animations: "disabled", stylePath: visualRegressionStyles });
   } catch (error) {
     primaryFailure = error;
   } finally {

@@ -8,6 +8,26 @@ export const zhCNRuns = {
   },
   page: {
     title: "运行历史", description: "查看项目内所有 Tool 调用，按时间回溯请求、响应和协议轨迹。",
+    help: {
+      trigger: "了解运行历史", close: "关闭运行历史说明", summary: "调用档案",
+      sections: { purpose: "模块用途", configure: "如何配置", use: "如何使用", effect: "产生效果" },
+      purpose: { one: "按项目保存和查看每一次 Tool 调用及其请求、响应和协议事件。", two: "为问题定位、回放和结果对比提供可追溯入口。" },
+      configure: { one: "无需预先配置；Tool 执行后会自动生成运行记录。", two: "可按 Tool、连接 ID、状态、来源、固定状态和时间范围组合筛选。" },
+      use: { one: "应用筛选后从左侧选择记录，在右侧查看参数、结果、HTTP、RPC 与时间线。", two: "可固定重要记录、打开调试、创建测试用例、回放或对比来源。" },
+      effect: { one: "筛选只改变当前列表，不删除或修改历史数据。", two: "回放会创建新的关联 Run，原始记录和快照信息保持不变。" },
+    },
+    filterHelp: {
+      title: "筛选项说明", trigger: "了解运行筛选", close: "关闭运行筛选说明", summary: "筛选字段",
+      sections: { toolName: "Tool 名称", connectionId: "连接 ID", status: "状态", origin: "来源", pinned: "固定状态", time: "开始与结束时间" },
+      items: {
+        toolName: "按执行时记录的完整 Tool 名称精确筛选。",
+        connectionId: "按连接的稳定 UUID 精确筛选；不是 Server 展示名称或 URL。",
+        status: "按运行当前或最终状态筛选，包括排队、连接、授权、运行、成功、失败、取消与中断。",
+        origin: "原始运行是直接发起的调用；回放运行是从一条历史记录重新执行后创建的新 Run。",
+        pinned: "仅显示已固定或未固定的记录；固定用于保留重要记录，不改变执行结果。",
+        time: "按 Run 的创建时间范围筛选；浏览器输入的本地时间会转换为标准时间后提交。",
+      },
+    },
     listAria: "运行记录列表", selectTitle: "选择一条运行记录",
     selectDescription: "请求参数、响应结果、RPC、HTTP 与时间线会显示在这里。",
     loadingDetail: "正在加载运行详情…", openFailed: "无法打开调试",

@@ -63,10 +63,18 @@ export function createTabService(projects: ProjectService, connections: Connecti
     if (detail.tool.status === "removed") throw new InvalidTabError("Removed Tool cannot be opened");
   }
   function titleFor(projectId: string, connectionId: string, toolName: string, excludeId?: string): string {
-    const used = new Set(repo(projectId).list(projectId, connectionId).filter((tab) => tab.toolName === toolName && tab.id !== excludeId).map(({ title }) => title));
-    if (!used.has(toolName)) return toolName;
+    const usedSuffixes = new Set(repo(projectId).list(projectId, connectionId)
+      .filter((tab) => tab.toolName === toolName && tab.id !== excludeId)
+      .map(({ title }) => {
+        if (title === toolName) return 1;
+        if (!title.startsWith(toolName)) return null;
+        const match = /^\s*[（(]\s*([0-9]+)\s*[）)]$/u.exec(title.slice(toolName.length));
+        return match?.[1] === undefined ? null : Number(match[1]);
+      })
+      .filter((suffix): suffix is number => suffix !== null && Number.isSafeInteger(suffix) && suffix > 0));
+    if (!usedSuffixes.has(1)) return toolName;
     for (let suffix = 2; suffix < 100_000; suffix += 1) {
-      const title = `${toolName} (${suffix})`; if (!used.has(title)) return title;
+      if (!usedSuffixes.has(suffix)) return `${toolName} （${suffix}）`;
     }
     throw new Error("Unable to allocate Tab title");
   }

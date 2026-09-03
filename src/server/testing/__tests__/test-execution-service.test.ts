@@ -94,6 +94,37 @@ describe("TestExecutionService", () => {
     } finally { await close(value); }
   });
 
+  it("binds execution-history pagination cursors to the selected test case", async () => {
+    const value = fixture();
+    try {
+      const createCase = (name: string) => value.testCases.create(projectId, {
+        kind: "tool" as const, name, description: "", tags: [], isEnabled: true,
+        target: { connectionId, toolName: "sum" }, arguments: { a: 1 }, timeoutMs: 10_000, assertions: [],
+      });
+      const firstCase = createCase("First history");
+      const secondCase = createCase("Second history");
+      await value.connections.connect(projectId, connectionId);
+      for (const [testCaseId, idempotencyKey] of [
+        [firstCase.id, "first-history-1"], [firstCase.id, "first-history-2"], [secondCase.id, "second-history-1"],
+      ] as const) {
+        const started = value.executions.start({ projectId, testCaseId, idempotencyKey });
+        await value.executions.waitForTerminal(projectId, started.id);
+      }
+
+      const firstPage = value.executions.list(projectId, { testCaseId: firstCase.id, limit: 1 });
+      expect(firstPage.items).toHaveLength(1);
+      expect(firstPage.items[0]?.testCaseId).toBe(firstCase.id);
+      expect(firstPage.nextCursor).not.toBeNull();
+      expect(value.executions.list(projectId, {
+        testCaseId: firstCase.id, cursor: firstPage.nextCursor!, limit: 1,
+      }).items[0]?.testCaseId).toBe(firstCase.id);
+      expect(() => value.executions.list(projectId, { cursor: firstPage.nextCursor!, limit: 1 }))
+        .toThrow("Test execution cursor is invalid");
+      expect(value.executions.list(projectId, { testCaseId: secondCase.id }).items)
+        .toEqual([expect.objectContaining({ testCaseId: secondCase.id })]);
+    } finally { await close(value); }
+  });
+
   it("updates equality baselines only after explicit confirmation", async () => {
     const value = fixture();
     try {
@@ -221,6 +252,66 @@ describe("TestExecutionService", () => {
       });
       expect(completed.steps.every(({ runId }) => value.runs.get(projectId, runId!).tabId === null)).toBe(true);
       expect(value.environment.resolve(projectId, connectionId)).toMatchObject({ project: {}, server: { API_TOKEN: "fixture-token" } });
+    } finally { await close(value); }
+  });
+
+  it("preserves a safe Tool failure reason in a scenario execution", async () => {
+    const value = fixture();
+    try {
+      value.session.call = async () => { throw new Error("secret upstream reason"); };
+      const testCase = value.testCases.create(projectId, {
+        kind: "scenario", name: "Failed sum", description: "", tags: [], isEnabled: true,
+        inputs: [], assertions: [], failurePolicy: "STOP",
+        steps: [{ id: "failed", name: "Failed step", target: { connectionId, toolName: "sum" },
+          fixedArguments: { a: 1 }, mappings: [], extractors: [], assertions: [], condition: null,
+          polling: null, onFailure: "STOP" }],
+        cleanupSteps: [],
+      });
+      await value.connections.connect(projectId, connectionId);
+      const started = value.executions.start({ projectId, testCaseId: testCase.id,
+        idempotencyKey: "failed-scenario" });
+      const completed = await value.executions.waitForTerminal(projectId, started.id);
+
+      expect(completed).toMatchObject({
+        status: "FAILED",
+        error: { code: "MCP_CALL_FAILED", message: "MCP Tool call failed" },
+        steps: [{ status: "FAILED", runId: expect.any(String),
+          error: { code: "MCP_CALL_FAILED", message: "MCP Tool call failed" } }],
+      });
+      expect(JSON.stringify(completed)).not.toContain("secret upstream reason");
+    } finally { await close(value); }
+  });
+
+  it("reports the concrete validation reason when a later scenario step cannot start its Tool", async () => {
+    const value = fixture();
+    try {
+      const testCase = value.testCases.create(projectId, {
+        kind: "scenario", name: "Invalid second step", description: "", tags: [], isEnabled: true,
+        inputs: [], assertions: [], failurePolicy: "STOP",
+        steps: [{ id: "first", name: "First", target: { connectionId, toolName: "sum" },
+          fixedArguments: { a: 1 }, mappings: [], extractors: [], assertions: [], condition: null,
+          polling: null, onFailure: "STOP" },
+        { id: "second", name: "Second", target: { connectionId, toolName: "sum" },
+          fixedArguments: {}, mappings: [{ targetPath: "$.a", source: {
+            kind: "STEP_RESPONSE", stepId: "first", path: "$.structuredContent",
+          }, isRequired: true }], extractors: [], assertions: [], condition: null,
+          polling: null, onFailure: "STOP" }],
+        cleanupSteps: [],
+      });
+      await value.connections.connect(projectId, connectionId);
+      const started = value.executions.start({ projectId, testCaseId: testCase.id,
+        idempotencyKey: "invalid-second-step" });
+      const completed = await value.executions.waitForTerminal(projectId, started.id);
+
+      expect(completed).toMatchObject({
+        status: "ERROR",
+        error: { code: "INVALID_ARGUMENTS", message: expect.stringContaining("/a") },
+        steps: [
+          { stepId: "first", status: "PASSED", runId: expect.any(String), error: null },
+          { stepId: "second", status: "ERROR", runId: null,
+            error: { code: "INVALID_ARGUMENTS", message: expect.stringContaining("/a") } },
+        ],
+      });
     } finally { await close(value); }
   });
 });

@@ -56,8 +56,8 @@ describe("ScriptWorkflowView", () => {
     const api = client(); const user = userEvent.setup();
     render(<><AppToaster /><ScriptWorkflowView api={api} projectId={projectId} connectionId={connectionId} toolName="sum" argumentsValue={{ a: 1 }} /></>);
 
-    const toggles = await screen.findAllByRole("checkbox", { name: "未启用" });
-    await user.click(toggles[0]!);
+    const beforeToggle = await screen.findByRole("switch", { name: "前置脚本" });
+    await user.click(beforeToggle);
     expect((screen.getByLabelText("前置脚本源码") as HTMLTextAreaElement).value).toContain("function before");
     await user.click(screen.getAllByRole("button", { name: "校验语法" })[0]!);
     expect(await screen.findByText(/前置脚本：语法有效/)).toBeVisible();
@@ -102,7 +102,7 @@ describe("ScriptWorkflowView", () => {
 
     await user.click(screen.getByRole("button", { name: "使用样例：设置与清理参数" }));
     expect((screen.getByLabelText("前置脚本源码") as HTMLTextAreaElement).value).toContain("ctx.arguments.set");
-    expect(screen.getByRole("checkbox", { name: "已启用" })).toBeChecked();
+    expect(screen.getByRole("switch", { name: "前置脚本" })).toBeChecked();
     expect(await screen.findByText("样例已应用到前置脚本")).toBeVisible();
   });
 

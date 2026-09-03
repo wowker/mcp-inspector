@@ -508,7 +508,7 @@ POST   /api/projects/:projectId/test-suites/:suiteId/executions
 ### 10.3 执行与事件
 
 ```text
-GET  /api/projects/:projectId/test-executions
+GET  /api/projects/:projectId/test-executions?testCaseId=:testCaseId
 GET  /api/projects/:projectId/test-executions/:executionId
 POST /api/projects/:projectId/test-executions/:executionId/cancel
 GET  /api/projects/:projectId/test-executions/:executionId/events
@@ -573,14 +573,17 @@ Tools 页现有“已保存”继续保留。提供“转换为测试用例”�
 从上到下分为：
 
 1. 基本信息：名称、描述、标签。
-2. Tool 目标：Server 和 Tool；保存真实 connection ID。
+2. 测试配置：依次展示 Server、Tool 和超时时间；保存真实 connection ID，并为后续执行设置保留扩展位置。
 3. 请求参数：复用现有 Form/Raw canonical 编辑器。
 4. 期望与断言：一行一条，支持拖拽和键盘排序。
-5. 执行设置：超时、脚本使用方式、破坏性确认策略。
+
+基本信息和测试配置均使用统一 Disclosure。新建用例时默认展开，编辑已有用例时默认收起；收起状态只属于本地 UI，不写入测试定义。
 
 选择 Tool 后加载定义快照。Tool 定义发生变化时显示 changed 状态和参数/Schema 差异，不自动改写已保存参数或断言。
 
 ### 11.4 场景编排器
+
+基本信息与场景配置使用相同的 Disclosure 栏目。场景配置容纳场景输入、失败策略、步骤编排和引用检查；新建时默认展开，打开已有场景时默认收起，首次保存成功后收起，保存失败时保持用户当前展开状态。
 
 桌面布局采用三栏：
 
@@ -609,6 +612,12 @@ Tools 页现有“已保存”继续保留。提供“转换为测试用例”�
 - 套件开始前集中显示需要连接、缺失环境变量、已移除 Tool 和破坏性步骤。
 
 ### 11.6 执行结果
+
+场景执行结果使用“执行结果 / 执行历史”两个页签。场景编辑器的“执行历史”按钮直接切换到当前用例的历史页签；历史接口通过 `testCaseId` 隔离用例，游标必须绑定 project 与用例筛选上下文。
+
+场景结果在桌面端使用左侧流程、右侧详情的主从布局：所有步骤和场景级断言节点始终可见，默认不选择详情；点击步骤只展开该步骤的解析输入、Run 响应与断言，再次点击收起。历史详情复用同一结果视图。低于 760px 时改为上下布局。
+
+所有断言结果始终显示“实际值”和“期望值”。缺失的实际值显示空占位，JSON `null` 显示为 `null`，敏感值显示脱敏状态，三者不得混淆。
 
 结果页固定状态栏和横向页签：
 

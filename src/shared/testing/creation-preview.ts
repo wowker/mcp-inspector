@@ -42,6 +42,15 @@ function safeJson(value: unknown): { value: JsonValue | undefined; secret: boole
   return { value: result, secret, valid: true };
 }
 
+export function sanitizeTestCaseArguments(value: unknown): { arguments: JsonObject; omittedSensitiveValues: boolean } {
+  const sanitized = safeJson(value);
+  const argumentsValue = sanitized.valid && typeof sanitized.value === "object" && sanitized.value !== null &&
+      !Array.isArray(sanitized.value)
+    ? sanitized.value as JsonObject
+    : {};
+  return { arguments: argumentsValue, omittedSensitiveValues: sanitized.secret };
+}
+
 export function buildTestCaseCreationPreview(input: {
   source: TestCaseCreationPreview["source"];
   connectionId: string;

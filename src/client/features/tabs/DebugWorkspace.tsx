@@ -15,7 +15,7 @@ import type {
 } from "../../api/api-client.js";
 import { formatRawArguments, parseRawArguments } from "../../../shared/json.js";
 import { confirmToast } from "../../app/AppToaster.js";
-import { SplitPanePresets, type SplitPanePreset } from "../../components/layout/SplitPanePresets.js";
+import type { SplitPanePreset } from "../../components/layout/SplitPanePresets.js";
 import { RunHistory } from "../runs/RunHistory.js";
 import { EmptyRunResultPanel, RunResultPanel } from "../runs/RunResultPanel.js";
 import { useRunEvents, useRunPolling } from "../runs/use-run-events.js";
@@ -24,6 +24,8 @@ import { TabStrip } from "./TabStrip.js";
 import { SavedItemDialog } from "../saved-items/SavedItemDialog.js";
 import { SavedItemsView } from "../saved-items/SavedItemsView.js";
 import { schemaHasEditableArguments, valueAtJsonPointer } from "./schema-form.js";
+import { sanitizeTestCaseArguments } from "../../../shared/testing/creation-preview.js";
+import { DebugSettingsPopover } from "./DebugSettingsPopover.js";
 
 const ToolDefinitionView = lazy(async () => {
   const module = await import("./ToolDefinitionView.js");
@@ -45,6 +47,7 @@ interface Props {
   onExecute?: (tab: DebugTabSummary) => void;
   onActiveToolChange?: (tool: { connectionId: string; name: string } | null) => void;
   onCreateTestFromSaved?: (item: import("../../api/api-client.js").SavedItemDetail) => void;
+  onToolIntentHandled?: (sequence: number) => void;
 }
 
 type WorkspaceView = "debug" | "definition" | "script" | "history" | "saved";
@@ -87,7 +90,8 @@ export function DebugWorkspace(props: Props) {
   return <ProjectWorkspace key={`${props.projectId}:${props.connectionId ?? "test"}`} {...props} />;
 }
 
-function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null, onExecute, onActiveToolChange, onCreateTestFromSaved }: Props) {
+function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null, onExecute, onActiveToolChange,
+  onCreateTestFromSaved, onToolIntentHandled }: Props) {
   const { t } = useTranslation("tools");
   const [tabs, setTabs] = useState<DebugTabSummary[] | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -103,6 +107,7 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
   const [activeObservations, setActiveObservations] = useState<Record<string, ActiveObservation>>({});
   const [saveIntent, setSaveIntent] = useState<SaveIntent | null>(null);
   const [savedRevision, setSavedRevision] = useState(0);
+  const [savingTestCaseIds, setSavingTestCaseIds] = useState<ReadonlySet<string>>(new Set());
   const [workflowExecutions, setWorkflowExecutions] = useState<Record<string, WorkflowExecutionDetail>>({});
   const tabsRef = useRef<DebugTabSummary[]>([]);
   const activeRef = useRef<string | null>(null);
@@ -119,6 +124,7 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
   const activeRuns = useRef(new Map<string, string>());
   const activeWorkflows = useRef(new Map<string, string>());
   const workflowControllers = useRef(new Map<string, AbortController>());
+  const savingTestCases = useRef(new Set<string>());
   const settledLastRuns = useRef(new Map<string, string>());
   const requestPaneRef = useRef<HTMLDivElement>(null);
   const resultPaneRef = useRef<HTMLDivElement>(null);
@@ -317,6 +323,7 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
     if (toolIntent === null || toolIntent.sequence === handledIntent.current || tabs === null ||
       toolIntent.tool.projectId !== projectId || (connectionId !== "" && toolIntent.tool.connectionId !== connectionId)) return;
     handledIntent.current = toolIntent.sequence;
+    onToolIntentHandled?.(toolIntent.sequence);
     const intent = toolIntent; const scope = workspaceGeneration.current;
     intentQueue.current = intentQueue.current.catch(() => undefined).then(async () => {
       if (workspaceGeneration.current !== scope || !(await flush()) || workspaceGeneration.current !== scope) return;
@@ -347,7 +354,37 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
       }
       activate(opened.id); setView("debug");
     }).catch((error: unknown) => { if (workspaceGeneration.current === scope) setMessage(error instanceof Error ? error.message : t("workspace.errors.openTab")); });
-  }, [api, connectionId, flush, projectId, tabs, toolIntent]);
+  }, [api, connectionId, flush, onToolIntentHandled, projectId, tabs, toolIntent]);
+
+  async function saveAsTestCase(tab: DebugTabSummary, argumentsValue: Record<string, unknown>): Promise<void> {
+    if (savingTestCases.current.has(tab.id)) return;
+    savingTestCases.current.add(tab.id);
+    setSavingTestCaseIds((current) => new Set(current).add(tab.id));
+    const sanitized = sanitizeTestCaseArguments(argumentsValue);
+    try {
+      const saved = await api.createTestCase(projectId, {
+        kind: "tool",
+        name: t("parameter.defaultTestCaseName", { toolName: tab.toolName }).slice(0, 120),
+        description: "",
+        tags: [],
+        isEnabled: true,
+        target: { connectionId: tab.connectionId, toolName: tab.toolName },
+        arguments: sanitized.arguments,
+        assertions: [],
+        timeoutMs: 30_000,
+      });
+      if (saved.projectId !== projectId || saved.kind !== "tool" || saved.target.connectionId !== tab.connectionId ||
+          saved.target.toolName !== tab.toolName) throw new Error("Invalid test case response");
+      toast.success(t(sanitized.omittedSensitiveValues
+        ? "parameter.testCaseSavedSensitiveOmitted"
+        : "parameter.testCaseSaved"));
+    } catch {
+      setMessage(t("parameter.testCaseSaveFailed"));
+    } finally {
+      savingTestCases.current.delete(tab.id);
+      setSavingTestCaseIds((current) => { const next = new Set(current); next.delete(tab.id); return next; });
+    }
+  }
 
   async function reconcileLaunch(id: string): Promise<boolean> {
     const persistedRunId = tabsRef.current.find((tab) => tab.id === id)?.lastRunId ?? null;
@@ -575,10 +612,14 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
         onMove={(id, offset) => void move(id, offset)}
         onCloseOthers={(id) => void bulk(id, "others")} onCloseRight={(id) => void bulk(id, "right")} />
       {activeReadOnlyId === null && active !== null && <nav className="workspace-nav" aria-label={t("workspace.currentViews")}>
-        {(["debug", "definition", "script", "saved", "history"] as const).map((item) => <button type="button" key={item}
+        {(["debug", "definition", "saved", "script", "history"] as const).map((item) => <button type="button" key={item}
           aria-current={view === item ? "page" : undefined} onClick={() => setView(item)}>
           {t(`workspace.views.${item}`)}</button>)}
       </nav>}
+      {activeReadOnlyId === null && active !== null && <DebugSettingsPopover
+        value={active.viewState.requestExpanded && active.viewState.responseExpanded
+          ? splitPanePreset(active.viewState.splitRatio) : "custom"}
+        onChange={(preset) => updateSplitRatio(splitPaneRatios[preset], true)} />}
     </div>
     {readOnlyTabs.length > 0 && <div className="history-tabs" role="tablist" aria-label={t("workspace.readOnlyTabs")} onKeyDown={(event) => {
       if (!(event.target instanceof HTMLElement) || event.target.getAttribute("role") !== "tab" ||
@@ -609,18 +650,14 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
             expanded={parametersExpanded} onExpandedChange={(expanded) => schedule(active.id, {
               viewState: { ...active.viewState, requestExpanded: expanded },
             })}
-            layoutControls={<SplitPanePresets label={t("workspace.layoutPresets.label")}
-              value={parametersExpanded && responseExpanded ? splitPanePreset(active.viewState.splitRatio) : "custom"}
-              options={(["request", "balanced", "result"] as const).map((preset) => ({
-                value: preset, label: t(`workspace.layoutPresets.${preset}`),
-              }))}
-              onChange={(preset) => updateSplitRatio(splitPaneRatios[preset], true)} />}
             subtreeDrafts={subtreeDrafts[active.id]}
             onSubtreeDraftChange={(path, text, base) => setSubtreeDrafts((current) => ({ ...current,
               [active.id]: { ...(current[active.id] ?? {}), [path]: { text, base } } }))}
             onChange={(patch) => schedule(active.id, patch)} onExecute={() => void execute()}
             onSaveRequest={(payload) => setSaveIntent({ tabId: active.id, connectionId: active.connectionId,
-              toolName: active.toolName, kind: "request", payload, sourceRunId: null })} />
+              toolName: active.toolName, kind: "request", payload, sourceRunId: null })}
+            savingTestCase={savingTestCaseIds.has(active.id)}
+            onSaveAsTestCase={(payload) => void saveAsTestCase(active, payload)} />
         </div>
         <div className="split-control" role="separator" aria-orientation="horizontal"
           aria-label={t("workspace.requestHeight")} aria-valuemin={20} aria-valuemax={80}

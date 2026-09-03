@@ -1,16 +1,19 @@
-import { Plus } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import type { CatalogToolSummary, ConnectionSummary, InspectorApiClient, RunDetail, SavedItemDetail } from "../../api/api-client.js";
+import { InspectorApiError, type CatalogToolSummary, type ConnectionSummary, type InspectorApiClient,
+  type RunDetail, type SavedItemDetail } from "../../api/api-client.js";
 import type { TestCaseSummary } from "../../../shared/testing/test-case.js";
 import type { TestExecutionDetail } from "../../../shared/testing/test-execution.js";
 import { jsonValueSchema, type JsonObject } from "../../../shared/tool-definition.js";
 import { Button } from "../../components/actions/Button.js";
+import { Disclosure } from "../../components/layout/Disclosure.js";
 import { Dialog } from "../../components/overlays/Dialog.js";
+import { ModuleHelpPopover } from "../../components/overlays/ModuleHelpPopover.js";
 import { TestCaseList } from "./TestCaseList.js";
 import { ToolTestCaseEditor } from "./ToolTestCaseEditor.js";
 import { TestExecutionPanel } from "./TestExecutionPanel.js";
+import { TestExecutionWorkspace } from "./TestExecutionWorkspace.js";
 import { draftFromDefinition, draftFromPreview, mutationFromDraft, newToolTestCaseDraft, type ToolTestCaseDraft } from "./test-case-draft.js";
 import { ScenarioTestCaseEditor } from "./ScenarioTestCaseEditor.js";
 import { draftFromScenarioDefinition, newScenarioTestCaseDraft, scenarioMutationFromDraft,
@@ -45,8 +48,21 @@ export function TestCasesPage({ api, projectId, sourceIntent = null }: Props) {
   const [destructiveOpen, setDestructiveOpen] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [execution, setExecution] = useState<TestExecutionDetail | null>(null);
+  const [executionRuns, setExecutionRuns] = useState<Record<string, RunDetail>>({});
+  const [responseState, setResponseState] = useState<"loading" | "ready" | "error">("ready");
   const [scenarioInputTexts, setScenarioInputTexts] = useState<Record<string, string>>({});
+  const [resultExpanded, setResultExpanded] = useState(false);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
   const executionVersion = useRef(0);
+
+  function saveFailure(error: unknown): string {
+    if (error instanceof InspectorApiError) {
+      if (error.code === "TEST_CASE_REVISION_CONFLICT") return t("editor.saveFailedRevision");
+      if (error.code === "TEST_CASE_INVALID") return t("editor.saveFailedInvalid");
+      if (error.code === "TEST_TARGET_NOT_AVAILABLE") return t("editor.saveFailedTarget");
+    }
+    return t("editor.saveFailedUnknown");
+  }
 
   const loadList = useCallback(() => {
     const version = ++listVersion.current;
@@ -63,7 +79,8 @@ export function TestCasesPage({ api, projectId, sourceIntent = null }: Props) {
 
   useEffect(() => {
     setDraft(null); setScenarioDraft(null); setItems([]); setConnections([]); setTools([]); setSelectedTool(null); setExecution(null);
-    setScenarioInputTexts({}); setDirty(false);
+    setExecutionRuns({}); setResponseState("ready");
+    setScenarioInputTexts({}); setDirty(false); setResultExpanded(false); setHistoryExpanded(false);
     loadList();
     return () => { listVersion.current += 1; detailVersion.current += 1; toolVersion.current += 1; executionVersion.current += 1; };
   }, [loadList, refreshKey]);
@@ -118,7 +135,7 @@ export function TestCasesPage({ api, projectId, sourceIntent = null }: Props) {
           input.name, input.defaultValue === undefined ? "" : JSON.stringify(input.defaultValue),
         ])));
       }
-      setDirty(false); setExecution(null); executionVersion.current += 1; setLoading(false);
+      setDirty(false); setExecution(null); setExecutionRuns({}); setResponseState("ready"); setResultExpanded(false); setHistoryExpanded(false); executionVersion.current += 1; setLoading(false);
     } catch (error) {
       if (version !== detailVersion.current) return;
       setLoading(false); toast.error(t("list.loadFailed"));
@@ -167,7 +184,7 @@ export function TestCasesPage({ api, projectId, sourceIntent = null }: Props) {
       setItems((current) => [summary, ...current.filter(({ id }) => id !== saved.id)]);
       toast.success(t("editor.saved"));
     } catch (error) {
-      toast.error(t("editor.saveFailed"));
+      toast.error(saveFailure(error));
     } finally { setSaving(false); }
   }
 
@@ -188,11 +205,33 @@ export function TestCasesPage({ api, projectId, sourceIntent = null }: Props) {
         createdAt: saved.createdAt, updatedAt: saved.updatedAt };
       setItems((current) => [summary, ...current.filter(({ id }) => id !== saved.id)]);
       toast.success(t("editor.saved"));
-    } catch { toast.error(t("editor.saveFailed")); }
+    } catch (error) { toast.error(saveFailure(error)); }
     finally { setSaving(false); }
   }
 
   const executionActive = execution?.status === "QUEUED" || execution?.status === "RUNNING";
+
+  async function loadExecutionResponses(detail: TestExecutionDetail, version: number): Promise<void> {
+    if (version !== executionVersion.current) return;
+    const runIds = [...new Set(detail.steps.flatMap(({ runId }) => runId === null ? [] : [runId]))];
+    setExecutionRuns({});
+    if (runIds.length === 0) { setResponseState("ready"); return; }
+    setResponseState("loading");
+    try {
+      const runs: RunDetail[] = [];
+      for (let index = 0; index < runIds.length; index += 8) {
+        runs.push(...await Promise.all(runIds.slice(index, index + 8).map((runId) => api.getRun(projectId, runId))));
+        if (version !== executionVersion.current) return;
+      }
+      if (runs.some((run, index) => run.projectId !== projectId || run.id !== runIds[index])) {
+        throw new Error("Run identity mismatch");
+      }
+      setExecutionRuns(Object.fromEntries(runs.map((run) => [run.id, run])));
+      setResponseState("ready");
+    } catch {
+      if (version === executionVersion.current) setResponseState("error");
+    }
+  }
 
   async function pollExecution(executionId: string, version: number): Promise<void> {
     while (version === executionVersion.current) {
@@ -201,7 +240,10 @@ export function TestCasesPage({ api, projectId, sourceIntent = null }: Props) {
       const latest = await api.getTestExecution(projectId, executionId);
       if (version !== executionVersion.current) return;
       setExecution(latest);
-      if (latest.status !== "QUEUED" && latest.status !== "RUNNING") return;
+      if (latest.status !== "QUEUED" && latest.status !== "RUNNING") {
+        await loadExecutionResponses(latest, version);
+        return;
+      }
     }
   }
 
@@ -227,13 +269,18 @@ export function TestCasesPage({ api, projectId, sourceIntent = null }: Props) {
       }
     }
     const version = ++executionVersion.current;
+    setExecutionRuns({}); setResponseState("ready");
     try {
       const started = await api.startTestExecution(projectId, selectedId, crypto.randomUUID(), {
         ...(confirmDestructive ? { confirmDestructive: true } : {}), ...(inputs === undefined ? {} : { inputs }),
       });
       if (version !== executionVersion.current) return;
-      setDestructiveOpen(false); setExecution(started);
-      if (started.status === "QUEUED" || started.status === "RUNNING") await pollExecution(started.id, version);
+      setDestructiveOpen(false); setResultExpanded(true); setExecution(started);
+      if (started.status === "QUEUED" || started.status === "RUNNING") {
+        setResponseState("loading");
+        await pollExecution(started.id, version);
+      }
+      else await loadExecutionResponses(started, version);
     } catch (error) {
       if (version !== executionVersion.current) return;
       if (!confirmDestructive && error instanceof Error && error.message === "Destructive Tool confirmation is required") {
@@ -250,8 +297,19 @@ export function TestCasesPage({ api, projectId, sourceIntent = null }: Props) {
     try {
       await api.cancelTestExecution(projectId, execution.id);
       const latest = await api.getTestExecution(projectId, execution.id);
-      if (version === executionVersion.current) setExecution(latest);
+      if (version === executionVersion.current) {
+        setExecution(latest);
+        await loadExecutionResponses(latest, version);
+      }
     } catch { if (version === executionVersion.current) toast.error(t("execution.cancelFailed")); }
+  }
+
+  function createToolTest(): void {
+    setScenarioDraft(null); setDraft(newToolTestCaseDraft()); setDirty(true); setExecution(null); setExecutionRuns({}); setResponseState("ready"); setResultExpanded(false); setHistoryExpanded(false); executionVersion.current += 1;
+  }
+
+  function createScenarioTest(): void {
+    setDraft(null); setScenarioDraft(newScenarioTestCaseDraft()); setDirty(true); setExecution(null); setExecutionRuns({}); setResponseState("ready"); setResultExpanded(false); setHistoryExpanded(false); executionVersion.current += 1;
   }
 
   async function remove(): Promise<void> {
@@ -267,18 +325,20 @@ export function TestCasesPage({ api, projectId, sourceIntent = null }: Props) {
   }
 
   return <section className="testing-page" aria-labelledby="testing-page-title">
-    <header className="page-heading testing-page__heading testing-page__heading--compact"><div><h1 id="testing-page-title">{t("title")}</h1><p>{t("description")}</p></div>
-      <div className="testing-page__create-actions"><Button variant="secondary" onClick={() => { setScenarioDraft(null); setDraft(newToolTestCaseDraft()); setDirty(true); setExecution(null); executionVersion.current += 1; }}><Plus size={16} />{t("newCase")}</Button>
-        <Button variant="primary" onClick={() => { setDraft(null); setScenarioDraft(newScenarioTestCaseDraft()); setDirty(true); setExecution(null); executionVersion.current += 1; }}><Plus size={16} />{t("newScenario")}</Button></div></header>
+    <header className="page-heading testing-page__heading testing-page__heading--compact"><div><div className="module-heading-title"><h1 id="testing-page-title">{t("title")}</h1>
+      <ModuleHelpPopover moduleName={t("title")} triggerLabel={t("help.testing.trigger")} closeLabel={t("help.testing.close")}
+        summary={t("help.testing.summary")} description={t("description")} sections={(["purpose", "configure", "use", "effect"] as const).map((section) => ({
+          id: section, title: t(`help.sections.${section}`), items: [t(`help.testing.${section}.one`), t(`help.testing.${section}.two`)],
+        }))} /></div><p>{t("description")}</p></div></header>
     <div className="testing-workspace">
       <TestCaseList items={filteredItems} selectedId={scenarioDraft?.id ?? draft?.id ?? null} loading={loading} error={listError} query={query}
         onQueryChange={setQuery} onSelect={(id) => void select(id)} onRetry={() => setRefreshKey((current) => current + 1)}
-        onCreate={() => { setScenarioDraft(null); setDraft(newToolTestCaseDraft()); setDirty(true); setExecution(null); executionVersion.current += 1; }} />
+        onCreateTool={createToolTest} onCreateScenario={createScenarioTest} />
       <div className="testing-editor-shell">
         {draft === null && scenarioDraft === null ? <div className="testing-editor-placeholder" role="status"><p>{t("editor.selectCaseHint")}</p></div>
           : draft !== null ? <ToolTestCaseEditor projectId={projectId} draft={draft} connections={connections} tools={tools} tool={selectedTool}
             loadingTools={loadingTools} saving={saving} onChange={(next) => { setDraft(next); setDirty(true); }} onConnectionChange={changeConnection} onToolChange={changeTool}
-            onSave={() => void save()} onCancel={() => { setDraft(null); setExecution(null); executionVersion.current += 1; }} onDelete={draft.id === null ? undefined : () => setDeleteOpen(true)}
+            onSave={() => void save()} onCancel={() => { setDraft(null); setExecution(null); setExecutionRuns({}); setResponseState("ready"); executionVersion.current += 1; }} onDelete={draft.id === null ? undefined : () => setDeleteOpen(true)}
             canExecute={!dirty && draft.isEnabled && selectedTool?.status !== "removed"} executing={executionActive}
             onExecute={() => selectedTool?.currentSnapshot.definition.annotations?.destructiveHint === true ? setDestructiveOpen(true) : void execute()}
             onCancelExecution={() => void cancelExecution()} />
@@ -287,8 +347,23 @@ export function TestCasesPage({ api, projectId, sourceIntent = null }: Props) {
               onCancel={() => setScenarioDraft(null)} onDelete={scenarioDraft!.id === null ? undefined : () => setDeleteOpen(true)}
               executionInputs={scenarioInputTexts} onExecutionInputChange={(name, value) => setScenarioInputTexts((current) => ({ ...current, [name]: value }))}
               canExecute={!dirty && scenarioDraft!.isEnabled && scenarioDraft!.id !== null} executing={executionActive}
-              onExecute={() => void execute()} onCancelExecution={() => void cancelExecution()} />}
-        {execution !== null && <TestExecutionPanel execution={execution} />}
+              onExecute={() => void execute()} onCancelExecution={() => void cancelExecution()}
+              onOpenHistory={() => setHistoryExpanded(true)} />}
+        {scenarioDraft !== null && scenarioDraft.id !== null
+          ? <TestExecutionWorkspace api={api} projectId={projectId} testCaseId={scenarioDraft.id}
+            latestExecution={execution} latestRuns={executionRuns} latestResponseState={responseState}
+            resultExpanded={resultExpanded} onResultExpandedChange={setResultExpanded}
+            historyExpanded={historyExpanded} onHistoryExpandedChange={setHistoryExpanded} />
+          : draft !== null
+            ? execution === null
+              ? <Disclosure label={t("execution.result")} expanded={resultExpanded} onExpandedChange={setResultExpanded}
+                className="testing-execution testing-execution-disclosure testing-execution--flush"
+                contentClassName="testing-execution__content">
+                <div className="testing-execution__empty"><p>{t("execution.noLatestResult")}</p></div>
+              </Disclosure>
+              : <TestExecutionPanel execution={execution} responseRuns={executionRuns} responseState={responseState}
+                expanded={resultExpanded} onExpandedChange={setResultExpanded} flush />
+            : null}
       </div>
     </div>
     {deleteOpen && <Dialog titleId="testing-delete-title" descriptionId="testing-delete-description" onClose={() => setDeleteOpen(false)} closeDisabled={saving}>

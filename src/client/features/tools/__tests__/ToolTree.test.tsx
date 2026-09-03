@@ -176,10 +176,10 @@ describe("ToolTree", () => {
     trigger.focus();
     await user.keyboard("{ArrowDown}");
     expect(screen.getByRole("listbox", { name: "移动 get_order 到文件夹" })).toBeVisible();
-    await waitFor(() => expect(screen.getByRole("option", { name: "未分类" })).toHaveFocus());
-    await user.keyboard("{ArrowDown}");
-    await waitFor(() => expect(screen.getByRole("option", { name: "Orders" })).toHaveFocus());
-    await user.keyboard("{Enter}");
+    const search = screen.getByRole("searchbox", { name: "搜索文件夹" });
+    await waitFor(() => expect(search).toHaveFocus());
+    await user.type(search, "Orders");
+    await user.click(screen.getByRole("option", { name: "Orders" }));
     expect(onMoveTool).toHaveBeenCalledWith(expect.objectContaining({ name: "get_order" }), folder.id);
     await waitFor(() => expect(trigger).toHaveFocus());
 

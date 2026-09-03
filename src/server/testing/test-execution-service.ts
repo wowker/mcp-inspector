@@ -12,7 +12,7 @@ import { jsonObjectSchema, jsonValueSchema, type JsonObject, type JsonValue } fr
 import type { ConnectionService } from "../connections/connection-service.js";
 import type { EnvironmentService } from "../environment/environment-service.js";
 import type { ProjectService } from "../projects/project-service.js";
-import type { RunServiceWithEvents } from "../runs/run-service.js";
+import { RunValidationError, type RunServiceWithEvents } from "../runs/run-service.js";
 import type { RunDetail } from "../runs/run-types.js";
 import { ToolRepository } from "../tools/tool-repository.js";
 import { canonicalJson } from "../tools/tool-service.js";
@@ -21,7 +21,7 @@ import type { WorkflowExecutionService } from "../workflows/workflow-execution-s
 import type { WorkflowService } from "../workflows/workflow-service.js";
 import type { TestCaseService } from "./test-case-service.js";
 import { TestExecutionRepository, type TestExecutionCursorPosition } from "./test-execution-repository.js";
-import { runScenario, type ScenarioInvocationResult } from "./scenario-runner.js";
+import { runScenario, ScenarioRunnerError, type ScenarioInvocationResult } from "./scenario-runner.js";
 
 const startSchema = z.object({
   projectId: z.uuid(),
@@ -51,7 +51,7 @@ export class DestructiveConfirmationRequiredError extends Error {
 export interface TestExecutionService {
   start(input: unknown): TestExecutionDetail;
   get(projectId: string, executionId: string): TestExecutionDetail;
-  list(projectId: string, input?: { cursor?: string; limit?: number }): TestExecutionReportPage;
+  list(projectId: string, input?: { testCaseId?: string; cursor?: string; limit?: number }): TestExecutionReportPage;
   updateBaseline(projectId: string, executionId: string, input: unknown): UpdateTestExecutionBaselineResult;
   waitForTerminal(projectId: string, executionId: string, signal?: AbortSignal): Promise<TestExecutionDetail>;
   cancel(projectId: string, executionId: string): boolean;
@@ -156,21 +156,24 @@ export function createTestExecutionService(deps: {
     return execution;
   };
 
-  const decodeCursor = (value: string | undefined, projectId: string): TestExecutionCursorPosition | null => {
+  const decodeCursor = (value: string | undefined, projectId: string,
+    testCaseId: string | undefined): TestExecutionCursorPosition | null => {
     if (value === undefined) return null;
     try {
       const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as {
-        projectId?: unknown; createdAt?: unknown; id?: unknown;
+        projectId?: unknown; testCaseId?: unknown; createdAt?: unknown; id?: unknown;
       };
-      if (parsed.projectId !== projectId || typeof parsed.createdAt !== "string" ||
+      if (parsed.projectId !== projectId || parsed.testCaseId !== testCaseId || typeof parsed.createdAt !== "string" ||
           !z.string().datetime({ offset: true }).safeParse(parsed.createdAt).success ||
           typeof parsed.id !== "string" || !z.uuid().safeParse(parsed.id).success) throw new Error();
       return { createdAt: parsed.createdAt, id: parsed.id };
     } catch { throw new InvalidTestExecutionError("Test execution cursor is invalid"); }
   };
 
-  const encodeCursor = (projectId: string, position: TestExecutionCursorPosition): string =>
-    Buffer.from(JSON.stringify({ projectId, ...position }), "utf8").toString("base64url");
+  const encodeCursor = (projectId: string, testCaseId: string | undefined,
+    position: TestExecutionCursorPosition): string =>
+    Buffer.from(JSON.stringify({ projectId, ...(testCaseId === undefined ? {} : { testCaseId }), ...position }), "utf8")
+      .toString("base64url");
 
   const baselineOperators = new Set(["EQUALS", "DEEP_EQUALS"]);
 
@@ -211,40 +214,53 @@ export function createTestExecutionService(deps: {
     projectId: string; executionId: string; connectionId: string; toolName: string;
     argumentsValue: JsonObject; stepId: string; attempt: number; signal?: AbortSignal;
   }): Promise<ScenarioInvocationResult> {
-    const workflowConfig = deps.workflows.get(input.projectId, input.connectionId, input.toolName);
-    const usesWorkflow = workflowConfig.before.enabled || workflowConfig.after.enabled;
     let invocation: { run: RunDetail; workflow: WorkflowExecutionDetail | null };
-    const idempotencyKey = `${input.executionId}:${input.stepId}:${input.attempt}`;
-    if (usesWorkflow) {
-      const started = deps.workflowExecutions.startInvocation({
-        projectId: input.projectId, connectionId: input.connectionId, toolName: input.toolName,
-        idempotencyKey: `${idempotencyKey}:workflow`, arguments: input.argumentsValue,
-      });
-      const completed = await deps.workflowExecutions.waitForTerminal(input.projectId, started.id, input.signal);
-      const main = completed.runs.find(({ phase }) => phase === "main");
-      if (main === undefined) throw new InvalidTestExecutionError("Workflow did not invoke the main Tool");
-      invocation = { run: deps.runs.get(input.projectId, main.runId), workflow: completed };
-    } else {
-      const started = deps.runs.startInvocation({
-        projectId: input.projectId, connectionId: input.connectionId, toolName: input.toolName,
-        idempotencyKey: `${idempotencyKey}:run`, arguments: input.argumentsValue,
-      });
-      invocation = {
-        run: await deps.runs.waitForTerminal(input.projectId, started.id, input.signal), workflow: null,
-      };
+    try {
+      const workflowConfig = deps.workflows.get(input.projectId, input.connectionId, input.toolName);
+      const usesWorkflow = workflowConfig.before.enabled || workflowConfig.after.enabled;
+      const idempotencyKey = `${input.executionId}:${input.stepId}:${input.attempt}`;
+      if (usesWorkflow) {
+        const started = deps.workflowExecutions.startInvocation({
+          projectId: input.projectId, connectionId: input.connectionId, toolName: input.toolName,
+          idempotencyKey: `${idempotencyKey}:workflow`, arguments: input.argumentsValue,
+        });
+        const completed = await deps.workflowExecutions.waitForTerminal(input.projectId, started.id, input.signal);
+        const main = completed.runs.find(({ phase }) => phase === "main");
+        if (main === undefined) throw new InvalidTestExecutionError("Workflow did not invoke the main Tool");
+        invocation = { run: deps.runs.get(input.projectId, main.runId), workflow: completed };
+      } else {
+        const started = deps.runs.startInvocation({
+          projectId: input.projectId, connectionId: input.connectionId, toolName: input.toolName,
+          idempotencyKey: `${idempotencyKey}:run`, arguments: input.argumentsValue,
+        });
+        invocation = {
+          run: await deps.runs.waitForTerminal(input.projectId, started.id, input.signal), workflow: null,
+        };
+      }
+    } catch (error) {
+      if (error instanceof RunValidationError) {
+        const details = error.issues.map(({ path, message }) => `${path || "/"} ${message}`).join("; ");
+        throw new ScenarioRunnerError("INVALID_ARGUMENTS", `Tool arguments are invalid: ${details}`.slice(0, 2_000));
+      }
+      throw error;
     }
     const workflowInfrastructureFailed = invocation.workflow !== null && invocation.workflow.status !== "succeeded" && !(
       invocation.workflow.error?.code === "WORKFLOW_FAILED" && invocation.run.response?.result !== null &&
       invocation.run.response?.result !== undefined
     );
-    if (workflowInfrastructureFailed) throw new InvalidTestExecutionError("Workflow execution failed");
     const context = assertionSources(invocation.run, invocation.workflow);
+    const invocationError = workflowInfrastructureFailed
+      ? invocation.workflow?.error ?? { code: "WORKFLOW_EXECUTION_FAILED", message: "Workflow execution failed" }
+      : invocation.run.status === "succeeded"
+        ? undefined
+        : invocation.run.response?.error ?? { code: "TOOL_EXECUTION_FAILED", message: "Tool execution failed" };
     return {
       sources: context.sources,
       redactedSources: context.redactedSources,
       runId: invocation.run.id,
       workflowExecutionId: invocation.workflow?.id ?? null,
-      succeeded: invocation.run.status === "succeeded",
+      succeeded: !workflowInfrastructureFailed && invocation.run.status === "succeeded",
+      ...(invocationError === undefined ? {} : { error: invocationError }),
     };
   }
 
@@ -416,13 +432,14 @@ export function createTestExecutionService(deps: {
   return {
     list(rawProjectId, input = {}) {
       const parsedProjectId = z.uuid().safeParse(rawProjectId);
-      const parsedInput = z.object({ cursor: z.string().min(1).optional(), limit: z.number().int().min(1).max(100).default(50) })
+      const parsedInput = z.object({ testCaseId: z.uuid().optional(), cursor: z.string().min(1).optional(),
+        limit: z.number().int().min(1).max(100).default(50) })
         .strict().safeParse(input);
       if (!parsedProjectId.success || !parsedInput.success) throw new InvalidTestExecutionError();
       const page = repository(parsedProjectId.data).list(parsedProjectId.data, parsedInput.data.limit,
-        decodeCursor(parsedInput.data.cursor, parsedProjectId.data));
+        decodeCursor(parsedInput.data.cursor, parsedProjectId.data, parsedInput.data.testCaseId), parsedInput.data.testCaseId);
       return { items: page.items,
-        nextCursor: page.next === null ? null : encodeCursor(parsedProjectId.data, page.next) };
+        nextCursor: page.next === null ? null : encodeCursor(parsedProjectId.data, parsedInput.data.testCaseId, page.next) };
     },
     updateBaseline,
     start(raw) {

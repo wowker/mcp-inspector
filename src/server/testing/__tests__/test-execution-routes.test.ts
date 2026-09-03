@@ -67,6 +67,13 @@ describe("test execution routes", () => {
     expect(service.list).toHaveBeenCalledWith(projectId, { limit: 25, cursor: undefined });
   });
 
+  it("passes a validated test case filter to execution history", async () => {
+    const { app, service } = fixture();
+    const response = await app.request(`/api/projects/${projectId}/test-executions?testCaseId=${testCaseId}&limit=25`);
+    expect(response.status).toBe(200);
+    expect(service.list).toHaveBeenCalledWith(projectId, { testCaseId, limit: 25, cursor: undefined });
+  });
+
   it("updates a baseline only through an explicit confirmation body", async () => {
     const { app, service } = fixture();
     const response = await app.request(`/api/projects/${projectId}/test-executions/${executionId}/baseline`, {
