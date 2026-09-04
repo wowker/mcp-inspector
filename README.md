@@ -110,6 +110,7 @@ export default async function before(ctx) {
 - [MCP Inspector 2.0.4 更新计划](docs/UPGRADE-2.0.4.md)
 - [MCP Inspector 2.0.5 更新计划](docs/UPGRADE-2.0.5.md)
 - [MCP Inspector 2.5.0 测试套件执行报告规范](docs/UPGRADE-2.5.0.md)
+- [MCP Inspector 2.5.1 压力测试规范](docs/UPGRADE-2.5.1.md)
 - [前端 UI 与交互开发规范](docs/FRONTEND-DEVELOPMENT-STANDARDS.md)
 - [ADR-001：采用项目内部 UI Foundation](docs/decisions/001-internal-ui-foundation.md)
 - [Tool 前置与后置脚本规范](docs/SPEC-tool-script-workflows.md)
