@@ -22,6 +22,8 @@ interface Props {
   suiteId: string;
   executionId: string;
   savedReportId?: string;
+  anchorIsLatest?: boolean;
+  onSavedReportsChange?: () => void;
 }
 
 interface SelectedCall { memberIndex: number; call: TestSuiteReportCall }
@@ -47,10 +49,12 @@ function initialCall(outline: TestSuiteExecutionReportOutline): SelectedCall | n
   return null;
 }
 
-export function TestSuiteReportViewer({ api, projectId, suiteId, executionId, savedReportId }: Props) {
+export function TestSuiteReportViewer({ api, projectId, suiteId, executionId, savedReportId,
+  anchorIsLatest = true, onSavedReportsChange }: Props) {
   const { t } = useTranslation("testing");
   const loadVersion = useRef(0);
   const detailVersion = useRef(0);
+  const detailCache = useRef(new Map<string, CallDetail>());
   const [outline, setOutline] = useState<TestSuiteExecutionReportOutline | null>(null);
   const [savedReports, setSavedReports] = useState<SavedTestSuiteReport[]>([]);
   const [history, setHistory] = useState<TestSuiteExecutionReportSummary[]>([]);
@@ -97,6 +101,8 @@ export function TestSuiteReportViewer({ api, projectId, suiteId, executionId, sa
     return () => { loadVersion.current += 1; detailVersion.current += 1; };
   }, [api, projectId, suiteId, executionId, savedReportId]);
 
+  useEffect(() => { detailCache.current.clear(); }, [projectId]);
+
   useEffect(() => {
     const version = ++detailVersion.current;
     const controller = new AbortController();
@@ -105,11 +111,22 @@ export function TestSuiteReportViewer({ api, projectId, suiteId, executionId, sa
     const member = outline.members[selectedCall.memberIndex];
     const testExecutionId = member?.testExecution?.id;
     if (testExecutionId === undefined) { setDetailLoading(false); return; }
+    const cacheKey = `${projectId}:${testExecutionId}:${selectedCall.call.runId ?? "no-run"}`;
+    const cached = detailCache.current.get(cacheKey);
+    if (cached !== undefined) {
+      detailCache.current.delete(cacheKey); detailCache.current.set(cacheKey, cached);
+      setDetail(cached); setDetailLoading(false); return;
+    }
     setDetailLoading(true);
     void api.getTestExecution(projectId, testExecutionId).then(async (execution) => {
       if (version !== detailVersion.current) return;
       const run = selectedCall.call.runId === null ? null : await api.getRun(projectId, selectedCall.call.runId, controller.signal);
-      if (version === detailVersion.current) { setDetail({ execution, run }); setDetailLoading(false); }
+      if (version === detailVersion.current) {
+        const loaded = { execution, run };
+        detailCache.current.set(cacheKey, loaded);
+        if (detailCache.current.size > 16) detailCache.current.delete(detailCache.current.keys().next().value!);
+        setDetail(loaded); setDetailLoading(false);
+      }
     }).catch(() => {
       if (!controller.signal.aborted && version === detailVersion.current) { setDetailLoading(false); toast.error(t("suiteReport.detailLoadFailed")); }
     });
@@ -153,6 +170,7 @@ export function TestSuiteReportViewer({ api, projectId, suiteId, executionId, sa
         });
       setSavedReports((current) => [saved, ...current.filter(({ id }) => id !== saved.id)]);
       setSelectedVersion(`saved:${saved.id}`); setSaveOpen(false);
+      onSavedReportsChange?.();
       toast.success(t(saveMode === "edit" ? "suiteReport.updated" : "suiteReport.saved"));
     } catch { toast.error(t("suiteReport.saveFailed")); }
     finally { setSaving(false); }
@@ -165,6 +183,7 @@ export function TestSuiteReportViewer({ api, projectId, suiteId, executionId, sa
       await api.deleteSavedTestSuiteReport(projectId, selectedSaved.id);
       setSavedReports((current) => current.filter(({ id }) => id !== selectedSaved.id));
       setSelectedVersion(`execution:${selectedSaved.suiteExecutionId}`); setDeleteOpen(false);
+      onSavedReportsChange?.();
       toast.success(t("suiteReport.deleted"));
     } catch { toast.error(t("suiteReport.deleteFailed")); }
     finally { setSaving(false); }
@@ -183,7 +202,7 @@ export function TestSuiteReportViewer({ api, projectId, suiteId, executionId, sa
           size={15} weight="bold" aria-hidden="true" />{t(expanded ? "suiteReport.collapse" : "suiteReport.expand")}</Button>
         <label><span>{t("suiteReport.version")}</span><Select aria-label={t("suiteReport.version")}
         value={selectedVersion} onChange={(event) => changeVersion(event.target.value)}>
-        <option value={`execution:${executionId}`}>{t("suiteReport.latest")}</option>
+        <option value={`execution:${executionId}`}>{t(anchorIsLatest ? "suiteReport.latest" : "suiteReport.selectedExecution")}</option>
         {history.filter(({ id }) => id !== executionId).map((item) => <option key={item.id} value={`execution:${item.id}`}>
           {new Date(item.createdAt).toLocaleString()} · {t(`execution.status.${item.status}`)}</option>)}
         {savedReports.map((saved) => <option key={saved.id} value={`saved:${saved.id}`}>{saved.versionLabel} · {saved.name}</option>)}
@@ -224,9 +243,9 @@ export function TestSuiteReportViewer({ api, projectId, suiteId, executionId, sa
       onClose={() => setSaveOpen(false)} closeDisabled={saving}>
       <div className="suite-report-save-dialog"><h2 id="suite-report-save-title">{t(saveMode === "edit" ? "suiteReport.editTitle" : "suiteReport.saveTitle")}</h2>
         <p id="suite-report-save-description">{t(saveMode === "edit" ? "suiteReport.editDescription" : "suiteReport.saveDescription")}</p>
-        <label>{t("suiteReport.name")}<input className="ui-input" value={reportName} onChange={(event) => setReportName(event.target.value)} /></label>
-        <label>{t("suiteReport.versionLabel")}<input className="ui-input" value={versionLabel} onChange={(event) => setVersionLabel(event.target.value)} /></label>
-        <label>{t("suiteReport.note")}<textarea className="ui-input" rows={3} value={note} onChange={(event) => setNote(event.target.value)} /></label>
+        <label>{t("suiteReport.name")}<input className="ui-input" maxLength={120} value={reportName} onChange={(event) => setReportName(event.target.value)} /></label>
+        <label>{t("suiteReport.versionLabel")}<input className="ui-input" maxLength={40} value={versionLabel} onChange={(event) => setVersionLabel(event.target.value)} /></label>
+        <label>{t("suiteReport.note")}<textarea className="ui-input" rows={3} maxLength={500} value={note} onChange={(event) => setNote(event.target.value)} /></label>
         <div><Button variant="secondary" onClick={() => setSaveOpen(false)}>{t("editor.cancel")}</Button>
           <Button variant="primary" loading={saving} disabled={reportName.trim() === "" || versionLabel.trim() === ""}
             onClick={() => void saveReport()}>{t(saveMode === "edit" ? "suiteReport.saveChanges" : "suiteReport.save")}</Button></div></div>

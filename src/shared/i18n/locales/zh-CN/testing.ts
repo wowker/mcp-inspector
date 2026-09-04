@@ -63,7 +63,7 @@ export const zhCNTesting = {
   suiteReport: {
     loading: "正在加载套件执行报告…", loadFailed: "套件执行报告加载失败", versionsLoadFailed: "已保存的报告版本加载失败", historyLoadFailed: "套件执行历史加载失败",
     detailLoadFailed: "Tool 执行详情加载失败", detailLoading: "正在加载 Tool 执行详情…", detailUnavailable: "该调用的详细信息不可用。",
-    version: "报告版本", latest: "最新执行", saveVersion: "保存为版本", collapse: "收起执行报告", expand: "展开执行报告", defaultName: "{{name}}报告",
+    version: "报告版本", latest: "最新执行", selectedExecution: "所选执行", saveVersion: "保存为版本", collapse: "收起执行报告", expand: "展开执行报告", defaultName: "{{name}}报告",
     saved: "执行报告已保存", updated: "报告版本已更新", deleted: "报告版本已删除", saveFailed: "保存执行报告失败", deleteFailed: "删除报告版本失败",
     editVersion: "编辑版本", deleteVersion: "删除版本", total: "共 {{count}} 项", passed: "通过 {{count}} 项", failed: "失败 {{count}} 项",
     callList: "Tool 调用列表", calls: "次调用", cleanup: "清理", callDetail: "Tool 执行详情", selectCall: "选择一次 Tool 调用查看参数和响应。",

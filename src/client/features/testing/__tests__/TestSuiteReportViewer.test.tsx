@@ -102,14 +102,23 @@ describe("TestSuiteReportViewer", () => {
     await waitFor(() => expect(screen.getByTestId("run-result-panel")).toHaveTextContent(passedRunId));
     expect(screen.getAllByTestId("run-result-panel")).toHaveLength(1);
     expect(screen.getByText((_, element) => element?.tagName === "PRE" && element.textContent?.includes('"page": 1') === true)).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: /create/ }));
+    await waitFor(() => expect(screen.getByTestId("run-result-panel")).toHaveTextContent(failedRunId));
+    expect(api.getRun).toHaveBeenCalledTimes(2);
   });
 
   it("saves the current immutable execution as a named version", async () => {
     const api = apiFixture();
+    const onSavedReportsChange = vi.fn();
     const user = userEvent.setup();
-    render(<><AppToaster /><TestSuiteReportViewer api={api} projectId={projectId} suiteId={suiteId} executionId={executionId} /></>);
+    render(<><AppToaster /><TestSuiteReportViewer api={api} projectId={projectId} suiteId={suiteId} executionId={executionId}
+      onSavedReportsChange={onSavedReportsChange} /></>);
     await screen.findByRole("heading", { name: "订单回归" });
     await user.click(screen.getByRole("button", { name: "保存为版本" }));
+    expect(screen.getByLabelText("报告名称")).toHaveAttribute("maxlength", "120");
+    expect(screen.getByLabelText("版本号")).toHaveAttribute("maxlength", "40");
+    expect(screen.getByLabelText("备注")).toHaveAttribute("maxlength", "500");
     await user.clear(screen.getByLabelText("报告名称"));
     await user.type(screen.getByLabelText("报告名称"), "发布前回归");
     await user.type(screen.getByLabelText("版本号"), "2.0");
@@ -119,6 +128,14 @@ describe("TestSuiteReportViewer", () => {
       suiteId, suiteExecutionId: executionId, name: "发布前回归", versionLabel: "2.0", note: null,
     }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(onSavedReportsChange).toHaveBeenCalledOnce();
+  });
+
+  it("labels an execution opened from history without calling it the latest", async () => {
+    const api = apiFixture();
+    render(<TestSuiteReportViewer api={api} projectId={projectId} suiteId={suiteId} executionId={executionId} anchorIsLatest={false} />);
+    expect(await screen.findByRole("combobox", { name: "报告版本" })).toHaveTextContent("所选执行");
+    expect(screen.getByRole("combobox", { name: "报告版本" })).not.toHaveTextContent("最新执行");
   });
 
   it("edits and deletes only a saved version marker", async () => {
@@ -161,5 +178,29 @@ describe("TestSuiteReportViewer", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(vi.mocked(api.getRun).mock.calls.some(([, id]) => id === failedRunId)).toBe(false);
     expect(screen.getByTestId("run-result-panel")).toHaveTextContent(passedRunId);
+  });
+
+  it("keeps a 100 by 20 call outline lazy and mounts only one full response", async () => {
+    const api = apiFixture();
+    const members = Array.from({ length: 100 }, (_, memberIndex) => {
+      const itemId = `00000000-0000-4000-9000-${String(memberIndex + 1).padStart(12, "0")}`;
+      return {
+        item: { id: itemId, suiteExecutionId: executionId, memberId: itemId, testCaseId,
+          testExecutionId, position: memberIndex, status: "PASSED" as const },
+        testExecution: { ...outline.members[0]!.testExecution!, id: testExecutionId, status: "PASSED" as const },
+        calls: Array.from({ length: 20 }, (_, callIndex) => ({ ...outline.members[0]!.calls[0]!,
+          stepRecordId: `00000000-0000-4001-${String(memberIndex).padStart(4, "0")}-${String(callIndex + 1).padStart(12, "0")}`,
+          stepId: `step-${callIndex + 1}`, position: callIndex, status: "PASSED" as const,
+        })),
+      };
+    });
+    vi.mocked(api.getTestSuiteExecutionReport).mockResolvedValue({
+      execution: { ...suiteExecution, status: "PASSED", items: members.map(({ item }) => item) }, members,
+    });
+
+    render(<TestSuiteReportViewer api={api} projectId={projectId} suiteId={suiteId} executionId={executionId} />);
+    expect(await screen.findByTestId("run-result-panel")).toBeVisible();
+    expect(screen.getAllByTestId("run-result-panel")).toHaveLength(1);
+    expect(api.getRun).toHaveBeenCalledTimes(1);
   });
 });

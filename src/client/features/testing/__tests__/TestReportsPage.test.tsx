@@ -97,6 +97,33 @@ describe("TestReportsPage", () => {
     expect(api.getTestSuiteExecutionReport).toHaveBeenCalledWith(projectId, suiteExecutionId);
   });
 
+  it("bounds concurrent history requests when loading many suites", async () => {
+    const suites = Array.from({ length: 9 }, (_, index) => ({
+      id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+      projectId, name: `套件 ${index + 1}`, description: "", tags: [], revision: 1, memberCount: 0,
+      executionPolicy: { concurrency: 1, stopOnFailure: false }, createdAt: timestamp, updatedAt: timestamp,
+    }));
+    let active = 0;
+    let peak = 0;
+    const api = {
+      listTestExecutions: vi.fn(async () => ({ items: [], nextCursor: null })),
+      listTestSuites: vi.fn(async () => ({ items: suites, nextCursor: null })),
+      listSavedTestSuiteReports: vi.fn(async () => ({ items: [], nextCursor: null })),
+      listTestSuiteExecutions: vi.fn(async () => {
+        active += 1; peak = Math.max(peak, active);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        active -= 1;
+        return { items: [], nextCursor: null };
+      }),
+    } as unknown as InspectorApiClient;
+    const user = userEvent.setup(); render(<TestReportsPage api={api} projectId={projectId} />);
+
+    await user.click(await screen.findByRole("tab", { name: "套件报告" }));
+    await screen.findByText("没有符合条件的套件执行报告。");
+    expect(api.listTestSuiteExecutions).toHaveBeenCalledTimes(9);
+    expect(peak).toBe(8);
+  });
+
   it("requires an explicit Server binding before importing definitions", async () => {
     const envelope = { format: "mcp-inspector-automated-tests" as const, version: 1 as const, exportedAt: timestamp,
       sourceProject: { id: projectId, name: "Source" },

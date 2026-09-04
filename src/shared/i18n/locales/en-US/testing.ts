@@ -63,7 +63,7 @@ export const enUSTesting = {
   suiteReport: {
     loading: "Loading the suite execution report…", loadFailed: "Failed to load the suite execution report", versionsLoadFailed: "Failed to load saved report versions", historyLoadFailed: "Failed to load suite execution history",
     detailLoadFailed: "Failed to load Tool execution details", detailLoading: "Loading Tool execution details…", detailUnavailable: "Details for this call are unavailable.",
-    version: "Report version", latest: "Latest execution", saveVersion: "Save as version", collapse: "Collapse execution report", expand: "Expand execution report", defaultName: "{{name}} report",
+    version: "Report version", latest: "Latest execution", selectedExecution: "Selected execution", saveVersion: "Save as version", collapse: "Collapse execution report", expand: "Expand execution report", defaultName: "{{name}} report",
     saved: "Execution report saved", updated: "Report version updated", deleted: "Report version deleted", saveFailed: "Failed to save the execution report", deleteFailed: "Failed to delete the report version",
     editVersion: "Edit version", deleteVersion: "Delete version", total: "{{count}} total", passed: "{{count}} passed", failed: "{{count}} failed",
     callList: "Tool call list", calls: "calls", cleanup: "Cleanup", callDetail: "Tool execution details", selectCall: "Select a Tool call to inspect its arguments and response.",

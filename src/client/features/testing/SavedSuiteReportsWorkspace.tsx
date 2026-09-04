@@ -26,6 +26,16 @@ function rowsFrom(history: TestSuiteExecutionReportSummary[], saved: SavedTestSu
   return [...rows.values()].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 }
 
+async function loadSuiteHistories(api: InspectorApiClient, projectId: string, suiteIds: string[]) {
+  const history: TestSuiteExecutionReportSummary[] = [];
+  for (let index = 0; index < suiteIds.length; index += 8) {
+    const pages = await Promise.all(suiteIds.slice(index, index + 8)
+      .map((suiteId) => api.listTestSuiteExecutions(projectId, suiteId, { limit: 100 })));
+    history.push(...pages.flatMap(({ items }) => items));
+  }
+  return history;
+}
+
 export function SavedSuiteReportsWorkspace({ api, projectId }: Props) {
   const { t } = useTranslation("testing");
   const version = useRef(0);
@@ -43,9 +53,9 @@ export function SavedSuiteReportsWorkspace({ api, projectId }: Props) {
     setLoading(true); setError(false);
     void Promise.all([api.listTestSuites(projectId), api.listSavedTestSuiteReports(projectId, { limit: 100 })])
       .then(async ([suites, savedPage]) => {
-        const pages = await Promise.all(suites.items.map(({ id }) => api.listTestSuiteExecutions(projectId, id, { limit: 100 })));
+        const history = await loadSuiteHistories(api, projectId, suites.items.map(({ id }) => id));
         if (version.current !== current) return;
-        const next = rowsFrom(pages.flatMap(({ items }) => items), savedPage.items);
+        const next = rowsFrom(history, savedPage.items);
         setRows(next); setLoading(false);
         setSelected((value) => value === null ? null : next.find(({ executionId }) => executionId === value.executionId) ?? null);
       }).catch(() => { if (version.current === current) { setLoading(false); setError(true); } });
@@ -97,6 +107,7 @@ export function SavedSuiteReportsWorkspace({ api, projectId }: Props) {
     <div className="testing-editor-shell">{selected === null
       ? <div className="testing-editor-placeholder" role="status"><p>{t("suiteReport.savedSelect")}</p></div>
       : <TestSuiteReportViewer key={selected.executionId} api={api} projectId={projectId} suiteId={selected.suiteId}
-        executionId={selected.executionId} savedReportId={selected.saved[0]?.id} />}</div>
+        executionId={selected.executionId} savedReportId={selected.saved[0]?.id} anchorIsLatest={false}
+        onSavedReportsChange={load} />}</div>
   </div></>;
 }
