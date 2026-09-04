@@ -63,15 +63,18 @@ function updateOf(value: unknown): UpdatePressureTestRequest {
   return parsed.data;
 }
 
-function encodeCursor(cursor: PressureTestCursor): string {
-  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+function encodeCursor(projectId: string, cursor: PressureTestCursor): string {
+  return Buffer.from(JSON.stringify({ projectId, ...cursor }), "utf8").toString("base64url");
 }
 
-function decodeCursor(value: string | undefined): PressureTestCursor | undefined {
+function decodeCursor(value: string | undefined, projectId: string): PressureTestCursor | undefined {
   if (value === undefined) return undefined;
   try {
     const decoded: unknown = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
-    return z.object({ updatedAt: z.string().datetime({ offset: true }), id: uuid }).strict().parse(decoded);
+    const parsed = z.object({ projectId: uuid, updatedAt: z.string().datetime({ offset: true }), id: uuid })
+      .strict().parse(decoded);
+    if (parsed.projectId !== projectId) throw new Error();
+    return { updatedAt: parsed.updatedAt, id: parsed.id };
   } catch { throw new InvalidPressureTestError("Pressure test cursor is invalid"); }
 }
 
@@ -109,13 +112,13 @@ export function createPressureTestService(projects: ProjectService, options: {
       const projectId = validProjectId(rawProjectId);
       const parsed = listOptionsSchema.safeParse(rawOptions);
       if (!parsed.success) throw new InvalidPressureTestError(parsed.error.issues[0]?.message);
-      const cursor = decodeCursor(parsed.data.cursor);
+      const cursor = decodeCursor(parsed.data.cursor, projectId);
       const page = repository(projectId).list(projectId, parsed.data.limit, cursor);
       const last = page.items.at(-1);
       return {
         items: page.items,
         nextCursor: page.hasMore && last !== undefined
-          ? encodeCursor({ updatedAt: last.updatedAt, id: last.id }) : null,
+          ? encodeCursor(projectId, { updatedAt: last.updatedAt, id: last.id }) : null,
       };
     },
 

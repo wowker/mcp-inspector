@@ -6,6 +6,7 @@ import {
   ClockCounterClockwise,
   ClipboardText,
   HardDrives,
+  Gauge,
   Moon,
   Stack,
   SidebarSimple,
@@ -24,11 +25,12 @@ import { LanguageSwitcher } from "../i18n/LanguageSwitcher.js";
 import { TestCasesPage, type TestCaseSourceIntent } from "../features/testing/TestCasesPage.js";
 import { TestSuitesPage } from "../features/testing/TestSuitesPage.js";
 import { TestReportsPage } from "../features/testing/TestReportsPage.js";
+import { PressureTestsPage } from "../features/testing/PressureTestsPage.js";
 import { ServerTab } from "./ServerTab.js";
 
-type WorkbenchPage = "servers" | "tools" | "environment" | "testing" | "suites" | "reports" | "history";
-type PersistentWorkbenchPage = Extract<WorkbenchPage, "tools" | "testing" | "suites">;
-const persistentWorkbenchPages = new Set<WorkbenchPage>(["tools", "testing", "suites"]);
+type WorkbenchPage = "servers" | "tools" | "environment" | "testing" | "suites" | "pressure" | "reports" | "history";
+type PersistentWorkbenchPage = Extract<WorkbenchPage, "tools" | "testing" | "suites" | "pressure">;
+const persistentWorkbenchPages = new Set<WorkbenchPage>(["tools", "testing", "suites", "pressure"]);
 
 interface InspectorWorkbenchProps {
   api: InspectorApiClient;
@@ -53,6 +55,7 @@ function NavIcon({ type, active }: { type: WorkbenchPage; active: boolean }) {
   if (type === "environment") return <BracketsCurly {...iconProps} />;
   if (type === "testing") return <TestTube {...iconProps} />;
   if (type === "suites") return <Stack {...iconProps} />;
+  if (type === "pressure") return <Gauge {...iconProps} />;
   if (type === "reports") return <ClipboardText {...iconProps} />;
   return <ClockCounterClockwise {...iconProps} />;
 }
@@ -90,7 +93,7 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
   const pageLabels: Record<WorkbenchPage, string> = {
     servers: t("workbench.nav.servers"), tools: t("workbench.nav.tools"),
     environment: t("workbench.nav.environment"), history: t("workbench.nav.history"),
-    testing: t("workbench.nav.testing"), suites: t("workbench.nav.suites"), reports: t("workbench.nav.reports"),
+    testing: t("workbench.nav.testing"), suites: t("workbench.nav.suites"), pressure: t("workbench.nav.pressure"), reports: t("workbench.nav.reports"),
   };
 
   useEffect(() => {
@@ -237,10 +240,11 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
           <span className="workbench-brand__text"><strong>MCP</strong><small>Inspector</small></span>
         </div>
         <nav aria-label={t("workbench.navigation")}>
-          {(["servers", "tools", "environment", "testing", "suites", "reports", "history"] as const).map((item) => (
+          {(["servers", "tools", "environment", "testing", "suites", "pressure", "reports", "history"] as const).map((item) => (
             <button
               key={item}
               type="button"
+              aria-label={pageLabels[item]}
               aria-current={page === item ? "page" : undefined}
               onClick={() => setPage(item)}
             >
@@ -330,6 +334,9 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
           </div>}
           {(page === "suites" || mountedPersistentPages.has("suites")) && <div className="workbench-page-slot" hidden={page !== "suites"}>
             <TestSuitesPage api={api} projectId={project.id} active={page === "suites"} />
+          </div>}
+          {(page === "pressure" || mountedPersistentPages.has("pressure")) && <div className="workbench-page-slot" hidden={page !== "pressure"}>
+            <PressureTestsPage api={api} projectId={project.id} active={page === "pressure"} />
           </div>}
           {(page === "tools" || mountedPersistentPages.has("tools")) && <div className="workbench-page-slot workbench-page-slot--tools" hidden={page !== "tools"}>
             <section

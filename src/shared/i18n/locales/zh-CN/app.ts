@@ -16,7 +16,7 @@ export const zhCNApp = {
   },
   workbench: {
     skipMain: "跳到主要内容", navigation: "工作台导航",
-    nav: { servers: "Servers", tools: "Tools", environment: "环境变量", testing: "自动化测试", suites: "测试套件", reports: "测试报告", history: "运行历史" },
+    nav: { servers: "Servers", tools: "Tools", environment: "环境变量", testing: "自动化测试", suites: "测试套件", pressure: "压力测试", reports: "测试报告", history: "运行历史" },
     localService: "本地服务 v{{version}}", themeDark: "切换到深色主题", themeLight: "切换到浅色主题",
     collapseSidebar: "收起侧边栏", expandSidebar: "展开侧边栏",
     connectedServers: "已连接 Servers", noConnectedServers: "尚未连接 Server",

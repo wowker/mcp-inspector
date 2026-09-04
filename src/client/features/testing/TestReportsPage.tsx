@@ -13,6 +13,7 @@ import { ModuleHelpPopover } from "../../components/overlays/ModuleHelpPopover.j
 import { Select } from "../../components/forms/Select.js";
 import { TestExecutionPanel } from "./TestExecutionPanel.js";
 import { SavedSuiteReportsWorkspace } from "./SavedSuiteReportsWorkspace.js";
+import { PressureReportsWorkspace } from "./PressureReportsWorkspace.js";
 import "./testing.css";
 
 interface Props { api: InspectorApiClient; projectId: string }
@@ -35,7 +36,8 @@ export function TestReportsPage({ api, projectId }: Props) {
   const [bindings, setBindings] = useState<Record<string, string>>({});
   const [conflictPolicy, setConflictPolicy] = useState<"SKIP" | "COPY" | "OVERWRITE">("COPY");
   const [transferring, setTransferring] = useState(false);
-  const [reportKind, setReportKind] = useState<"case" | "suite">("case");
+  const [reportKind, setReportKind] = useState<"case" | "suite" | "pressure">("case");
+  const reportKinds = ["case", "suite", "pressure"] as const;
 
   const load = useCallback(() => {
     const version = ++requestVersion.current;
@@ -140,10 +142,23 @@ export function TestReportsPage({ api, projectId }: Props) {
           aria-label={t("report.importFile")} onChange={(event) => void chooseImport(event.target.files?.[0])} />
       </div>
     </div></header>
-    <div className="testing-reports__body"><div className="testing-report-tabs" role="tablist" aria-label={t("report.kinds")}>
-      <button type="button" role="tab" aria-selected={reportKind === "case"} onClick={() => setReportKind("case")}>{t("report.caseReports")}</button>
-      <button type="button" role="tab" aria-selected={reportKind === "suite"} onClick={() => setReportKind("suite")}>{t("report.suiteReports")}</button>
-    </div>
+    <div className="testing-reports__body"><div className="testing-report-tabs" role="tablist" aria-label={t("report.kinds")}
+      onKeyDown={(event) => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        const index = reportKinds.indexOf(reportKind);
+        const next = event.key === "Home" ? 0 : event.key === "End" ? reportKinds.length - 1
+          : event.key === "ArrowRight" ? (index + 1) % reportKinds.length
+            : (index - 1 + reportKinds.length) % reportKinds.length;
+        event.preventDefault(); const kind = reportKinds[next];
+        if (kind !== undefined) { setReportKind(kind); queueMicrotask(() => document.getElementById(`testing-report-tab-${kind}`)?.focus()); }
+      }}>
+      <button id="testing-report-tab-case" type="button" role="tab" tabIndex={reportKind === "case" ? 0 : -1}
+        aria-controls="testing-report-panel" aria-selected={reportKind === "case"} onClick={() => setReportKind("case")}>{t("report.caseReports")}</button>
+      <button id="testing-report-tab-suite" type="button" role="tab" tabIndex={reportKind === "suite" ? 0 : -1}
+        aria-controls="testing-report-panel" aria-selected={reportKind === "suite"} onClick={() => setReportKind("suite")}>{t("report.suiteReports")}</button>
+      <button id="testing-report-tab-pressure" type="button" role="tab" tabIndex={reportKind === "pressure" ? 0 : -1}
+        aria-controls="testing-report-panel" aria-selected={reportKind === "pressure"} onClick={() => setReportKind("pressure")}>{t("report.pressureReports")}</button>
+    </div><div id="testing-report-panel" role="tabpanel" aria-labelledby={`testing-report-tab-${reportKind}`}>
     {reportKind === "case" ? <div className="testing-workspace">
       <aside className="testing-case-list" aria-label={t("report.list")}><header><h2>{t("report.list")}</h2><span>{items.length}</span></header>
         {loading && items.length === 0 ? <p className="testing-list-status">{t("report.loading")}</p>
@@ -161,7 +176,8 @@ export function TestReportsPage({ api, projectId }: Props) {
             : execution === null ? <div className="testing-editor-placeholder" role="status"><p>{t("report.selectHint")}</p></div>
               : <TestExecutionPanel execution={execution} runTraces={runTraces} onUpdateBaseline={() => setBaselineOpen(true)} />}
       </div>
-    </div> : <SavedSuiteReportsWorkspace api={api} projectId={projectId} />}</div>
+    </div> : reportKind === "suite" ? <SavedSuiteReportsWorkspace api={api} projectId={projectId} />
+      : <PressureReportsWorkspace api={api} projectId={projectId} />}</div></div>
     {baselineOpen && execution !== null && <Dialog titleId="baseline-update-title" descriptionId="baseline-update-description"
       onClose={() => setBaselineOpen(false)} closeDisabled={updatingBaseline}>
       <div className="testing-delete-dialog"><h2 id="baseline-update-title">{t("report.baselineTitle")}</h2>

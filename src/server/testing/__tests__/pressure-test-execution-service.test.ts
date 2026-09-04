@@ -11,6 +11,7 @@ import {
   PressureTestDestructiveConfirmationRequiredError,
   PressureTestExecutionConflictError,
 } from "../pressure-test-execution-service.js";
+import { PressureTestExecutionRepository } from "../pressure-test-execution-repository.js";
 import { createPressureTestService } from "../pressure-test-service.js";
 import { createTestCaseService } from "../test-case-service.js";
 import type { TestExecutionService } from "../test-execution-service.js";
@@ -22,7 +23,7 @@ describe("PressureTestExecutionService", () => {
   const roots: string[] = [];
   afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
-  function fixture(options: { destructive?: boolean } = {}) {
+  function fixture(options: { destructive?: boolean; stalled?: boolean } = {}) {
     const dataRoot = mkdtempSync(join(tmpdir(), "inspector-pressure-executions-")); roots.push(dataRoot);
     let nextId = 5_400;
     const createId = () => `00000000-0000-4000-8000-${String(nextId++).padStart(12, "0")}`;
@@ -54,16 +55,20 @@ describe("PressureTestExecutionService", () => {
         );
         return { id } as TestExecutionDetail;
       }),
-      waitForTerminal: vi.fn(async (_projectId: string, executionId: string) => {
+      waitForTerminal: vi.fn(async (_projectId: string, executionId: string, signal?: AbortSignal) => {
+        if (options.stalled === true && !signal?.aborted) {
+          await new Promise<void>((resolve) => signal?.addEventListener("abort", () => resolve(), { once: true }));
+        }
         const now = new Date().toISOString();
-        return { id: executionId, status: "PASSED", createdAt: now, startedAt: now, completedAt: now,
+        return { id: executionId, status: signal?.aborted ? "CANCELLED" : "PASSED",
+          createdAt: now, startedAt: now, completedAt: now,
           durationMs: 10, error: null } as TestExecutionDetail;
       }),
       close: vi.fn(async () => undefined),
     } as unknown as TestExecutionService;
     const service = createPressureTestExecutionService({ projects, pressureTests, testCases, testExecutions,
       inspectTarget: () => ({ status: "current", destructive: options.destructive === true }), createId });
-    return { projects, connections, testCases, testCase, pressureTests, pressureTest, testExecutions, service };
+    return { projects, connections, testCases, testCase, pressureTests, pressureTest, testExecutions, service, createId };
   }
 
   it("runs bounded virtual users through Test Execution and persists aggregate samples", async () => {
@@ -107,5 +112,46 @@ describe("PressureTestExecutionService", () => {
         idempotencyKey: "confirmed", request: { confirmDestructive: true } });
       expect((await service.waitForTerminal(projectId, execution.id)).status).toBe("PASSED");
     } finally { await service.close(); await connections.close(); projects.close(); }
+  });
+
+  it("cancels active work without allowing a late completion to replace the terminal state", async () => {
+    const { projects, connections, service, pressureTest, testExecutions } = fixture({ stalled: true });
+    try {
+      const execution = service.start({ projectId, pressureTestId: pressureTest.id,
+        idempotencyKey: "cancelled", request: {} });
+      await vi.waitFor(() => expect(service.get(projectId, execution.id).status).toBe("RUNNING"));
+      const testExecution = vi.mocked(testExecutions.start).mock.results[0]!.value as TestExecutionDetail;
+      new PressureTestExecutionRepository(projects.open(projectId)).appendSample({
+        id: "00000000-0000-4000-8000-000000005399", projectId,
+        pressureTestExecutionId: execution.id, testExecutionId: testExecution.id,
+        virtualUser: 1, iteration: 1, status: "PASSED",
+        startedAt: "2026-09-04T00:00:00.000Z", completedAt: "2026-09-04T00:00:00.010Z",
+        durationMs: 10, error: null,
+      });
+      expect(service.get(projectId, execution.id).summary).toMatchObject({ total: 1, passed: 1 });
+      expect(service.cancel(projectId, execution.id)).toBe(true);
+      expect(service.get(projectId, execution.id).status).toBe("CANCELLED");
+      expect(new PressureTestExecutionRepository(projects.open(projectId)).complete(projectId, execution.id, {
+        status: "PASSED", summary: null, error: null,
+        completedAt: new Date().toISOString(), durationMs: 10,
+      })).toBe(false);
+    } finally { await service.close(); await connections.close(); projects.close(); }
+  });
+
+  it("marks an inherited active execution as interrupted after process restart", async () => {
+    const { projects, connections, service, pressureTest, pressureTests, testCases,
+      testExecutions, createId } = fixture({ stalled: true });
+    const restarted = createPressureTestExecutionService({ projects, pressureTests, testCases, testExecutions,
+      inspectTarget: () => ({ status: "current", destructive: false }), createId });
+    try {
+      const execution = service.start({ projectId, pressureTestId: pressureTest.id,
+        idempotencyKey: "interrupted", request: {} });
+      await vi.waitFor(() => expect(service.get(projectId, execution.id).status).toBe("RUNNING"));
+      expect(restarted.get(projectId, execution.id)).toMatchObject({
+        status: "INTERRUPTED", error: { code: "PROCESS_RESTARTED" },
+      });
+    } finally {
+      await service.close(); await restarted.close(); await connections.close(); projects.close();
+    }
   });
 });

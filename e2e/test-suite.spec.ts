@@ -83,6 +83,14 @@ test("runs a persisted Tool test suite through the production UI", async ({ page
         executionPolicy: { concurrency: 1, stopOnFailure: true } },
     });
     expect(suiteResponse.status()).toBe(201);
+    const pressureResponse = await request.post(`${inspector.address.origin}/api/projects/${projectId}/pressure-tests`, {
+      headers, data: { name: "Echo pressure", description: "Bounded end-to-end pressure test",
+        target: { testCaseId }, inputs: {},
+        load: { virtualUsers: 2, rampUpMs: 0, durationMs: 10_000, thinkTimeMs: 0, maxIterations: 2 },
+        thresholds: { maxErrorRate: 1, maxP95DurationMs: 300_000,
+          minRequestsPerSecond: 0, stopOnErrorRate: true } },
+    });
+    expect(pressureResponse.status()).toBe(201);
 
     await page.getByRole("button", { name: "测试套件" }).click();
     await page.getByRole("button", { name: /Smoke suite/ }).click();
@@ -159,6 +167,23 @@ test("runs a persisted Tool test suite through the production UI", async ({ page
     await page.getByRole("tab", { name: "套件报告" }).click();
     await page.getByRole("button", { name: /2.0.*1.0/ }).click();
     await expect(page.locator(".suite-report-viewer").getByText("suite-ok", { exact: true }).first()).toBeVisible();
+
+    await page.getByRole("button", { name: "压力测试" }).click();
+    await page.getByRole("button", { name: /Echo pressure/ }).click();
+    await page.getByRole("button", { name: "开始压测" }).click();
+    const pressureReport = page.locator(".pressure-report");
+    await expect(pressureReport).toBeVisible();
+    await expect(pressureReport.getByText("调用总数").locator("..")).toContainText("2");
+    await expect(pressureReport.getByRole("button", { name: /#1/ })).toBeVisible();
+    await pressureReport.getByRole("button", { name: /#1/ }).click();
+    await expect(pressureReport.getByText("suite-ok", { exact: true }).first()).toBeVisible();
+    expect((await new AxeBuilder({ page }).include(".pressure-report")
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze()).violations).toEqual([]);
+
+    await page.getByRole("button", { name: "测试报告" }).click();
+    await page.getByRole("tab", { name: "压力报告" }).click();
+    await page.getByRole("button", { name: /Echo pressure/ }).click();
+    await expect(page.locator(".pressure-report").getByText("调用总数").locator("..")).toContainText("2");
 
     const exportResponse = await request.get(
       `${inspector.address.origin}/api/projects/${projectId}/automated-tests/export`, { headers },

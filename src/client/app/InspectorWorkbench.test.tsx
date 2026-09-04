@@ -152,6 +152,7 @@ describe("InspectorWorkbench", () => {
       { navigation: "环境变量", trigger: "了解环境变量", title: "环境变量", description: "集中管理连接认证与脚本可复用的配置值。" },
       { navigation: "自动化测试", trigger: "了解自动化测试", title: "自动化测试", description: "配置可重复执行的 Tool 参数、断言和超时策略。" },
       { navigation: "测试套件", trigger: "了解测试套件", title: "测试套件", description: "组合单 Tool 与场景用例，并以有限并发执行。" },
+      { navigation: "压力测试", trigger: "了解压力测试", title: "压力测试", description: "以受控虚拟用户重复执行一个已保存测试用例，并评估吞吐、延迟和错误率。" },
       { navigation: "测试报告", trigger: "了解测试报告", title: "测试报告", description: "查看执行历史、断言结果与完整调用追溯。" },
       { navigation: "运行历史", trigger: "了解运行历史", title: "运行历史", description: "查看项目内所有 Tool 调用，按时间回溯请求、响应和协议轨迹。" },
     ] as const;
@@ -238,6 +239,13 @@ describe("InspectorWorkbench", () => {
     await user.click(screen.getByRole("button", { name: "运行历史" }));
     expect(await screen.findByRole("heading", { name: "运行历史", level: 1 })).toBeVisible();
     expect(screen.getByText("选择一条运行记录")).toBeVisible();
+  });
+
+  it("keeps compact sidebar navigation names available to assistive technology", async () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+    render(<InspectorWorkbench api={api()} project={project} version="2.5.1" />);
+    expect(await screen.findByRole("button", { name: "压力测试" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "测试报告" })).toBeVisible();
   });
 
   it("adds and activates a Server tab after connecting, then scopes the Tools page to it", async () => {

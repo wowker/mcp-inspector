@@ -52,6 +52,10 @@ describe("PressureTestService", () => {
       const pageOne = service.list(projectId, { limit: 1 });
       expect(pageOne.items.map(({ id }) => id)).toEqual([second.id]);
       expect(pageOne.nextCursor).not.toBeNull();
+      const foreign = JSON.parse(Buffer.from(pageOne.nextCursor!, "base64url").toString("utf8"));
+      foreign.projectId = "00000000-0000-4000-8000-000000005199";
+      expect(() => service.list(projectId, { cursor: Buffer.from(JSON.stringify(foreign)).toString("base64url") }))
+        .toThrow(/cursor/i);
       const pageTwo = service.list(projectId, { limit: 1, cursor: pageOne.nextCursor ?? undefined });
       expect(pageTwo.items.map(({ id }) => id)).toEqual([first.id]);
       expect(pageTwo.nextCursor).toBeNull();

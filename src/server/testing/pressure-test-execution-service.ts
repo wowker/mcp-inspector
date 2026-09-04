@@ -114,8 +114,17 @@ export function createPressureTestExecutionService(deps: {
     if (!z.uuid().safeParse(projectId).success || !z.uuid().safeParse(executionId).success) {
       throw new PressureTestExecutionNotFoundError();
     }
-    const value = repository(projectId).get(projectId, executionId);
+    const repo = repository(projectId);
+    const value = repo.get(projectId, executionId);
     if (value === null) throw new PressureTestExecutionNotFoundError();
+    if ((value.status === "QUEUED" || value.status === "RUNNING") && value.startedAt !== null) {
+      const samples = repo.allSamples(projectId, executionId);
+      if (samples.length > 0) return { ...value, summary: summarizePressureSamples({
+        samples,
+        elapsedMs: elapsed(value.startedAt, timestamp()),
+        thresholds: value.definitionSnapshot.thresholds,
+      }) };
+    }
     return value;
   };
 

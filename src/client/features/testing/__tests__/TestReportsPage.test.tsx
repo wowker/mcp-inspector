@@ -97,6 +97,55 @@ describe("TestReportsPage", () => {
     expect(api.getTestSuiteExecutionReport).toHaveBeenCalledWith(projectId, suiteExecutionId);
   });
 
+  it("opens a pressure report and keeps full Tool details behind one selected call", async () => {
+    const pressureTestId = "00000000-0000-4000-8000-000000000971";
+    const pressureExecutionId = "00000000-0000-4000-8000-000000000972";
+    const pressureDefinition = { id: pressureTestId, projectId, name: "库存压测", description: "", revision: 1,
+      target: { testCaseId }, inputs: {}, load: { virtualUsers: 2, rampUpMs: 0, durationMs: 1000, thinkTimeMs: 0, maxIterations: 10 },
+      thresholds: { maxErrorRate: .01, maxP95DurationMs: 500, minRequestsPerSecond: 1, stopOnErrorRate: true },
+      createdAt: timestamp, updatedAt: timestamp };
+    const execution = { id: pressureExecutionId, projectId, pressureTestId, pressureTestRevision: 1,
+      definitionSnapshot: pressureDefinition, targetSnapshot: { id: testCaseId, name: "库存", kind: "tool" as const, revision: 1 },
+      status: "PASSED" as const, summary: { total: 1, passed: 1, failed: 0, errors: 0, cancelled: 0,
+        errorRate: 0, averageRequestsPerSecond: 1, peakRequestsPerSecond: 1,
+        duration: { minMs: 10, maxMs: 10, averageMs: 10, p50Ms: 10, p90Ms: 10, p95Ms: 10, p99Ms: 10 },
+        thresholds: [{ metric: "ERROR_RATE" as const, target: .01, actual: 0, passed: true },
+          { metric: "P95_DURATION" as const, target: 500, actual: 10, passed: true },
+          { metric: "REQUESTS_PER_SECOND" as const, target: 1, actual: 1, passed: true }] },
+      error: null, createdAt: timestamp, startedAt: timestamp, completedAt: timestamp, durationMs: 1000 };
+    const sample = { id: "00000000-0000-4000-8000-000000000973", projectId,
+      pressureTestExecutionId: pressureExecutionId, testExecutionId: executionId, virtualUser: 1, iteration: 1,
+      status: "PASSED" as const, startedAt: timestamp, completedAt: timestamp, durationMs: 10, error: null };
+    const api = { listTestExecutions: vi.fn(async () => ({ items: [], nextCursor: null })),
+      listPressureTestExecutions: vi.fn(async () => ({ items: [execution], nextCursor: null })),
+      getPressureTestExecution: vi.fn(async () => execution),
+      listPressureTestSamples: vi.fn(async () => ({ items: [sample], nextCursor: null })),
+    } as unknown as InspectorApiClient;
+    const user = userEvent.setup(); render(<TestReportsPage api={api} projectId={projectId} />);
+    await user.click(await screen.findByRole("tab", { name: "压力报告" }));
+    await user.click(await screen.findByRole("button", { name: /库存压测/ }));
+    expect(await screen.findByText("0.00%")).toBeVisible();
+    expect(screen.getByRole("img", { name: "压力测试每秒调用数和平均延迟趋势" })).toBeVisible();
+    expect(screen.getByRole("table", { name: "压力测试时间序列数据" })).toBeVisible();
+    expect(screen.getByRole("button", { name: /#1/ })).toBeVisible();
+    expect(api.getTestExecution).toBeUndefined();
+  });
+
+  it("moves between report tabs with the keyboard", async () => {
+    const api = { listTestExecutions: vi.fn(async () => ({ items: [], nextCursor: null })),
+      listTestSuites: vi.fn(async () => ({ items: [], nextCursor: null })),
+      listSavedTestSuiteReports: vi.fn(async () => ({ items: [], nextCursor: null })),
+      listPressureTestExecutions: vi.fn(async () => ({ items: [], nextCursor: null })),
+    } as unknown as InspectorApiClient;
+    const user = userEvent.setup(); render(<TestReportsPage api={api} projectId={projectId} />);
+    const caseTab = await screen.findByRole("tab", { name: "用例报告" });
+    caseTab.focus(); await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("tab", { name: "套件报告" })).toHaveFocus();
+    await user.keyboard("{End}");
+    expect(screen.getByRole("tab", { name: "压力报告" })).toHaveFocus();
+    expect(screen.getByRole("tab", { name: "压力报告" })).toHaveAttribute("aria-selected", "true");
+  });
+
   it("bounds concurrent history requests when loading many suites", async () => {
     const suites = Array.from({ length: 9 }, (_, index) => ({
       id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,

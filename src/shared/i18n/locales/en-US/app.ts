@@ -16,7 +16,7 @@ export const enUSApp = {
   },
   workbench: {
     skipMain: "Skip to main content", navigation: "Workbench navigation",
-    nav: { servers: "Servers", tools: "Tools", environment: "Environment", testing: "Automated testing", suites: "Test suites", reports: "Test reports", history: "Run history" },
+    nav: { servers: "Servers", tools: "Tools", environment: "Environment", testing: "Automated testing", suites: "Test suites", pressure: "Pressure tests", reports: "Test reports", history: "Run history" },
     localService: "Local service v{{version}}", themeDark: "Switch to dark theme", themeLight: "Switch to light theme",
     collapseSidebar: "Collapse sidebar", expandSidebar: "Expand sidebar",
     connectedServers: "Connected Servers", noConnectedServers: "No connected Server",
