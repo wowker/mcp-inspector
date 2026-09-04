@@ -204,6 +204,7 @@ export type RunEvent = SharedRunEvent;
 export type RunSummary = SharedRunSummary;
 export type RunDetail = SharedRunDetail;
 export interface RunPage { runs: RunSummary[]; nextCursor: string | null }
+export interface ClearRunHistoryResult { deleted: number; retained: number }
 export type RunListFilter = RunHistoryFilter;
 
 export type SavedItemKind = "request" | "response";
@@ -289,6 +290,8 @@ export interface InspectorApiClient {
   getRun(projectId: string, runId: string, signal?: AbortSignal): Promise<RunDetail>;
   listRuns(projectId: string, cursor?: string, filter?: RunListFilter): Promise<RunPage>;
   setRunPinned(projectId: string, runId: string, pinned: boolean): Promise<RunSummary>;
+  deleteRun(projectId: string, runId: string): Promise<void>;
+  clearRunHistory(projectId: string, input: { tabId: string; connectionId: string; toolName: string }): Promise<ClearRunHistoryResult>;
   getReplayPreflight(projectId: string, runId: string, signal?: AbortSignal): Promise<ReplayPreflight>;
   startReplay(projectId: string, runId: string, request: ReplayRequest): Promise<RunSummary>;
   listComparisonRules(projectId: string): Promise<ComparisonRuleSet>;
@@ -1349,6 +1352,25 @@ export function createApiClient(_legacySessionToken?: string): InspectorApiClien
       const run = decodeRunSummary(value.run, projectId);
       if (run.id !== runId || run.pinned !== pinned) throw new Error("Invalid Run response");
       return run;
+    },
+    async deleteRun(projectId, runId) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/runs/${encodeURIComponent(runId)}`,
+        { method: "DELETE", headers },
+      );
+      if (!response.ok) await decodeResponse<never>(response);
+    },
+    async clearRunHistory(projectId, input) {
+      const search = new URLSearchParams({ tabId: input.tabId, connectionId: input.connectionId, toolName: input.toolName });
+      const value = await decodeResponse<unknown>(await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/runs?${search.toString()}`,
+        { method: "DELETE", headers },
+      ));
+      if (!isObject(value) || !Number.isSafeInteger(value.deleted) || Number(value.deleted) < 0 ||
+          !Number.isSafeInteger(value.retained) || Number(value.retained) < 0 || Object.keys(value).length !== 2) {
+        throw new Error("Invalid Run history deletion response");
+      }
+      return { deleted: Number(value.deleted), retained: Number(value.retained) };
     },
     async getReplayPreflight(projectId, runId, signal) {
       const response = await fetch(

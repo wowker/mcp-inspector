@@ -42,6 +42,14 @@ export const zhCNTools = {
     savingTab: "正在保存 Tab", tabPending: "Tab 有待保存更改", tabSaved: "Tab 已保存",
     destructiveMessage: "流水线脚本会调用辅助 Tool，其中可能包含有副作用的操作。",
     destructiveDescription: "是否允许本次执行调用破坏性辅助 Tool？", allowExecution: "允许执行", cancel: "取消",
+    history: {
+      detail: "执行历史详情", selectTitle: "选择一条执行记录", selectDescription: "调用参数和响应结果会展示在这里。",
+      load: "加载到调试", deleteTitle: "删除这条执行记录？", deleteDescription: "删除后无法恢复；被测试报告或脚本执行引用的记录会受到保护。",
+      deleteConfirm: "确认删除", deleted: "执行记录已删除", deleteFailed: "删除执行记录失败",
+      clearTitle: "清空当前 Tab 的执行历史？", clearDescription: "将删除未固定且未被其他报告引用的已结束记录；运行中、已固定和被引用记录会保留。",
+      clearConfirm: "确认清空", cleared: "已清空 {{deleted}} 条执行记录", clearedRetained: "已清空 {{deleted}} 条，保留 {{retained}} 条受保护记录",
+      clearFailed: "清空执行历史失败",
+    },
     tabs: {
       label: "Tool 调试 Tabs", pinnedAria: "{{title}}，已固定", pinned: "已固定", unsaved: "未保存", running: "运行中",
       actions: "{{title}} 操作", menu: "{{title}} Tab 操作菜单", copyName: "复制名称", duplicate: "复制 Tab",

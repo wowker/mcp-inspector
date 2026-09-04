@@ -83,7 +83,7 @@ function api(): InspectorApiClient {
     duplicateTab: vi.fn(), reorderTabs: vi.fn(), closeTab: vi.fn(), closeOtherTabs: vi.fn(), closeTabsRight: vi.fn(),
     startRun: vi.fn(), startWorkflowExecution: vi.fn(), getActiveWorkflowExecution: vi.fn().mockResolvedValue(null), getWorkflowExecution: vi.fn(), cancelWorkflowExecution: vi.fn(),
     getRunSummary: vi.fn(), getRun: vi.fn(),
-    listRuns: vi.fn().mockResolvedValue({ runs: [], nextCursor: null }), setRunPinned: vi.fn(), openRunEventStream: vi.fn(),
+    listRuns: vi.fn().mockResolvedValue({ runs: [], nextCursor: null }), setRunPinned: vi.fn(), deleteRun: vi.fn(), clearRunHistory: vi.fn(), openRunEventStream: vi.fn(),
     getReplayPreflight: vi.fn(), startReplay: vi.fn(),
     listComparisonRules: vi.fn().mockResolvedValue({ rules: [] }), replaceComparisonRules: vi.fn(), getRunComparison: vi.fn(),
     listSavedItems: vi.fn(), getSavedItem: vi.fn(), createSavedItem: vi.fn(), deleteSavedItem: vi.fn(),
@@ -370,6 +370,43 @@ describe("InspectorWorkbench", () => {
     await user.click(screen.getByRole("button", { name: "Tools" }));
     await screen.findByRole("tab", { name: "sum" });
     expect(client.openTab).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves Tool debug, test-case, and suite drafts while switching between their navigation pages", async () => {
+    const user = userEvent.setup();
+    const client = api();
+    const connected = { ...connection, status: "connected" as const };
+    const current = restoredTab({ arguments: { a: 1, b: 2 }, rawText: '{\n  "a": 1,\n  "b": 2\n}' });
+    vi.mocked(client.listConnections).mockResolvedValue([connected]);
+    vi.mocked(client.listTabs).mockResolvedValue([current]);
+    vi.mocked(client.getTool).mockResolvedValue(historyTool);
+    vi.mocked(client.updateTab).mockImplementation(async (_projectId, _tabId, patch) => ({ ...current, ...patch }));
+    render(<InspectorWorkbench api={client} project={project} version="2.1.1" />);
+
+    await user.click(await screen.findByRole("tab", { name: "Supplier MCP" }));
+    const toolsSlot = document.querySelector<HTMLElement>(".workbench-page-slot:not([hidden])")!;
+    fireEvent.change(await within(toolsSlot).findByLabelText("a"), { target: { value: "73" } });
+
+    await user.click(screen.getByRole("button", { name: "自动化测试" }));
+    const testingSlot = document.querySelector<HTMLElement>(".workbench-page-slot:not([hidden])")!;
+    await user.click(await within(testingSlot).findByRole("button", { name: "新建测试用例" }));
+    await user.type(within(testingSlot).getByLabelText("名称"), "保留中的用例草稿");
+
+    await user.click(screen.getByRole("button", { name: "测试套件" }));
+    const suitesSlot = document.querySelector<HTMLElement>(".workbench-page-slot:not([hidden])")!;
+    await user.click(await within(suitesSlot).findByRole("button", { name: "新建测试套件" }));
+    await user.type(within(suitesSlot).getByLabelText("名称"), "保留中的套件草稿");
+
+    await user.click(screen.getByRole("button", { name: "自动化测试" }));
+    expect(within(document.querySelector<HTMLElement>(".workbench-page-slot:not([hidden])")!)
+      .getByLabelText("名称")).toHaveValue("保留中的用例草稿");
+    await user.click(screen.getByRole("button", { name: "Tools" }));
+    expect(within(document.querySelector<HTMLElement>(".workbench-page-slot:not([hidden])")!)
+      .getByLabelText("a")).toHaveValue(73);
+    expect(client.listTabs).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("button", { name: "测试套件" }));
+    expect(within(document.querySelector<HTMLElement>(".workbench-page-slot:not([hidden])")!)
+      .getByLabelText("名称")).toHaveValue("保留中的套件草稿");
   });
 
   it("keeps Tool intent sequences monotonic after earlier intents are cleared", async () => {

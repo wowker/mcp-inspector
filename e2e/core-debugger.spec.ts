@@ -310,7 +310,7 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
     expect(new Set(historyIds).size).toBe(8);
     expect(new Set(historyIds)).toEqual(new Set(runIds));
     await openRunButtons.first().click();
-    await expect(page.locator("article.run-result")).toBeVisible();
+    await expect(page.locator(".history-page__detail article.run-result")).toBeVisible();
 
     const projectsResponse = await request.get(`${inspector.address.origin}/api/projects`, { headers: apiHeaders });
     const projects = await projectsResponse.json() as { projects: Array<{ id: string }> };

@@ -24,6 +24,7 @@ function fake(overrides: Partial<RunServiceWithEvents> = {}): RunServiceWithEven
     startInvocation: () => summary,
     startReplayInvocation: () => summary,
     waitForTerminal: async () => detail, setPinned: () => summary,
+    delete: () => undefined, clearHistory: () => ({ deleted: 0, retained: 0 }),
     events: () => [], close: async () => undefined, ...overrides,
   };
 }
@@ -84,6 +85,26 @@ describe("run routes", () => {
     expect((await createRunRoutes(fake()).request(`/${projectId}/runs/${runId}/pin`, {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pinned: "yes" }),
     })).status).toBe(400);
+  });
+
+  it("deletes one history record and clears only an exact Tab history scope", async () => {
+    const remove = vi.fn();
+    const clearHistory = vi.fn(() => ({ deleted: 3, retained: 1 }));
+    const routes = createRunRoutes(fake({ delete: remove, clearHistory }));
+    const removed = await routes.request(`/${projectId}/runs/${runId}`, { method: "DELETE" });
+    expect(removed.status).toBe(204);
+    expect(remove).toHaveBeenCalledWith(projectId, runId);
+
+    const cleared = await routes.request(
+      `/${projectId}/runs?tabId=${tabId}&connectionId=${summary.connectionId}&toolName=sum`,
+      { method: "DELETE" },
+    );
+    expect(cleared.status).toBe(200);
+    expect(await cleared.json()).toEqual({ deleted: 3, retained: 1 });
+    expect(clearHistory).toHaveBeenCalledWith(projectId, {
+      tabId, connectionId: summary.connectionId, toolName: "sum",
+    });
+    expect((await routes.request(`/${projectId}/runs?tabId=${tabId}`, { method: "DELETE" })).status).toBe(400);
   });
 
   it("returns only the lightweight project-scoped Run summary for status observation", async () => {

@@ -5,6 +5,7 @@ export const enUSRuns = {
     projectAria: "Project run history", tabAria: "Current Tab history", title: "Run history", tabTitle: "Current Tab history",
     empty: "No runs yet", openAria: "Open run {{id}}", notRecorded: "Not recorded", loading: "Loading run history…", more: "Load more",
     loadFailed: "Unable to load run history", pinAria: "Pin run {{id}}", unpinAria: "Unpin run {{id}}", pinFailed: "Unable to update pin state",
+    clear: "Clear history", deleteAria: "Delete run {{id}}",
   },
   page: {
     title: "Run history", description: "Review every Tool call in this project and trace its request, response, and protocol activity.",

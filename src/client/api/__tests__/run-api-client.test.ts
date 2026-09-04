@@ -109,6 +109,20 @@ describe("Run API client", () => {
     }));
   });
 
+  it("deletes one Run and clears an identity-fenced Tab history", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ deleted: 3, retained: 1 }), { status: 200 }));
+    const api = createApiClient("session");
+    await expect(api.deleteRun(projectId, run.id)).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenLastCalledWith(`/api/projects/${projectId}/runs/${run.id}`, expect.objectContaining({ method: "DELETE" }));
+    await expect(api.clearRunHistory(projectId, { tabId, connectionId, toolName: "sum" }))
+      .resolves.toEqual({ deleted: 3, retained: 1 });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      `/api/projects/${projectId}/runs?tabId=${tabId}&connectionId=${connectionId}&toolName=sum`,
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
   it("loads a strict replay preflight and starts a lineage-fenced replay", async () => {
     const preflight = {
       projectId, sourceRunId: run.id, connectionId, toolName: "sum", arguments: { a: 1 },

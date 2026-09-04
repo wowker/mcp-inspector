@@ -68,7 +68,7 @@ function api(overrides: Partial<InspectorApiClient> = {}): InspectorApiClient {
     openTab: vi.fn(), replaceTabTool: vi.fn(), updateTab: vi.fn(), duplicateTab: vi.fn(),
     reorderTabs: vi.fn(), closeTab: vi.fn(), closeOtherTabs: vi.fn(), closeTabsRight: vi.fn(),
     startRun: vi.fn(), startWorkflowExecution: vi.fn(), getActiveWorkflowExecution: vi.fn(), getWorkflowExecution: vi.fn(), cancelWorkflowExecution: vi.fn(),
-    getRunSummary: vi.fn(), getRun: vi.fn(), listRuns: vi.fn(), setRunPinned: vi.fn(), openRunEventStream: vi.fn(),
+    getRunSummary: vi.fn(), getRun: vi.fn(), listRuns: vi.fn(), setRunPinned: vi.fn(), deleteRun: vi.fn(), clearRunHistory: vi.fn(), openRunEventStream: vi.fn(),
     getReplayPreflight: vi.fn(), startReplay: vi.fn(),
     listComparisonRules: vi.fn().mockResolvedValue({ rules: [] }), replaceComparisonRules: vi.fn(), getRunComparison: vi.fn(),
     listSavedItems: vi.fn(), getSavedItem: vi.fn(), createSavedItem: vi.fn(), deleteSavedItem: vi.fn(),

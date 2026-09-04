@@ -6,7 +6,7 @@ import { InvalidProjectStorageError, ProjectNotFoundError } from "../projects/pr
 import { TabNotFoundError } from "../tabs/tab-service.js";
 import {
   InvalidRunCursorError, InvalidRunError, RunIdempotencyConflictError, RunNotFoundError,
-  RunValidationError, type RunServiceWithEvents,
+  RunActiveError, RunReferencedError, RunValidationError, type RunServiceWithEvents,
 } from "./run-service.js";
 import type { RunEvent } from "./run-types.js";
 
@@ -26,6 +26,8 @@ function errorResponse(context: Context, error: unknown) {
   if (error instanceof InvalidProjectStorageError) return context.json({ error: { code: "INVALID_PROJECT_STORAGE", message: "Project storage metadata is invalid" } }, 409);
   if (error instanceof TabNotFoundError || error instanceof RunNotFoundError) return context.json(errors.notFound, 404);
   if (error instanceof RunIdempotencyConflictError) return context.json(errors.conflict, 409);
+  if (error instanceof RunActiveError) return context.json({ error: { code: "RUN_ACTIVE", message: error.message } }, 409);
+  if (error instanceof RunReferencedError) return context.json({ error: { code: "RUN_REFERENCED", message: error.message } }, 409);
   if (error instanceof RunValidationError) return context.json({ error: { code: "INVALID_ARGUMENTS", message: "Run arguments are invalid", issues: error.issues } }, 422);
   if (error instanceof InvalidRunCursorError) return context.json(errors.cursor, 400);
   if (error instanceof InvalidRunError) return context.json(errors.invalid, 400);
@@ -75,6 +77,18 @@ export function createRunRoutes(runs: RunServiceWithEvents): Hono {
     });
     if (!parsed.success) return c.json(errors.invalid, 400);
     try { return c.json(runs.list(c.req.param("projectId"), c.req.query("cursor"), parsed.data)); }
+    catch (error) { return errorResponse(c, error); }
+  });
+  routes.delete("/:projectId/runs", (c) => {
+    const parsed = z.object({ tabId: uuid, connectionId: uuid, toolName }).strict().safeParse({
+      tabId: c.req.query("tabId"), connectionId: c.req.query("connectionId"), toolName: c.req.query("toolName"),
+    });
+    if (!parsed.success) return c.json(errors.invalid, 400);
+    try { return c.json(runs.clearHistory(c.req.param("projectId"), parsed.data)); }
+    catch (error) { return errorResponse(c, error); }
+  });
+  routes.delete("/:projectId/runs/:runId", (c) => {
+    try { runs.delete(c.req.param("projectId"), c.req.param("runId")); return c.body(null, 204); }
     catch (error) { return errorResponse(c, error); }
   });
   routes.patch("/:projectId/runs/:runId/pin", async (c) => {

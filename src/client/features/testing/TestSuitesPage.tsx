@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp, DotsSixVertical, MagnifyingGlass, Play, Plus, Stop, Trash, X } from "@phosphor-icons/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import type { InspectorApiClient } from "../../api/api-client.js";
@@ -13,7 +13,7 @@ import { Dialog } from "../../components/overlays/Dialog.js";
 import { ModuleHelpPopover } from "../../components/overlays/ModuleHelpPopover.js";
 import { filterSearchableOptions } from "../../components/forms/SearchableSelect.js";
 
-interface Props { api: InspectorApiClient; projectId: string }
+interface Props { api: InspectorApiClient; projectId: string; active?: boolean }
 interface Draft { id: string | null; revision: number | null; name: string; description: string; tags: string;
   concurrency: number; stopOnFailure: boolean; members: TestSuiteDefinition["members"] }
 const emptyDraft = (): Draft => ({ id: null, revision: null, name: "", description: "", tags: "",
@@ -46,7 +46,7 @@ async function loadScenarioDetails(api: InspectorApiClient, projectId: string,
   return details;
 }
 
-export function TestSuitesPage({ api, projectId }: Props) {
+export function TestSuitesPage({ api, projectId, active = true }: Props) {
   const { t } = useTranslation("testing");
   const version = useRef(0);
   const detailVersion = useRef(0);
@@ -62,18 +62,23 @@ export function TestSuitesPage({ api, projectId }: Props) {
   const [draggedMemberId, setDraggedMemberId] = useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [destructiveOpen, setDestructiveOpen] = useState(false);
+  const wasActive = useRef(active);
 
-  const reload = () => {
+  const reload = useCallback(() => {
     const current = ++version.current;
     void Promise.all([api.listTestSuites(projectId), listAllTestCases(api, projectId)])
       .then(([suitePage, caseItems]) => { if (version.current === current) { setSuites(suitePage.items); setCases(caseItems); } })
       .catch(() => toast.error(t("suite.loadFailed")));
-  };
+  }, [api, projectId, t]);
   useEffect(() => {
     setDraft(null); setExecution(null); setCaseDetails({}); setMemberInputs({}); setDeleteOpen(false); setDestructiveOpen(false);
     detailVersion.current += 1; executionVersion.current += 1; reload();
     return () => { version.current += 1; detailVersion.current += 1; executionVersion.current += 1; };
   }, [projectId]);
+  useEffect(() => {
+    if (active && !wasActive.current) reload();
+    wasActive.current = active;
+  }, [active, reload]);
 
   async function select(id: string) {
     const current = ++detailVersion.current;

@@ -134,13 +134,15 @@ describe("Run workspace", () => {
     expect(startRun.mock.calls[0]?.slice(0, 2)).toEqual(startRun.mock.calls[1]?.slice(0, 2));
   });
 
-  it("restores the selected history request and response in its existing Tab", async () => {
+  it("keeps history read-only until explicitly restoring its request and response into the existing Tab", async () => {
     const client = api({ listRuns: vi.fn(async () => ({ runs: [summary], nextCursor: null })) });
     render(<DebugWorkspace api={client} projectId={projectId} connectionId={connectionId} />); const editor = await screen.findByLabelText("a");
     fireEvent.change(editor, { target: { value: "9" } }); fireEvent.click(screen.getByRole("button", { name: "执行历史" }));
     fireEvent.click(await screen.findByRole("button", { name: `打开运行 ${runId}` }));
     expect(await screen.findByText(/^answer/)).toBeVisible();
-    expect(screen.getByLabelText("a")).toHaveValue(2); expect(client.startRun).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("a")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "加载到调试" }));
+    expect(await screen.findByLabelText("a")).toHaveValue(2); expect(client.startRun).not.toHaveBeenCalled();
   });
 
   it("keeps the launched Run gate when inspecting an older terminal Run while another Tab remains executable", async () => {
@@ -162,7 +164,8 @@ describe("Run workspace", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "执行中…" })).toBeDisabled());
     fireEvent.click(screen.getByRole("button", { name: "执行历史" }));
     fireEvent.click(await screen.findByRole("button", { name: `打开运行 ${runId}` })); await screen.findByText(/^answer/);
-    fireEvent.keyDown(screen.getByLabelText("a"), { key: "Enter", ctrlKey: true });
+    fireEvent.click(screen.getByRole("button", { name: "加载到调试" }));
+    fireEvent.keyDown(await screen.findByLabelText("a"), { key: "Enter", ctrlKey: true });
     expect(startRun).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("tab", { name: "sum (2)" }));
     await waitFor(() => expect(screen.getByRole("tab", { name: "sum (2)" })).toHaveAttribute("aria-selected", "true"));
@@ -185,7 +188,8 @@ describe("Run workspace", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "执行中…" })).toBeDisabled());
     fireEvent.click(screen.getByRole("button", { name: "执行历史" }));
     fireEvent.click(await screen.findByRole("button", { name: `打开运行 ${runId}` })); await screen.findByText(/^answer/);
-    expect(screen.getByRole("button", { name: "执行中…" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "加载到调试" }));
+    expect(await screen.findByRole("button", { name: "执行中…" })).toBeDisabled();
     terminal = true; streamController!.enqueue(encoder.encode(`data: ${JSON.stringify({ runId: activeRunId, sequence: 9, kind: "run-status",
       occurredAt: "2026-08-17T00:00:01.000Z", payload: { status: "succeeded" } })}\n\n`));
     await waitFor(() => expect(screen.getByRole("button", { name: "执行" })).toBeEnabled());

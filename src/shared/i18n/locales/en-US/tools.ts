@@ -42,6 +42,14 @@ export const enUSTools = {
     savingTab: "Saving Tab", tabPending: "Tab has unsaved changes", tabSaved: "Tab saved",
     destructiveMessage: "Workflow scripts call helper Tools that may have side effects.",
     destructiveDescription: "Allow this run to call destructive helper Tools?", allowExecution: "Allow run", cancel: "Cancel",
+    history: {
+      detail: "Execution history detail", selectTitle: "Select an execution", selectDescription: "Its call arguments and response will appear here.",
+      load: "Load into debug", deleteTitle: "Delete this execution record?", deleteDescription: "Deletion cannot be undone. Records referenced by test reports or script executions are protected.",
+      deleteConfirm: "Delete", deleted: "Execution record deleted", deleteFailed: "Could not delete the execution record",
+      clearTitle: "Clear this Tab's execution history?", clearDescription: "Completed records that are neither pinned nor referenced will be deleted. Active, pinned, and referenced records are retained.",
+      clearConfirm: "Clear history", cleared: "Cleared {{deleted}} execution records", clearedRetained: "Cleared {{deleted}} records; retained {{retained}} protected records",
+      clearFailed: "Could not clear execution history",
+    },
     tabs: {
       label: "Tool debug Tabs", pinnedAria: "{{title}}, pinned", pinned: "Pinned", unsaved: "Unsaved", running: "Running",
       actions: "{{title}} actions", menu: "{{title}} Tab action menu", copyName: "Copy name", duplicate: "Duplicate Tab",

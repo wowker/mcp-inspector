@@ -15,6 +15,7 @@ import type {
 } from "../../api/api-client.js";
 import { formatRawArguments, parseRawArguments } from "../../../shared/json.js";
 import { confirmToast } from "../../app/AppToaster.js";
+import { Button } from "../../components/actions/Button.js";
 import type { SplitPanePreset } from "../../components/layout/SplitPanePresets.js";
 import { RunHistory } from "../runs/RunHistory.js";
 import { EmptyRunResultPanel, RunResultPanel } from "../runs/RunResultPanel.js";
@@ -108,6 +109,10 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
   const [saveIntent, setSaveIntent] = useState<SaveIntent | null>(null);
   const [savedRevision, setSavedRevision] = useState(0);
   const [savingTestCaseIds, setSavingTestCaseIds] = useState<ReadonlySet<string>>(new Set());
+  const [historyDetail, setHistoryDetail] = useState<RunDetail | null>(null);
+  const [historyDetailState, setHistoryDetailState] = useState<"idle" | "loading" | "error">("idle");
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
+  const [historyMutating, setHistoryMutating] = useState(false);
   const [workflowExecutions, setWorkflowExecutions] = useState<Record<string, WorkflowExecutionDetail>>({});
   const tabsRef = useRef<DebugTabSummary[]>([]);
   const activeRef = useRef<string | null>(null);
@@ -404,7 +409,21 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
   async function select(id: string): Promise<void> {
     if (!(await flush(activeRef.current ?? undefined))) return; await reconcileLaunch(id); activate(id); setView("debug");
   }
-  async function openHistory(run: RunSummary): Promise<void> {
+  async function inspectHistory(run: RunSummary): Promise<void> {
+    const scope = workspaceGeneration.current;
+    setHistoryDetailState("loading"); setHistoryDetail(null); setMessage(null);
+    try {
+      const detail = await api.getRun(projectId, run.id);
+      if (workspaceGeneration.current !== scope || detail.projectId !== projectId) return;
+      setHistoryDetail(detail); setHistoryDetailState("idle");
+    } catch (error) {
+      if (workspaceGeneration.current === scope) {
+        setHistoryDetailState("error"); setMessage(error instanceof Error ? error.message : t("workspace.errors.loadHistory"));
+      }
+    }
+  }
+
+  async function loadHistory(run: RunSummary): Promise<void> {
     if (!(await flush(activeRef.current ?? undefined))) return;
     const origin = tabsRef.current.find(({ id }) => id === run.tabId);
     if (origin !== undefined) {
@@ -427,6 +446,43 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
     }
     setReadOnlyTabs((current) => current.some(({ id }) => id === run.id) ? current : [...current, run]);
     activeRef.current = null; setActiveId(null); setActiveReadOnlyId(run.id); setView("debug");
+  }
+  function deleteHistory(run: RunSummary): void {
+    confirmToast({
+      message: t("workspace.history.deleteTitle"), description: t("workspace.history.deleteDescription"),
+      actionLabel: t("workspace.history.deleteConfirm"), cancelLabel: t("workspace.cancel"),
+      onAction: () => {
+        setHistoryMutating(true);
+        void api.deleteRun(projectId, run.id).then(() => {
+          if (historyDetail?.id === run.id) { setHistoryDetail(null); setHistoryDetailState("idle"); }
+          setSelectedRuns((current) => Object.fromEntries(Object.entries(current).filter(([, runId]) => runId !== run.id)));
+          if (tabsRef.current.some((tab) => tab.lastRunId === run.id)) {
+            assign(tabsRef.current.map((tab) => tab.lastRunId === run.id ? { ...tab, lastRunId: null } : tab));
+          }
+          setHistoryRefreshKey((value) => value + 1); toast.success(t("workspace.history.deleted"));
+        }).catch((error: unknown) => setMessage(error instanceof Error ? error.message : t("workspace.history.deleteFailed")))
+          .finally(() => setHistoryMutating(false));
+      },
+    });
+  }
+  function clearHistory(tab: DebugTabSummary): void {
+    confirmToast({
+      message: t("workspace.history.clearTitle"), description: t("workspace.history.clearDescription"),
+      actionLabel: t("workspace.history.clearConfirm"), cancelLabel: t("workspace.cancel"),
+      onAction: () => {
+        setHistoryMutating(true);
+        void api.clearRunHistory(projectId, { tabId: tab.id, connectionId: tab.connectionId, toolName: tab.toolName })
+          .then((result) => {
+            setHistoryDetail(null); setHistoryDetailState("idle");
+            setSelectedRuns((current) => { const next = { ...current }; delete next[tab.id]; return next; });
+            assign(tabsRef.current.map((item) => item.id === tab.id ? { ...item, lastRunId: null } : item));
+            setHistoryRefreshKey((value) => value + 1);
+            toast.success(t(result.retained > 0 ? "workspace.history.clearedRetained" : "workspace.history.cleared",
+              { deleted: result.deleted, retained: result.retained }));
+          }).catch((error: unknown) => setMessage(error instanceof Error ? error.message : t("workspace.history.clearFailed")))
+          .finally(() => setHistoryMutating(false));
+      },
+    });
   }
   function closeReadOnly(runId: string): void {
     setReadOnlyTabs((current) => current.filter(({ id }) => id !== runId));
@@ -703,8 +759,21 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
       {view === "saved" && <SavedItemsView api={api} projectId={projectId} connectionId={active.connectionId} toolName={active.toolName}
         refreshKey={savedRevision} onCreateTest={onCreateTestFromSaved}
         onLoadRequest={(payload) => { schedule(active.id, { arguments: payload, rawText: formatRawArguments(payload) }); setView("debug"); }} />}
-      {view === "history" && <RunHistory api={api} projectId={projectId} tabId={active.id} connectionId={active.connectionId}
-        toolName={active.toolName} hideHeading onOpen={(run) => void openHistory(run)} />}
+      {view === "history" && <div className="tool-history-workspace">
+        <RunHistory api={api} projectId={projectId} tabId={active.id} connectionId={active.connectionId}
+          toolName={active.toolName} hideHeading selectedId={historyDetail?.id} refreshKey={historyRefreshKey}
+          actionsDisabled={historyMutating} onOpen={(run) => void inspectHistory(run)}
+          onDelete={deleteHistory} onClear={() => clearHistory(active)} />
+        <section className="tool-history-detail" aria-label={t("workspace.history.detail")}>
+          {historyDetailState === "loading" ? <p role="status">{t("workspace.loadingRun")}</p>
+            : historyDetailState === "error" ? <p role="alert">{t("workspace.errors.loadHistory")}</p>
+              : historyDetail === null ? <div className="tool-history-detail__empty"><strong>{t("workspace.history.selectTitle")}</strong>
+                <p>{t("workspace.history.selectDescription")}</p></div>
+                : <><header className="tool-history-detail__actions"><Button variant="primary"
+                  onClick={() => void loadHistory(historyDetail)}>{t("workspace.history.load")}</Button></header>
+                  <RunResultPanel run={historyDetail} /></>}
+        </section>
+      </div>}
     </div>}
     {saveIntent !== null && <SavedItemDialog api={api} projectId={projectId} connectionId={saveIntent.connectionId}
       toolName={saveIntent.toolName} kind={saveIntent.kind} payload={saveIntent.payload} sourceRunId={saveIntent.sourceRunId}

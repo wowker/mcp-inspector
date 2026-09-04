@@ -25,9 +25,9 @@ export interface TestCaseSourceIntent {
   source: { kind: "run"; run: RunDetail } | { kind: "saved-item"; item: SavedItemDetail };
 }
 
-interface Props { api: InspectorApiClient; projectId: string; sourceIntent?: TestCaseSourceIntent | null }
+interface Props { api: InspectorApiClient; projectId: string; sourceIntent?: TestCaseSourceIntent | null; active?: boolean }
 
-export function TestCasesPage({ api, projectId, sourceIntent = null }: Props) {
+export function TestCasesPage({ api, projectId, sourceIntent = null, active = true }: Props) {
   const { t } = useTranslation("testing");
   const listVersion = useRef(0);
   const detailVersion = useRef(0);
@@ -54,6 +54,7 @@ export function TestCasesPage({ api, projectId, sourceIntent = null }: Props) {
   const [resultExpanded, setResultExpanded] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const executionVersion = useRef(0);
+  const wasActive = useRef(active);
 
   function saveFailure(error: unknown): string {
     if (error instanceof InspectorApiError) {
@@ -84,6 +85,11 @@ export function TestCasesPage({ api, projectId, sourceIntent = null }: Props) {
     loadList();
     return () => { listVersion.current += 1; detailVersion.current += 1; toolVersion.current += 1; executionVersion.current += 1; };
   }, [loadList, refreshKey]);
+
+  useEffect(() => {
+    if (active && !wasActive.current) loadList();
+    wasActive.current = active;
+  }, [active, loadList]);
 
   useEffect(() => {
     if (sourceIntent === null) return;

@@ -21,6 +21,8 @@ export class RunNotFoundError extends Error { constructor() { super("Run not fou
 export class InvalidRunError extends Error { constructor(message = "Run payload is invalid") { super(message); this.name = "InvalidRunError"; } }
 export class RunIdempotencyConflictError extends Error { constructor() { super("Run idempotency conflict"); this.name = "RunIdempotencyConflictError"; } }
 export class InvalidRunCursorError extends Error { constructor() { super("Run cursor is invalid"); this.name = "InvalidRunCursorError"; } }
+export class RunActiveError extends Error { constructor() { super("Active Run cannot be deleted"); this.name = "RunActiveError"; } }
+export class RunReferencedError extends Error { constructor() { super("Referenced Run cannot be deleted"); this.name = "RunReferencedError"; } }
 export class RunToolSnapshotChangedError extends Error {
   constructor() { super("Tool snapshot changed"); this.name = "RunToolSnapshotChangedError"; }
 }
@@ -401,6 +403,21 @@ export function createRunService(projects: ProjectService, connections: Connecti
       const updated = repository(projectId).setPinned(projectId, runId, pinned);
       if (updated === null) throw new RunNotFoundError();
       return updated;
+    },
+    delete(projectId, runId) {
+      projects.open(projectId);
+      const result = repository(projectId).delete(projectId, runId);
+      if (result === "not-found") throw new RunNotFoundError();
+      if (result === "active") throw new RunActiveError();
+      if (result === "referenced") throw new RunReferencedError();
+    },
+    clearHistory(projectId, input) {
+      const parsed = z.object({ tabId: uuid, connectionId: uuid,
+        toolName: z.string().min(1).max(512).refine((value) => value.trim() === value) }).strict().safeParse(input);
+      if (!parsed.success) throw new InvalidRunError();
+      const tab = tabs.get(projectId, parsed.data.tabId);
+      if (tab.connectionId !== parsed.data.connectionId || tab.toolName !== parsed.data.toolName) throw new InvalidRunError();
+      return repository(projectId).clearHistory(projectId, parsed.data);
     },
     getSummary: requireSummary,
     get: requireRun,

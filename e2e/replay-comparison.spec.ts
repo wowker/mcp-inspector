@@ -79,7 +79,7 @@ test("history preflight, confirmed replay, pinning, and ignored comparison survi
     await page.getByRole("button", { name: "运行历史" }).click();
     await page.getByRole("button", { name: `固定运行 ${sourceRunId}` }).click();
     await page.getByRole("button", { name: `打开运行 ${sourceRunId}` }).click();
-    await expect(page.locator("article.run-result")).toBeVisible();
+    await expect(page.locator(".history-page__detail article.run-result")).toBeVisible();
     await page.getByRole("button", { name: "回放", exact: true }).click();
     const replayDialog = page.getByRole("dialog", { name: "确认回放 Tool" });
     await expect(replayDialog.getByRole("heading", { name: "Schema 变化" })).toBeVisible();

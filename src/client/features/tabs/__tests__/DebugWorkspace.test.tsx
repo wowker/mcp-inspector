@@ -1339,7 +1339,7 @@ describe("DebugWorkspace", () => {
     }
   });
 
-  it("loads a selected history request and response back into the current debug view", async () => {
+  it("inspects history without changing debug parameters and only loads it after an explicit action", async () => {
     const current = tab("00000000-0000-4000-8000-000000000661", "sum", { a: 1, b: 2 });
     const run: RunDetail = {
       id: "00000000-0000-4000-8000-000000000662", projectId, connectionId, tabId: current.id,
@@ -1362,6 +1362,10 @@ describe("DebugWorkspace", () => {
 
     await user.click(await screen.findByRole("button", { name: `打开运行 ${run.id}` }));
 
+    expect(screen.getByRole("button", { name: "执行历史" })).toHaveAttribute("aria-current", "page");
+    expect(await screen.findByLabelText(`运行 ${run.id} 详情`)).toBeVisible();
+    expect(updateTab).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "加载到调试" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "调试" })).toHaveAttribute("aria-current", "page"));
     expect(await screen.findByLabelText("a")).toHaveValue(40);
     expect(screen.getByLabelText("b")).toHaveValue(2);
@@ -1388,6 +1392,38 @@ describe("DebugWorkspace", () => {
     await user.click(screen.getByRole("button", { name: "确认保存请求" }));
     expect(api.createSavedItem).toHaveBeenCalledWith(projectId, connectionId, "sum", expect.objectContaining({
       name: "bound case", payload: { a: 4 },
+    }));
+  });
+
+  it("deletes one execution-history record and clears the current Tab history after confirmation", async () => {
+    const current = tab("00000000-0000-4000-8000-000000000680", "sum", { a: 1, b: 2 });
+    const run: RunDetail = {
+      id: "00000000-0000-4000-8000-000000000681", projectId, connectionId, tabId: current.id,
+      toolName: "sum", toolSnapshotId: tool.tool.currentSnapshot.id, toolSnapshotHash: "a".repeat(64),
+      idempotencyKey: "history-delete", status: "succeeded", createdAt: "2026-08-25T01:00:00.000Z",
+      startedAt: "2026-08-25T01:00:00.010Z", completedAt: "2026-08-25T01:00:00.020Z",
+      durationMs: 10, networkDurationMs: 8, pinned: false, replayedFromRunId: null,
+      protocolVersion: "2025-06-18", serverInfo: null, clientInfo: {},
+      request: { arguments: { a: 40, b: 2 }, jsonrpc: {}, http: null },
+      response: { result: { answer: 42 }, error: null, truncated: false, originalBytes: 16 }, events: [],
+    };
+    const deleteRun = vi.fn(async () => undefined);
+    const clearRunHistory = vi.fn(async () => ({ deleted: 1, retained: 0 }));
+    const api = { listTabs: vi.fn(async () => [current]), getTool: vi.fn(async () => tool), updateTab: vi.fn(),
+      listRuns: vi.fn(async () => ({ runs: [run], nextCursor: null })), getRun: vi.fn(async () => run),
+      deleteRun, clearRunHistory } as unknown as InspectorApiClient;
+    const user = userEvent.setup();
+    render(<><AppToaster /><DebugWorkspace api={api} projectId={projectId} /></>);
+    await user.click(await screen.findByRole("button", { name: "执行历史" }));
+
+    await user.click(await screen.findByRole("button", { name: `删除运行 ${run.id}` }));
+    fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
+    await waitFor(() => expect(deleteRun).toHaveBeenCalledWith(projectId, run.id));
+
+    await user.click(await screen.findByRole("button", { name: "清空历史" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认清空" }));
+    await waitFor(() => expect(clearRunHistory).toHaveBeenCalledWith(projectId, {
+      tabId: current.id, connectionId, toolName: "sum",
     }));
   });
 

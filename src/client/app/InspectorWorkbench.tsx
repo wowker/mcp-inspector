@@ -27,6 +27,8 @@ import { TestReportsPage } from "../features/testing/TestReportsPage.js";
 import { ServerTab } from "./ServerTab.js";
 
 type WorkbenchPage = "servers" | "tools" | "environment" | "testing" | "suites" | "reports" | "history";
+type PersistentWorkbenchPage = Extract<WorkbenchPage, "tools" | "testing" | "suites">;
+const persistentWorkbenchPages = new Set<WorkbenchPage>(["tools", "testing", "suites"]);
 
 interface InspectorWorkbenchProps {
   api: InspectorApiClient;
@@ -72,6 +74,7 @@ function useCompactSidebar(): boolean {
 export function InspectorWorkbench({ api, project, version }: InspectorWorkbenchProps) {
   const { t } = useTranslation("app");
   const [page, setPage] = useState<WorkbenchPage>("servers");
+  const [mountedPersistentPages, setMountedPersistentPages] = useState<ReadonlySet<PersistentWorkbenchPage>>(new Set());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [catalogWidth, setCatalogWidth] = useState(300);
   const [theme, setTheme] = useState<ThemeMode>(() => applyInitialTheme());
@@ -89,6 +92,12 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
     environment: t("workbench.nav.environment"), history: t("workbench.nav.history"),
     testing: t("workbench.nav.testing"), suites: t("workbench.nav.suites"), reports: t("workbench.nav.reports"),
   };
+
+  useEffect(() => {
+    if (!persistentWorkbenchPages.has(page)) return;
+    setMountedPersistentPages((current) => current.has(page as PersistentWorkbenchPage)
+      ? current : new Set(current).add(page as PersistentWorkbenchPage));
+  }, [page]);
 
   useEffect(() => {
     let channel: BroadcastChannel | null = null;
@@ -298,7 +307,7 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
         </header>
 
         <main id="workbench-content" className={`workbench-content workbench-content--${page}`} tabIndex={-1}>
-          {page === "servers" ? (
+          {!persistentWorkbenchPages.has(page) && (page === "servers" ? (
             <section className="servers-page" aria-labelledby="servers-page-title">
               <header className="page-heading">
                 <div><h1 id="servers-page-title">{t("workbench.serversTitle")}</h1><p>{t("workbench.serversSummary")}</p></div>
@@ -314,10 +323,15 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
               />
             </section>
           ) : page === "environment" ? <EnvironmentVariablesPage api={api} projectId={project.id} />
-            : page === "testing" ? <TestCasesPage api={api} projectId={project.id} sourceIntent={testCaseSourceIntent} />
-            : page === "suites" ? <TestSuitesPage api={api} projectId={project.id} />
             : page === "reports" ? <TestReportsPage api={api} projectId={project.id} />
-            : page === "history" ? <RunHistoryPage api={api} projectId={project.id} onOpenDebug={openRunInDebug} onCreateTest={createTestFromRun} /> : (
+            : <RunHistoryPage api={api} projectId={project.id} onOpenDebug={openRunInDebug} onCreateTest={createTestFromRun} />)}
+          {(page === "testing" || mountedPersistentPages.has("testing")) && <div className="workbench-page-slot" hidden={page !== "testing"}>
+            <TestCasesPage api={api} projectId={project.id} sourceIntent={testCaseSourceIntent} active={page === "testing"} />
+          </div>}
+          {(page === "suites" || mountedPersistentPages.has("suites")) && <div className="workbench-page-slot" hidden={page !== "suites"}>
+            <TestSuitesPage api={api} projectId={project.id} active={page === "suites"} />
+          </div>}
+          {(page === "tools" || mountedPersistentPages.has("tools")) && <div className="workbench-page-slot workbench-page-slot--tools" hidden={page !== "tools"}>
             <section
               id="server-tool-panel"
               className="tools-page"
@@ -370,7 +384,7 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
                 </div>
               )}
             </section>
-          )}
+          </div>}
         </main>
       </section>
     </div>

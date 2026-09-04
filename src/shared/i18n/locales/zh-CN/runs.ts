@@ -5,6 +5,7 @@ export const zhCNRuns = {
     projectAria: "项目运行历史", tabAria: "当前 Tab 历史", title: "运行历史", tabTitle: "当前 Tab 历史",
     empty: "暂无运行记录", openAria: "打开运行 {{id}}", notRecorded: "未记录", loading: "正在加载运行历史…", more: "加载更多",
     loadFailed: "加载运行历史失败", pinAria: "固定运行 {{id}}", unpinAria: "取消固定运行 {{id}}", pinFailed: "更新固定状态失败",
+    clear: "清空历史", deleteAria: "删除运行 {{id}}",
   },
   page: {
     title: "运行历史", description: "查看项目内所有 Tool 调用，按时间回溯请求、响应和协议轨迹。",

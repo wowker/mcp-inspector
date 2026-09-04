@@ -583,6 +583,27 @@ describe("RunService", () => {
     } finally { projects.close(); }
   });
 
+  it("deletes terminal history and clears an exact Tab while retaining pinned records", () => {
+    const { projects, service, tabs, tabA } = fixture();
+    try {
+      const first = service.start({ projectId, tabId: tabA.id, idempotencyKey: "delete-first", arguments: { a: 1 } });
+      service.cancel(projectId, first.id);
+      const pinned = service.start({ projectId, tabId: tabA.id, idempotencyKey: "delete-pinned", arguments: { a: 2 } });
+      service.cancel(projectId, pinned.id); service.setPinned(projectId, pinned.id, true);
+      const last = service.start({ projectId, tabId: tabA.id, idempotencyKey: "delete-last", arguments: { a: 3 } });
+      service.cancel(projectId, last.id);
+
+      service.delete(projectId, first.id);
+      expect(() => service.get(projectId, first.id)).toThrow(/not found/i);
+      expect(service.clearHistory(projectId, { tabId: tabA.id, connectionId, toolName: "sum" }))
+        .toEqual({ deleted: 1, retained: 1 });
+      expect(service.list(projectId, undefined, { tabId: tabA.id }).runs.map(({ id }) => id)).toEqual([pinned.id]);
+      expect(tabs.get(projectId, tabA.id).lastRunId).toBe(pinned.id);
+      expect(() => service.clearHistory(projectId, { tabId: tabA.id, connectionId, toolName: "other" }))
+        .toThrow(/invalid/i);
+    } finally { projects.close(); }
+  });
+
   it("binds history cursors to the complete normalized filter and page limit", () => {
     const { projects, service, tabA } = fixture();
     try {

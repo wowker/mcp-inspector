@@ -275,6 +275,51 @@ export class RunRepository {
     return this.getSummary(projectId, runId);
   }
 
+  private refreshTabLastRun(projectId: string, tabId: string | null): void {
+    if (tabId === null) return;
+    this.store.database.prepare(`UPDATE debug_tabs SET last_run_id = (
+      SELECT id FROM runs WHERE project_id = ? AND tab_id = ? ORDER BY created_at DESC, id DESC LIMIT 1
+    ) WHERE project_id = ? AND id = ?`).run(projectId, tabId, projectId, tabId);
+  }
+
+  delete(projectId: string, runId: string): "deleted" | "not-found" | "active" | "referenced" {
+    return this.store.database.transaction(() => {
+      const run = this.store.database.prepare("SELECT tab_id, status FROM runs WHERE project_id = ? AND id = ?")
+        .get(projectId, runId) as { tab_id: string | null; status: RunStatus } | undefined;
+      if (run === undefined) return "not-found" as const;
+      if (active.includes(run.status)) return "active" as const;
+      const reference = this.store.database.prepare(`SELECT EXISTS(
+        SELECT 1 FROM workflow_execution_runs WHERE run_id = ?
+        UNION ALL SELECT 1 FROM test_execution_steps WHERE run_id = ?
+      ) AS found`).get(runId, runId) as { found: number };
+      if (reference.found === 1) return "referenced" as const;
+      this.store.database.prepare("DELETE FROM runs WHERE project_id = ? AND id = ?").run(projectId, runId);
+      this.refreshTabLastRun(projectId, run.tab_id);
+      return "deleted" as const;
+    })();
+  }
+
+  clearHistory(projectId: string, input: { tabId: string; connectionId: string; toolName: string }): { deleted: number; retained: number } {
+    return this.store.database.transaction(() => {
+      const rows = this.store.database.prepare(`SELECT id, status, pinned FROM runs
+        WHERE project_id = ? AND tab_id = ? AND connection_id = ? AND tool_name = ?`)
+        .all(projectId, input.tabId, input.connectionId, input.toolName) as Array<{ id: string; status: RunStatus; pinned: number }>;
+      let deleted = 0;
+      for (const run of rows) {
+        if (active.includes(run.status) || run.pinned === 1) continue;
+        const reference = this.store.database.prepare(`SELECT EXISTS(
+          SELECT 1 FROM workflow_execution_runs WHERE run_id = ?
+          UNION ALL SELECT 1 FROM test_execution_steps WHERE run_id = ?
+        ) AS found`).get(run.id, run.id) as { found: number };
+        if (reference.found === 1) continue;
+        deleted += this.store.database.prepare("DELETE FROM runs WHERE project_id = ? AND id = ?")
+          .run(projectId, run.id).changes;
+      }
+      this.refreshTabLastRun(projectId, input.tabId);
+      return { deleted, retained: rows.length - deleted };
+    })();
+  }
+
   list(projectId: string, cursor?: string, filter: RunListFilter = {}): RunPage {
     const { tabId, connectionId, toolName, status, origin, pinned, createdFrom, createdTo } = filter;
     const limit = filter.limit ?? 50;
