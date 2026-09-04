@@ -71,6 +71,21 @@ import {
   type UpdateSavedTestSuiteReportRequest,
 } from "../../shared/testing/test-suite-report.js";
 import {
+  parsePressureTestDefinition,
+  parsePressureTestExecution,
+  pressureTestExecutionPageSchema,
+  pressureTestPageSchema,
+  pressureTestSamplePageSchema,
+  type PressureTestDefinition,
+  type PressureTestExecution,
+  type PressureTestExecutionPage,
+  type PressureTestMutation,
+  type PressureTestPage,
+  type PressureTestSamplePage,
+  type StartPressureTestExecutionRequest,
+  type UpdatePressureTestRequest,
+} from "../../shared/testing/pressure-test.js";
+import {
   automatedTestsExportEnvelopeSchema,
   importAutomatedTestsResultSchema,
   type AutomatedTestsExportEnvelope,
@@ -324,6 +339,19 @@ export interface InspectorApiClient {
   createTestSuite(projectId: string, input: TestSuiteMutation): Promise<TestSuiteDefinition>;
   updateTestSuite(projectId: string, suiteId: string, input: UpdateTestSuiteRequest): Promise<TestSuiteDefinition>;
   deleteTestSuite(projectId: string, suiteId: string): Promise<void>;
+  listPressureTests(projectId: string, input?: { cursor?: string; limit?: number }): Promise<PressureTestPage>;
+  getPressureTest(projectId: string, pressureTestId: string): Promise<PressureTestDefinition>;
+  createPressureTest(projectId: string, input: PressureTestMutation): Promise<PressureTestDefinition>;
+  updatePressureTest(projectId: string, pressureTestId: string, input: UpdatePressureTestRequest): Promise<PressureTestDefinition>;
+  deletePressureTest(projectId: string, pressureTestId: string): Promise<void>;
+  startPressureTestExecution(projectId: string, pressureTestId: string, idempotencyKey: string,
+    input?: StartPressureTestExecutionRequest): Promise<PressureTestExecution>;
+  getPressureTestExecution(projectId: string, executionId: string): Promise<PressureTestExecution>;
+  listPressureTestExecutions(projectId: string,
+    input?: { pressureTestId?: string; cursor?: string; limit?: number }): Promise<PressureTestExecutionPage>;
+  listPressureTestSamples(projectId: string, executionId: string,
+    input?: { cursor?: string; limit?: number }): Promise<PressureTestSamplePage>;
+  cancelPressureTestExecution(projectId: string, executionId: string): Promise<void>;
   startTestSuiteExecution(projectId: string, suiteId: string, idempotencyKey: string,
     input?: StartTestSuiteExecutionRequest): Promise<TestSuiteExecutionDetail>;
   getTestSuiteExecution(projectId: string, executionId: string): Promise<TestSuiteExecutionDetail>;
@@ -889,6 +917,29 @@ function decodeTestSuiteEnvelope(value: unknown, projectId: string, suiteId?: st
     if (definition.projectId !== projectId || (suiteId !== undefined && definition.id !== suiteId)) throw new Error();
     return definition;
   } catch { throw new Error("Invalid test suite response"); }
+}
+
+function decodePressureTestEnvelope(value: unknown, projectId: string,
+  pressureTestId?: string): PressureTestDefinition {
+  if (!isObject(value) || !("pressureTest" in value)) throw new Error("Invalid pressure test response");
+  try {
+    const definition = parsePressureTestDefinition(value.pressureTest);
+    if (definition.projectId !== projectId ||
+        (pressureTestId !== undefined && definition.id !== pressureTestId)) throw new Error();
+    return definition;
+  } catch { throw new Error("Invalid pressure test response"); }
+}
+
+function decodePressureTestExecutionEnvelope(value: unknown, projectId: string,
+  expected: { pressureTestId?: string; executionId?: string }): PressureTestExecution {
+  if (!isObject(value) || !("execution" in value)) throw new Error("Invalid pressure test execution response");
+  try {
+    const execution = parsePressureTestExecution(value.execution);
+    if (execution.projectId !== projectId ||
+        (expected.pressureTestId !== undefined && execution.pressureTestId !== expected.pressureTestId) ||
+        (expected.executionId !== undefined && execution.id !== expected.executionId)) throw new Error();
+    return execution;
+  } catch { throw new Error("Invalid pressure test execution response"); }
 }
 
 function decodeTestExecutionEnvelope(
@@ -1591,6 +1642,98 @@ export function createApiClient(_legacySessionToken?: string): InspectorApiClien
       const response = await fetch(
         `/api/projects/${encodeURIComponent(projectId)}/test-suites/${encodeURIComponent(suiteId)}`,
         { method: "DELETE", headers },
+      );
+      if (!response.ok) await decodeResponse<never>(response);
+    },
+    async listPressureTests(projectId, input = {}) {
+      const search = new URLSearchParams();
+      if (input.cursor !== undefined) search.set("cursor", input.cursor);
+      if (input.limit !== undefined) search.set("limit", String(input.limit));
+      const query = search.size === 0 ? "" : `?${search.toString()}`;
+      try {
+        const page = pressureTestPageSchema.parse(await decodeResponse<unknown>(await fetch(
+          `/api/projects/${encodeURIComponent(projectId)}/pressure-tests${query}`, { headers },
+        )));
+        if (page.items.some((item) => item.projectId !== projectId)) throw new Error();
+        return page;
+      } catch { throw new Error("Invalid pressure test response"); }
+    },
+    async getPressureTest(projectId, pressureTestId) {
+      const value = await decodeResponse<unknown>(await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/pressure-tests/${encodeURIComponent(pressureTestId)}`, { headers },
+      ));
+      return decodePressureTestEnvelope(value, projectId, pressureTestId);
+    },
+    async createPressureTest(projectId, input) {
+      const value = await decodeResponse<unknown>(await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/pressure-tests`,
+        { method: "POST", headers, body: JSON.stringify(input) },
+      ));
+      return decodePressureTestEnvelope(value, projectId);
+    },
+    async updatePressureTest(projectId, pressureTestId, input) {
+      const value = await decodeResponse<unknown>(await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/pressure-tests/${encodeURIComponent(pressureTestId)}`,
+        { method: "PATCH", headers, body: JSON.stringify(input) },
+      ));
+      const definition = decodePressureTestEnvelope(value, projectId, pressureTestId);
+      if (definition.revision !== input.revision + 1) throw new Error("Invalid pressure test response");
+      return definition;
+    },
+    async deletePressureTest(projectId, pressureTestId) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/pressure-tests/${encodeURIComponent(pressureTestId)}`,
+        { method: "DELETE", headers },
+      );
+      if (!response.ok) await decodeResponse<never>(response);
+    },
+    async startPressureTestExecution(projectId, pressureTestId, idempotencyKey, input = {}) {
+      const value = await decodeResponse<unknown>(await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/pressure-tests/${encodeURIComponent(pressureTestId)}/executions`,
+        { method: "POST", headers: { ...headers, "Idempotency-Key": idempotencyKey }, body: JSON.stringify(input) },
+      ));
+      return decodePressureTestExecutionEnvelope(value, projectId, { pressureTestId });
+    },
+    async getPressureTestExecution(projectId, executionId) {
+      const value = await decodeResponse<unknown>(await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/pressure-test-executions/${encodeURIComponent(executionId)}`,
+        { headers },
+      ));
+      return decodePressureTestExecutionEnvelope(value, projectId, { executionId });
+    },
+    async listPressureTestExecutions(projectId, input = {}) {
+      const search = new URLSearchParams();
+      if (input.pressureTestId !== undefined) search.set("pressureTestId", input.pressureTestId);
+      if (input.cursor !== undefined) search.set("cursor", input.cursor);
+      if (input.limit !== undefined) search.set("limit", String(input.limit));
+      const query = search.size === 0 ? "" : `?${search.toString()}`;
+      try {
+        const page = pressureTestExecutionPageSchema.parse(await decodeResponse<unknown>(await fetch(
+          `/api/projects/${encodeURIComponent(projectId)}/pressure-test-executions${query}`, { headers },
+        )));
+        if (page.items.some((item) => item.projectId !== projectId ||
+          (input.pressureTestId !== undefined && item.pressureTestId !== input.pressureTestId))) throw new Error();
+        return page;
+      } catch { throw new Error("Invalid pressure test execution response"); }
+    },
+    async listPressureTestSamples(projectId, executionId, input = {}) {
+      const search = new URLSearchParams();
+      if (input.cursor !== undefined) search.set("cursor", input.cursor);
+      if (input.limit !== undefined) search.set("limit", String(input.limit));
+      const query = search.size === 0 ? "" : `?${search.toString()}`;
+      try {
+        const page = pressureTestSamplePageSchema.parse(await decodeResponse<unknown>(await fetch(
+          `/api/projects/${encodeURIComponent(projectId)}/pressure-test-executions/${encodeURIComponent(executionId)}/samples${query}`,
+          { headers },
+        )));
+        if (page.items.some((item) => item.projectId !== projectId || item.pressureTestExecutionId !== executionId)) throw new Error();
+        return page;
+      } catch { throw new Error("Invalid pressure test sample response"); }
+    },
+    async cancelPressureTestExecution(projectId, executionId) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/pressure-test-executions/${encodeURIComponent(executionId)}/cancel`,
+        { method: "POST", headers },
       );
       if (!response.ok) await decodeResponse<never>(response);
     },

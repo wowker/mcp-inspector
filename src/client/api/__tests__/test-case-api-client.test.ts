@@ -38,6 +38,17 @@ const suiteExecutionId = "00000000-0000-4000-8000-000000000867";
 const suiteExecution = { id: suiteExecutionId, projectId, suiteId, suiteRevision: 1, status: "QUEUED",
   suiteSnapshot: suite, summary: null, error: null, createdAt: definition.createdAt, startedAt: null,
   completedAt: null, durationMs: null, items: [] };
+const pressureTestId = "00000000-0000-4000-8000-000000000868";
+const pressureExecutionId = "00000000-0000-4000-8000-000000000869";
+const pressureMutation = { name: "Pressure", description: "", target: { testCaseId }, inputs: {},
+  load: { virtualUsers: 2, rampUpMs: 0, durationMs: 1_000, thinkTimeMs: 0, maxIterations: 2 },
+  thresholds: { maxErrorRate: 0, maxP95DurationMs: 100, minRequestsPerSecond: 1, stopOnErrorRate: true } };
+const pressureTest = { ...pressureMutation, id: pressureTestId, projectId, revision: 1,
+  createdAt: definition.createdAt, updatedAt: definition.updatedAt };
+const pressureExecution = { id: pressureExecutionId, projectId, pressureTestId, pressureTestRevision: 1,
+  definitionSnapshot: pressureTest, targetSnapshot: { id: testCaseId, name: definition.name, kind: "tool", revision: 1 },
+  status: "QUEUED", summary: null, error: null, createdAt: definition.createdAt, startedAt: null,
+  completedAt: null, durationMs: null };
 
 describe("test case API client", () => {
   const fetchMock = vi.fn();
@@ -161,6 +172,33 @@ describe("test case API client", () => {
     }));
     await expect(api.getTestSuiteExecution(projectId, suiteExecutionId)).resolves.toEqual(suiteExecution);
     await expect(api.cancelTestSuiteExecution(projectId, suiteExecutionId)).resolves.toBeUndefined();
+  });
+
+  it("manages pressure definitions, executions, and lightweight samples", async () => {
+    const sample = { id: "00000000-0000-4000-8000-000000000870", projectId,
+      pressureTestExecutionId: pressureExecutionId, testExecutionId: executionId, virtualUser: 1, iteration: 1,
+      status: "PASSED", startedAt: definition.createdAt, completedAt: definition.updatedAt, durationMs: 12, error: null };
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ items: [pressureTest], nextCursor: null }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ pressureTest }), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ execution: pressureExecution }), { status: 202 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ execution: pressureExecution }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ items: [pressureExecution], nextCursor: null }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ items: [sample], nextCursor: null }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ cancelled: true }), { status: 200 }));
+    const api = createApiClient("session");
+    await expect(api.listPressureTests(projectId, { limit: 25 })).resolves.toEqual({ items: [pressureTest], nextCursor: null });
+    await expect(api.createPressureTest(projectId, pressureMutation)).resolves.toEqual(pressureTest);
+    await expect(api.startPressureTestExecution(projectId, pressureTestId, "pressure-intent", {}))
+      .resolves.toEqual(pressureExecution);
+    expect(fetchMock.mock.calls[2]?.[1]).toEqual(expect.objectContaining({
+      headers: expect.objectContaining({ "Idempotency-Key": "pressure-intent" }),
+    }));
+    await expect(api.getPressureTestExecution(projectId, pressureExecutionId)).resolves.toEqual(pressureExecution);
+    await expect(api.listPressureTestExecutions(projectId, { pressureTestId })).resolves
+      .toEqual({ items: [pressureExecution], nextCursor: null });
+    await expect(api.listPressureTestSamples(projectId, pressureExecutionId)).resolves
+      .toEqual({ items: [sample], nextCursor: null });
+    await expect(api.cancelPressureTestExecution(projectId, pressureExecutionId)).resolves.toBeUndefined();
   });
 
   it("lists suite execution history and loads a navigation-only report outline", async () => {

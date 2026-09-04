@@ -12,6 +12,7 @@ export const STEP_COLLECTION_MAX_COUNT = 100;
 
 const uuid = z.uuid();
 const timestamp = z.string().datetime({ offset: true });
+export const testCaseKindSchema = z.enum(["tool", "scenario"]);
 const nameSchema = z.string().trim().min(1).max(TEST_CASE_NAME_MAX_LENGTH);
 const descriptionSchema = z.string().max(TEST_CASE_DESCRIPTION_MAX_LENGTH);
 const tagsSchema = z.array(z.string().trim().min(1).max(80))

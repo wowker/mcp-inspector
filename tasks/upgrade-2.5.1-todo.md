@@ -12,15 +12,15 @@
 
 ## Phase 2：方案持久化
 
-- [ ] Task 3：新增迁移 020 与 Repository。
-- [ ] Task 4：交付定义 Service、Routes 和客户端 API。
-- [ ] CRUD、软删除、revision、分页和项目隔离通过。
+- [x] Task 3：新增迁移 020 与 Repository。
+- [x] Task 4：交付定义 Service、Routes 和客户端 API。
+- [x] CRUD、软删除、revision、分页和项目隔离通过。
 
 ## Phase 3：执行引擎
 
-- [ ] Task 5：实现有界闭环调度器。
-- [ ] Task 6：实现执行、样本、幂等和唯一活动任务持久化。
-- [ ] Task 7：接入 Test Execution、破坏性确认、熔断和终态汇总。
+- [x] Task 5：实现有界闭环调度器。
+- [x] Task 6：实现执行、样本、幂等和唯一活动任务持久化。
+- [x] Task 7：接入 Test Execution、破坏性确认、熔断和终态汇总。
 - [ ] 取消、到期、最大迭代、重启中断和迟到完成语义通过。
 
 ## Phase 4：UI

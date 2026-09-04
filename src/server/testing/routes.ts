@@ -21,6 +21,14 @@ import {
   TestSuiteRevisionConflictError,
   type TestSuiteService,
 } from "./test-suite-service.js";
+import { pressureTestMutationSchema, updatePressureTestRequestSchema } from "../../shared/testing/pressure-test.js";
+import {
+  InvalidPressureTestError,
+  PressureTestNotFoundError,
+  PressureTestRevisionConflictError,
+  PressureTestTargetNotFoundError,
+  type PressureTestService,
+} from "./pressure-test-service.js";
 
 const errors = {
   invalid: { error: { code: "TEST_CASE_INVALID", message: "Test case definition is invalid" } },
@@ -171,6 +179,70 @@ export function createTestSuiteRoutes(suites: TestSuiteService): Hono {
       suites.remove(context.req.param("projectId"), context.req.param("suiteId"));
       return context.body(null, 204);
     } catch (error) { return mapSuiteError(context, error); }
+  });
+  return routes;
+}
+
+const pressureErrors = {
+  invalid: { error: { code: "PRESSURE_TEST_INVALID", message: "Pressure test definition is invalid" } },
+  notFound: { error: { code: "PRESSURE_TEST_NOT_FOUND", message: "Pressure test not found" } },
+  conflict: { error: { code: "PRESSURE_TEST_REVISION_CONFLICT", message: "Pressure test revision conflict" } },
+  target: { error: { code: "PRESSURE_TEST_TARGET_NOT_FOUND", message: "Pressure test target is not available" } },
+  projectNotFound: errors.projectNotFound,
+  invalidStorage: errors.invalidStorage,
+} as const;
+
+function mapPressureError(context: Context, error: unknown) {
+  if (error instanceof InvalidPressureTestError) return context.json(pressureErrors.invalid, 400);
+  if (error instanceof PressureTestNotFoundError) return context.json(pressureErrors.notFound, 404);
+  if (error instanceof PressureTestRevisionConflictError) return context.json(pressureErrors.conflict, 409);
+  if (error instanceof PressureTestTargetNotFoundError) return context.json(pressureErrors.target, 404);
+  if (error instanceof ProjectNotFoundError) return context.json(pressureErrors.projectNotFound, 404);
+  if (error instanceof InvalidProjectStorageError) return context.json(pressureErrors.invalidStorage, 409);
+  throw error;
+}
+
+export function createPressureTestRoutes(pressureTests: PressureTestService): Hono {
+  const routes = new Hono();
+  const base = "/:projectId/pressure-tests";
+  routes.get(base, (context) => {
+    const limitText = context.req.query("limit");
+    const limit = limitText === undefined ? undefined : Number(limitText);
+    try {
+      return context.json(pressureTests.list(context.req.param("projectId"), {
+        ...(context.req.query("cursor") === undefined ? {} : { cursor: context.req.query("cursor") }),
+        ...(limit === undefined ? {} : { limit }),
+      }));
+    } catch (error) { return mapPressureError(context, error); }
+  });
+  routes.post(base, async (context) => {
+    const parsed = pressureTestMutationSchema.safeParse(await jsonBody(context));
+    if (!parsed.success) return context.json(pressureErrors.invalid, 400);
+    try {
+      return context.json({ pressureTest: pressureTests.create(context.req.param("projectId"), parsed.data) }, 201);
+    } catch (error) { return mapPressureError(context, error); }
+  });
+  routes.get(`${base}/:pressureTestId`, (context) => {
+    try {
+      return context.json({ pressureTest: pressureTests.get(
+        context.req.param("projectId"), context.req.param("pressureTestId"),
+      ) });
+    } catch (error) { return mapPressureError(context, error); }
+  });
+  routes.patch(`${base}/:pressureTestId`, async (context) => {
+    const parsed = updatePressureTestRequestSchema.safeParse(await jsonBody(context));
+    if (!parsed.success) return context.json(pressureErrors.invalid, 400);
+    try {
+      return context.json({ pressureTest: pressureTests.update(
+        context.req.param("projectId"), context.req.param("pressureTestId"), parsed.data,
+      ) });
+    } catch (error) { return mapPressureError(context, error); }
+  });
+  routes.delete(`${base}/:pressureTestId`, (context) => {
+    try {
+      pressureTests.remove(context.req.param("projectId"), context.req.param("pressureTestId"));
+      return context.body(null, 204);
+    } catch (error) { return mapPressureError(context, error); }
   });
   return routes;
 }

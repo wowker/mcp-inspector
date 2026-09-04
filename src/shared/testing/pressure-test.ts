@@ -143,6 +143,7 @@ export type PressureTestPage = z.output<typeof pressureTestPageSchema>;
 export type PressureTestExecutionStatus = z.output<typeof pressureTestExecutionStatusSchema>;
 export type PressureTestSampleStatus = z.output<typeof pressureTestSampleStatusSchema>;
 export type PressureTestExecutionSummary = z.output<typeof pressureTestExecutionSummarySchema>;
+export type PressureTestTargetSnapshot = z.output<typeof pressureTestTargetSnapshotSchema>;
 export type PressureTestExecution = z.output<typeof pressureTestExecutionSchema>;
 export type PressureTestExecutionPage = z.output<typeof pressureTestExecutionPageSchema>;
 export type PressureTestSample = z.output<typeof pressureTestSampleSchema>;

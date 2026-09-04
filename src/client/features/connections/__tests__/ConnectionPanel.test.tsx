@@ -74,6 +74,8 @@ function api(overrides: Partial<InspectorApiClient> = {}): InspectorApiClient {
     listSavedItems: vi.fn(), getSavedItem: vi.fn(), createSavedItem: vi.fn(), deleteSavedItem: vi.fn(),
     listTestCases: vi.fn(), getTestCase: vi.fn(), createTestCase: vi.fn(), updateTestCase: vi.fn(), deleteTestCase: vi.fn(),
     listTestSuites: vi.fn(), getTestSuite: vi.fn(), createTestSuite: vi.fn(), updateTestSuite: vi.fn(), deleteTestSuite: vi.fn(),
+    listPressureTests: vi.fn(), getPressureTest: vi.fn(), createPressureTest: vi.fn(), updatePressureTest: vi.fn(), deletePressureTest: vi.fn(),
+    startPressureTestExecution: vi.fn(), getPressureTestExecution: vi.fn(), listPressureTestExecutions: vi.fn(), listPressureTestSamples: vi.fn(), cancelPressureTestExecution: vi.fn(),
     startTestSuiteExecution: vi.fn(), getTestSuiteExecution: vi.fn(),
     listTestSuiteExecutions: vi.fn(), getTestSuiteExecutionReport: vi.fn(), cancelTestSuiteExecution: vi.fn(),
     listSavedTestSuiteReports: vi.fn(), createSavedTestSuiteReport: vi.fn(), getSavedTestSuiteReport: vi.fn(),

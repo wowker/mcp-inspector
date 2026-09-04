@@ -42,9 +42,15 @@ import { createWorkflowDebugService, type WorkflowDebugService } from "./workflo
 import { parseLocale, type SupportedLocale } from "../shared/i18n/locale.js";
 import { zhCNApp } from "../shared/i18n/locales/zh-CN/app.js";
 import { enUSApp } from "../shared/i18n/locales/en-US/app.js";
-import { createTestCaseRoutes, createTestSuiteRoutes } from "./testing/routes.js";
+import { createPressureTestRoutes, createTestCaseRoutes, createTestSuiteRoutes } from "./testing/routes.js";
 import { createTestCaseService, type TestCaseService } from "./testing/test-case-service.js";
 import { createTestSuiteService, type TestSuiteService } from "./testing/test-suite-service.js";
+import { createPressureTestService, type PressureTestService } from "./testing/pressure-test-service.js";
+import { createPressureTestExecutionRoutes } from "./testing/pressure-test-execution-routes.js";
+import {
+  createPressureTestExecutionService,
+  type PressureTestExecutionService,
+} from "./testing/pressure-test-execution-service.js";
 import { createTestCasePreviewService, type TestCasePreviewService } from "./testing/test-case-preview-service.js";
 import { createTestExecutionRoutes } from "./testing/test-execution-routes.js";
 import { createTestExecutionService, type TestExecutionService } from "./testing/test-execution-service.js";
@@ -91,6 +97,8 @@ export interface AppDependencies {
   workflowDebug?: WorkflowDebugService;
   testCases?: TestCaseService;
   testSuites?: TestSuiteService;
+  pressureTests?: PressureTestService;
+  pressureTestExecutions?: PressureTestExecutionService;
   testCasePreviews?: TestCasePreviewService;
   testExecutions?: TestExecutionService;
   testSuiteExecutions?: TestSuiteExecutionService;
@@ -369,6 +377,8 @@ export function createApp(deps: AppDependencies): Hono {
     ));
     const testSuites = deps.testSuites ?? createTestSuiteService(deps.projects);
     app.route("/api/projects", createTestSuiteRoutes(testSuites));
+    const pressureTests = deps.pressureTests ?? createPressureTestService(deps.projects);
+    app.route("/api/projects", createPressureTestRoutes(pressureTests));
     app.route("/api/projects", createTestTransferRoutes(
       deps.testTransfers ?? createTestTransferService(deps.projects),
     ));
@@ -376,6 +386,11 @@ export function createApp(deps: AppDependencies): Hono {
         projects: deps.projects, connections, testCases, runs, workflows, workflowExecutions, environment: runtimeEnvironment,
       });
     app.route("/api/projects", createTestExecutionRoutes(testExecutions));
+    app.route("/api/projects", createPressureTestExecutionRoutes(
+      deps.pressureTestExecutions ?? createPressureTestExecutionService({
+        projects: deps.projects, pressureTests, testCases, testExecutions,
+      }),
+    ));
     app.route("/api/projects", createTestSuiteExecutionRoutes(
       deps.testSuiteExecutions ?? createTestSuiteExecutionService({
         projects: deps.projects, suites: testSuites, testCases, testExecutions,
