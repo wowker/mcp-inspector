@@ -23,6 +23,7 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
       host: "127.0.0.1",
       port: 0,
       dataRoot,
+      version: "0.0.0-e2e",
       installSignalHandlers: false,
       openBrowser: async (url) => { browserUrl = url; },
     });
@@ -30,6 +31,7 @@ test("eight same-Tool Tabs preserve out-of-order calls, traces, and reload state
       Origin: inspector.address.origin, "X-MCP-Inspector-Session": "invalid-session",
     } })).status()).toBe(401);
     await page.goto(browserUrl);
+    await expect(page.getByText("本地服务已就绪 · v0.0.0-e2e")).toBeVisible();
     const apiHeaders = await inspectorApiHeaders(page, inspector.address.origin);
     expect((await request.get(`${inspector.address.origin}/api/health`, { headers: {
       ...apiHeaders, Origin: "https://attacker.example",

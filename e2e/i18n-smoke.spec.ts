@@ -20,6 +20,7 @@ test("opens the primary workflow in English from the persisted locale", async ({
       host: "127.0.0.1",
       port: 0,
       dataRoot,
+      version: "0.0.0-e2e",
       installSignalHandlers: false,
       openBrowser: async (url) => { browserUrl = url; },
     });
@@ -46,6 +47,7 @@ test("opens the primary workflow in English from the persisted locale", async ({
     await page.getByRole("button", { name: "Connect English MCP" }).click();
     await expect(page.getByRole("tab", { name: "English MCP" })).toHaveAttribute("aria-selected", "true");
     await page.getByRole("button", { name: "sum", exact: true }).dblclick();
+    await expect(page.getByLabel("Local service v0.0.0-e2e")).toBeVisible();
     await page.getByLabel(/^a(?:\s|\*)*required$/i).fill("20");
     await page.getByLabel(/^b(?:\s|\*)*required$/i).fill("22");
     await page.getByRole("button", { name: "Run", exact: true }).click();
