@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.5.0 — Suite execution reports
+
+### Added
+
+- Added project- and suite-scoped execution history with deterministic report Outlines ordered by suite member, step position, and attempt.
+- Added a two-level suite report workbench: expandable member/call navigation and one selected Tool detail using the existing debug response viewer.
+- Added immutable named report versions such as `1.0` and `2.0`, with idempotent creation, revision-safe metadata editing, and marker-only deletion.
+- Added a Test Reports suite view that groups ordinary history and saved versions, with suite, status, saved-state, and version-label filters.
+
+### Security and compatibility
+
+- Saved versions reference the existing Suite Execution → Test Execution → Run chain and do not copy parameters, responses, credentials, or secrets.
+- Migration 019 is additive and preserves existing project data; saved references protect their execution chain from deletion.
+- Historical detail loading is read-only, bounded to one full Run response, and fenced by project, suite, execution, and call identity.
+
 ## Unreleased — 2.0.0 release candidate
 
 ### Release readiness

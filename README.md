@@ -52,7 +52,8 @@ make stop     # 优雅停止当前项目启动的 Inspector
 - 查看格式化结果、Raw 响应、JSON-RPC、HTTP 摘要和有序时间线，并复制相关内容。
 - 为单个 Tool 配置隔离的前置/后置 JavaScript 脚本、环境变量和可追溯的流水线执行。
 - 创建单 Tool 与多步骤场景测试，配置声明式断言、响应映射、轮询和清理步骤。
-- 将测试用例组织为有限并发套件，并查看可追溯到 Run、Workflow、Server 与 Tool 快照的执行报告。
+- 将测试用例组织为有限并发套件，并通过“成员/调用列表 + 单一详情”查看最终参数和完整 Tool 响应。
+- 浏览每次套件执行的自动历史，并将重要批次保存为 `1.0`、`2.0` 等可重新打开、可编辑元数据的命名报告版本。
 - 显式确认后从报告更新断言基线；通过版本化 JSON 包导入导出测试定义，导入时逐个重绑定目标 Server。
 
 当前版本支持无认证、Bearer Token、自定义 Header 和 OAuth 自动授权的 Streamable HTTP MCP 连接。OAuth 使用浏览器授权、PKCE、受保护资源发现和动态客户端注册；访问令牌仅保存在 Inspector 服务进程内，重启后需要重新授权，不会写入 SQLite、导出数据或浏览器存储。
@@ -108,6 +109,7 @@ export default async function before(ctx) {
 - [MCP Inspector 2.0.3 更新计划](docs/UPGRADE-2.0.3.md)
 - [MCP Inspector 2.0.4 更新计划](docs/UPGRADE-2.0.4.md)
 - [MCP Inspector 2.0.5 更新计划](docs/UPGRADE-2.0.5.md)
+- [MCP Inspector 2.5.0 测试套件执行报告规范](docs/UPGRADE-2.5.0.md)
 - [前端 UI 与交互开发规范](docs/FRONTEND-DEVELOPMENT-STANDARDS.md)
 - [ADR-001：采用项目内部 UI Foundation](docs/decisions/001-internal-ui-foundation.md)
 - [Tool 前置与后置脚本规范](docs/SPEC-tool-script-workflows.md)
