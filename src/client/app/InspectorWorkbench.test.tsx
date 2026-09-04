@@ -90,7 +90,10 @@ function api(): InspectorApiClient {
     listTestCases: vi.fn().mockResolvedValue({ items: [], nextCursor: null }), getTestCase: vi.fn(), createTestCase: vi.fn(), updateTestCase: vi.fn(), deleteTestCase: vi.fn(),
     previewTestCaseFromRun: vi.fn(), previewTestCaseFromSavedItem: vi.fn(),
     listTestSuites: vi.fn().mockResolvedValue({ items: [] }), getTestSuite: vi.fn(), createTestSuite: vi.fn(), updateTestSuite: vi.fn(), deleteTestSuite: vi.fn(),
-    startTestSuiteExecution: vi.fn(), getTestSuiteExecution: vi.fn(), cancelTestSuiteExecution: vi.fn(),
+    startTestSuiteExecution: vi.fn(), getTestSuiteExecution: vi.fn(),
+    listTestSuiteExecutions: vi.fn(), getTestSuiteExecutionReport: vi.fn(), cancelTestSuiteExecution: vi.fn(),
+    listSavedTestSuiteReports: vi.fn(), createSavedTestSuiteReport: vi.fn(), getSavedTestSuiteReport: vi.fn(),
+    updateSavedTestSuiteReport: vi.fn(), deleteSavedTestSuiteReport: vi.fn(),
     startTestExecution: vi.fn(), listTestExecutions: vi.fn().mockResolvedValue({ items: [], nextCursor: null }), updateTestExecutionBaseline: vi.fn(), getTestExecution: vi.fn(), cancelTestExecution: vi.fn(),
     exportAutomatedTests: vi.fn(), importAutomatedTests: vi.fn(),
   };

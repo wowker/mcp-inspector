@@ -14,8 +14,10 @@ const execution: any = { id: executionId, projectId, suiteId, suiteRevision: 1, 
   completedAt: null, durationMs: null, items: [] };
 
 describe("test suite execution routes", () => {
-  it("keeps idempotency in the header and exposes get/cancel", async () => {
+  it("keeps idempotency in the header and exposes history, report, get, and cancel", async () => {
     const service: TestSuiteExecutionService = { start: vi.fn(() => execution), get: vi.fn(() => execution),
+      list: vi.fn(() => ({ items: [], nextCursor: null })),
+      report: vi.fn(() => ({ execution, members: [] })),
       cancel: vi.fn(() => true), close: vi.fn(async () => undefined) };
     const app = new Hono(); app.route("/api/projects", createTestSuiteExecutionRoutes(service));
     const started = await app.request(`/api/projects/${projectId}/test-suites/${suiteId}/executions`, {
@@ -23,7 +25,12 @@ describe("test suite execution routes", () => {
     });
     expect(started.status).toBe(202);
     expect(service.start).toHaveBeenCalledWith({ projectId, suiteId, idempotencyKey: "intent", request: {} });
+    expect((await app.request(`/api/projects/${projectId}/test-suites/${suiteId}/executions?limit=25`)).status).toBe(200);
+    expect(service.list).toHaveBeenCalledWith(projectId, suiteId, { limit: 25 });
     expect((await app.request(`/api/projects/${projectId}/test-suite-executions/${executionId}`)).status).toBe(200);
+    const report = await app.request(`/api/projects/${projectId}/test-suite-executions/${executionId}/report`);
+    expect(report.status).toBe(200);
+    expect(await report.json()).toEqual({ report: { execution, members: [] } });
     expect((await app.request(`/api/projects/${projectId}/test-suite-executions/${executionId}/cancel`, { method: "POST" })).status).toBe(200);
   });
 });

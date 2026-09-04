@@ -59,6 +59,18 @@ import {
   type TestSuiteExecutionDetail,
 } from "../../shared/testing/test-suite-execution.js";
 import {
+  parseSavedTestSuiteReport,
+  parseTestSuiteExecutionReportOutline,
+  savedTestSuiteReportPageSchema,
+  type CreateSavedTestSuiteReportRequest,
+  type SavedTestSuiteReport,
+  type SavedTestSuiteReportPage,
+  testSuiteExecutionReportPageSchema,
+  type TestSuiteExecutionReportOutline,
+  type TestSuiteExecutionReportPage,
+  type UpdateSavedTestSuiteReportRequest,
+} from "../../shared/testing/test-suite-report.js";
+import {
   automatedTestsExportEnvelopeSchema,
   importAutomatedTestsResultSchema,
   type AutomatedTestsExportEnvelope,
@@ -315,7 +327,18 @@ export interface InspectorApiClient {
   startTestSuiteExecution(projectId: string, suiteId: string, idempotencyKey: string,
     input?: StartTestSuiteExecutionRequest): Promise<TestSuiteExecutionDetail>;
   getTestSuiteExecution(projectId: string, executionId: string): Promise<TestSuiteExecutionDetail>;
+  listTestSuiteExecutions(projectId: string, suiteId: string,
+    input?: { cursor?: string; limit?: number }): Promise<TestSuiteExecutionReportPage>;
+  getTestSuiteExecutionReport(projectId: string, executionId: string): Promise<TestSuiteExecutionReportOutline>;
   cancelTestSuiteExecution(projectId: string, executionId: string): Promise<void>;
+  listSavedTestSuiteReports(projectId: string,
+    input?: { suiteId?: string; cursor?: string; limit?: number }): Promise<SavedTestSuiteReportPage>;
+  createSavedTestSuiteReport(projectId: string, idempotencyKey: string,
+    input: CreateSavedTestSuiteReportRequest): Promise<SavedTestSuiteReport>;
+  getSavedTestSuiteReport(projectId: string, reportId: string): Promise<SavedTestSuiteReport>;
+  updateSavedTestSuiteReport(projectId: string, reportId: string,
+    input: UpdateSavedTestSuiteReportRequest): Promise<SavedTestSuiteReport>;
+  deleteSavedTestSuiteReport(projectId: string, reportId: string): Promise<void>;
   exportAutomatedTests(projectId: string): Promise<AutomatedTestsExportEnvelope>;
   importAutomatedTests(projectId: string, input: unknown): Promise<ImportAutomatedTestsResult>;
   previewTestCaseFromRun(projectId: string, runId: string): Promise<TestCaseCreationPreview>;
@@ -893,6 +916,16 @@ function decodeTestSuiteExecutionEnvelope(value: unknown, projectId: string,
         (expected.suiteId !== undefined && execution.suiteId !== expected.suiteId)) throw new Error();
     return execution;
   } catch { throw new Error("Invalid test suite execution response"); }
+}
+
+function decodeSavedTestSuiteReportEnvelope(value: unknown, projectId: string,
+  reportId?: string): SavedTestSuiteReport {
+  try {
+    if (!isObject(value) || !("report" in value)) throw new Error();
+    const report = parseSavedTestSuiteReport(value.report);
+    if (report.projectId !== projectId || (reportId !== undefined && report.id !== reportId)) throw new Error();
+    return report;
+  } catch { throw new Error("Invalid saved test suite report response"); }
 }
 
 export function createApiClient(_legacySessionToken?: string): InspectorApiClient {
@@ -1575,11 +1608,83 @@ export function createApiClient(_legacySessionToken?: string): InspectorApiClien
       ));
       return decodeTestSuiteExecutionEnvelope(value, projectId, { executionId });
     },
+    async listTestSuiteExecutions(projectId, suiteId, input = {}) {
+      const search = new URLSearchParams();
+      if (input.cursor !== undefined) search.set("cursor", input.cursor);
+      if (input.limit !== undefined) search.set("limit", String(input.limit));
+      const query = search.size === 0 ? "" : `?${search.toString()}`;
+      try {
+        const page = testSuiteExecutionReportPageSchema.parse(await decodeResponse<unknown>(await fetch(
+          `/api/projects/${encodeURIComponent(projectId)}/test-suites/${encodeURIComponent(suiteId)}/executions${query}`,
+          { headers },
+        )));
+        if (page.items.some((item) => item.projectId !== projectId || item.suiteId !== suiteId)) throw new Error();
+        return page;
+      } catch { throw new Error("Invalid test suite execution report response"); }
+    },
+    async getTestSuiteExecutionReport(projectId, executionId) {
+      try {
+        const value = await decodeResponse<unknown>(await fetch(
+          `/api/projects/${encodeURIComponent(projectId)}/test-suite-executions/${encodeURIComponent(executionId)}/report`,
+          { headers },
+        ));
+        if (!isObject(value) || !("report" in value)) throw new Error();
+        const report = parseTestSuiteExecutionReportOutline(value.report);
+        if (report.execution.projectId !== projectId || report.execution.id !== executionId) throw new Error();
+        return report;
+      } catch { throw new Error("Invalid test suite execution report response"); }
+    },
     async cancelTestSuiteExecution(projectId, executionId) {
       await decodeResponse<unknown>(await fetch(
         `/api/projects/${encodeURIComponent(projectId)}/test-suite-executions/${encodeURIComponent(executionId)}/cancel`,
         { method: "POST", headers },
       ));
+    },
+    async listSavedTestSuiteReports(projectId, input = {}) {
+      const search = new URLSearchParams();
+      if (input.suiteId !== undefined) search.set("suiteId", input.suiteId);
+      if (input.cursor !== undefined) search.set("cursor", input.cursor);
+      if (input.limit !== undefined) search.set("limit", String(input.limit));
+      const query = search.size === 0 ? "" : `?${search.toString()}`;
+      try {
+        const page = savedTestSuiteReportPageSchema.parse(await decodeResponse<unknown>(await fetch(
+          `/api/projects/${encodeURIComponent(projectId)}/test-suite-reports${query}`,
+          { headers },
+        )));
+        if (page.items.some((report) => report.projectId !== projectId ||
+            (input.suiteId !== undefined && report.suiteId !== input.suiteId))) throw new Error();
+        return page;
+      } catch { throw new Error("Invalid saved test suite report response"); }
+    },
+    async createSavedTestSuiteReport(projectId, idempotencyKey, input) {
+      const value = await decodeResponse<unknown>(await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/test-suite-reports`,
+        { method: "POST", headers: { ...headers, "Idempotency-Key": idempotencyKey }, body: JSON.stringify(input) },
+      ));
+      return decodeSavedTestSuiteReportEnvelope(value, projectId);
+    },
+    async getSavedTestSuiteReport(projectId, reportId) {
+      const value = await decodeResponse<unknown>(await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/test-suite-reports/${encodeURIComponent(reportId)}`,
+        { headers },
+      ));
+      return decodeSavedTestSuiteReportEnvelope(value, projectId, reportId);
+    },
+    async updateSavedTestSuiteReport(projectId, reportId, input) {
+      const value = await decodeResponse<unknown>(await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/test-suite-reports/${encodeURIComponent(reportId)}`,
+        { method: "PATCH", headers, body: JSON.stringify(input) },
+      ));
+      const report = decodeSavedTestSuiteReportEnvelope(value, projectId, reportId);
+      if (report.revision !== input.revision + 1) throw new Error("Invalid saved test suite report response");
+      return report;
+    },
+    async deleteSavedTestSuiteReport(projectId, reportId) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/test-suite-reports/${encodeURIComponent(reportId)}`,
+        { method: "DELETE", headers },
+      );
+      if (!response.ok) await decodeResponse<never>(response);
     },
     async exportAutomatedTests(projectId) {
       try {

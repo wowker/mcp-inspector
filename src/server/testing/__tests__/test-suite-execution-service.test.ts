@@ -46,7 +46,31 @@ describe("TestSuiteExecutionService", () => {
       list: vi.fn(() => ({ items: [], nextCursor: null })),
       updateBaseline: vi.fn(() => { throw new Error("not used"); }),
       start,
-      get: vi.fn(),
+      get: vi.fn((_requestedProjectId, executionId) => {
+        const stored = executionRepository.get(projectId, executionId)!;
+        return {
+          ...stored,
+          status: "PASSED" as const,
+          startedAt: "2026-09-01T02:00:00.100Z",
+          completedAt: "2026-09-01T02:00:00.900Z",
+          durationMs: 800,
+          steps: [{
+            id: "00000000-0000-4000-8000-000000009999",
+            executionId,
+            stepId: "tool",
+            position: 0,
+            attempt: 1,
+            status: "PASSED" as const,
+            runId: null,
+            workflowExecutionId: null,
+            resolvedArguments: {},
+            startedAt: "2026-09-01T02:00:00.100Z",
+            completedAt: "2026-09-01T02:00:00.900Z",
+            durationMs: 800,
+            error: null,
+          }],
+        };
+      }),
       waitForTerminal: vi.fn(async (_projectId, executionId) => ({
         ...executionRepository.get(projectId, executionId)!, status: "PASSED" as const,
       })),
@@ -64,6 +88,16 @@ describe("TestSuiteExecutionService", () => {
       expect(completed.summary).toEqual({ total: 2, passed: 2, failed: 0, errors: 0, cancelled: 0 });
       expect(completed.items.map(({ position, status, testExecutionId }) =>
         [position, status, testExecutionId !== null])).toEqual([[0, "PASSED", true], [1, "PASSED", true]]);
+      expect(service.list(projectId, suite.id, { limit: 10 }).items.map(({ id }) => id)).toEqual([started.id]);
+      const report = service.report(projectId, started.id);
+      expect(report.members.map(({ testExecution, calls }) => ({
+        name: testExecution?.testCaseName,
+        kind: testExecution?.testCaseKind,
+        calls: calls.map(({ stepId, stepKind }) => [stepId, stepKind]),
+      }))).toEqual([
+        { name: "one", kind: "tool", calls: [["tool", "tool"]] },
+        { name: "two", kind: "tool", calls: [["tool", "tool"]] },
+      ]);
 
       const reduced = suites.update(projectId, suite.id, { revision: 1, definition: {
         name: suite.name, description: suite.description, tags: suite.tags,

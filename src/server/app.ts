@@ -55,6 +55,11 @@ import {
 } from "./testing/test-suite-execution-service.js";
 import { createTestTransferRoutes } from "./testing/test-transfer-routes.js";
 import { createTestTransferService, type TestTransferService } from "./testing/test-transfer-service.js";
+import { createSavedTestSuiteReportRoutes } from "./testing/saved-test-suite-report-routes.js";
+import {
+  createSavedTestSuiteReportService,
+  type SavedTestSuiteReportService,
+} from "./testing/saved-test-suite-report-service.js";
 import { createComparisonRuleRoutes } from "./comparison/comparison-rule-routes.js";
 import {
   createComparisonRuleService,
@@ -90,6 +95,7 @@ export interface AppDependencies {
   testExecutions?: TestExecutionService;
   testSuiteExecutions?: TestSuiteExecutionService;
   testTransfers?: TestTransferService;
+  savedTestSuiteReports?: SavedTestSuiteReportService;
   comparisonRules?: ComparisonRuleService;
   runComparisons?: RunComparisonService;
   staticRoot?: string;
@@ -374,6 +380,9 @@ export function createApp(deps: AppDependencies): Hono {
       deps.testSuiteExecutions ?? createTestSuiteExecutionService({
         projects: deps.projects, suites: testSuites, testCases, testExecutions,
       }),
+    ));
+    app.route("/api/projects", createSavedTestSuiteReportRoutes(
+      deps.savedTestSuiteReports ?? createSavedTestSuiteReportService({ projects: deps.projects }),
     ));
   }
 

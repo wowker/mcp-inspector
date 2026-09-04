@@ -163,6 +163,47 @@ describe("test case API client", () => {
     await expect(api.cancelTestSuiteExecution(projectId, suiteExecutionId)).resolves.toBeUndefined();
   });
 
+  it("lists suite execution history and loads a navigation-only report outline", async () => {
+    const reportSummary = {
+      id: suiteExecutionId, projectId, suiteId, suiteRevision: 1, suiteName: "Suite", status: "QUEUED",
+      summary: null, createdAt: definition.createdAt, startedAt: null, completedAt: null, durationMs: null,
+    };
+    const report = { execution: suiteExecution, members: [] };
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ items: [reportSummary], nextCursor: "next" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ report }), { status: 200 }));
+    const api = createApiClient("session");
+    await expect(api.listTestSuiteExecutions(projectId, suiteId, { cursor: "first", limit: 25 }))
+      .resolves.toEqual({ items: [reportSummary], nextCursor: "next" });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(`test-suites/${suiteId}/executions?cursor=first&limit=25`);
+    await expect(api.getTestSuiteExecutionReport(projectId, suiteExecutionId)).resolves.toEqual(report);
+  });
+
+  it("creates and manages saved suite report versions with header-only idempotency", async () => {
+    const reportId = "00000000-0000-4000-8000-000000000868";
+    const savedReport = {
+      id: reportId, projectId, suiteId, suiteExecutionId, name: "Release baseline", versionLabel: "1.0",
+      note: null, revision: 1, createdAt: definition.createdAt, updatedAt: definition.updatedAt,
+    };
+    const createdInput = { suiteId, suiteExecutionId, name: "Release baseline", versionLabel: "1.0", note: null };
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ report: savedReport }), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ items: [savedReport], nextCursor: null }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ report: savedReport }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ report: { ...savedReport, name: "Updated", revision: 2 } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const api = createApiClient("session");
+    await expect(api.createSavedTestSuiteReport(projectId, "save-report-1", createdInput)).resolves.toEqual(savedReport);
+    expect(String(fetchMock.mock.calls[0]?.[0])).not.toContain("save-report-1");
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual(expect.objectContaining({
+      method: "POST", headers: expect.objectContaining({ "Idempotency-Key": "save-report-1" }),
+    }));
+    await expect(api.listSavedTestSuiteReports(projectId, { suiteId, limit: 25 }))
+      .resolves.toEqual({ items: [savedReport], nextCursor: null });
+    await expect(api.getSavedTestSuiteReport(projectId, reportId)).resolves.toEqual(savedReport);
+    await expect(api.updateSavedTestSuiteReport(projectId, reportId, { revision: 1, name: "Updated" }))
+      .resolves.toEqual({ ...savedReport, name: "Updated", revision: 2 });
+    await expect(api.deleteSavedTestSuiteReport(projectId, reportId)).resolves.toBeUndefined();
+  });
+
   it("exports and imports the versioned automated-test envelope", async () => {
     const envelope = { format: "mcp-inspector-automated-tests", version: 1, exportedAt: definition.createdAt,
       sourceProject: { id: projectId, name: "Project" }, connections: [{ alias: "server-1", sourceConnectionId: connectionId, name: "API" }],

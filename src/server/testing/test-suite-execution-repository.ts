@@ -4,6 +4,10 @@ import {
   type TestSuiteExecutionDetail,
   type TestSuiteExecutionSummary,
 } from "../../shared/testing/test-suite-execution.js";
+import {
+  testSuiteExecutionReportSummarySchema,
+  type TestSuiteExecutionReportSummary,
+} from "../../shared/testing/test-suite-report.js";
 import { parseTestSuiteDefinition, type TestSuiteDefinition } from "../../shared/testing/test-suite.js";
 import type { SuiteRunItem } from "./suite-runner.js";
 
@@ -38,6 +42,28 @@ function detail(row: ExecutionRow, items: ItemRow[]): TestSuiteExecutionDetail {
       position: item.position, status: item.status,
     })),
   });
+}
+
+function reportSummary(row: ExecutionRow): TestSuiteExecutionReportSummary {
+  const suiteSnapshot = parseTestSuiteDefinition(json(row.suite_snapshot_json, "suite snapshot"));
+  return testSuiteExecutionReportSummarySchema.parse({
+    id: row.id,
+    projectId: row.project_id,
+    suiteId: row.suite_id,
+    suiteRevision: row.suite_revision,
+    suiteName: suiteSnapshot.name,
+    status: row.status,
+    summary: row.summary_json === null ? null : json(row.summary_json, "suite summary"),
+    createdAt: row.created_at,
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+    durationMs: row.duration_ms,
+  });
+}
+
+export interface TestSuiteExecutionCursorPosition {
+  createdAt: string;
+  id: string;
 }
 
 export class TestSuiteExecutionRepository {
@@ -83,6 +109,29 @@ export class TestSuiteExecutionRepository {
       WHERE project_id = ? AND suite_execution_id = ? ORDER BY position, id`)
       .all(projectId, executionId) as ItemRow[];
     return detail(row, items);
+  }
+
+  list(projectId: string, suiteId: string, limit: number,
+    cursor: TestSuiteExecutionCursorPosition | null): {
+      items: TestSuiteExecutionReportSummary[];
+      next: TestSuiteExecutionCursorPosition | null;
+    } {
+    const rows = cursor === null
+      ? this.store.database.prepare(`SELECT * FROM test_suite_executions
+        WHERE project_id = ? AND suite_id = ?
+        ORDER BY created_at DESC, id DESC LIMIT ?`).all(projectId, suiteId, limit + 1) as ExecutionRow[]
+      : this.store.database.prepare(`SELECT * FROM test_suite_executions
+        WHERE project_id = ? AND suite_id = ?
+          AND (created_at < ? OR (created_at = ? AND id < ?))
+        ORDER BY created_at DESC, id DESC LIMIT ?`).all(
+          projectId, suiteId, cursor.createdAt, cursor.createdAt, cursor.id, limit + 1,
+        ) as ExecutionRow[];
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    return {
+      items: page.map(reportSummary),
+      next: rows.length > limit && last !== undefined ? { createdAt: last.created_at, id: last.id } : null,
+    };
   }
 
   begin(projectId: string, executionId: string, at: string): boolean {

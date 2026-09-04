@@ -33,6 +33,15 @@ function mapError(context: Context, error: unknown) {
 
 export function createTestSuiteExecutionRoutes(executions: TestSuiteExecutionService): Hono {
   const routes = new Hono();
+  routes.get("/:projectId/test-suites/:suiteId/executions", (context) => {
+    const rawLimit = context.req.query("limit");
+    try {
+      return context.json(executions.list(context.req.param("projectId"), context.req.param("suiteId"), {
+        ...(context.req.query("cursor") === undefined ? {} : { cursor: context.req.query("cursor") }),
+        ...(rawLimit === undefined ? {} : { limit: Number(rawLimit) }),
+      }));
+    } catch (error) { return mapError(context, error); }
+  });
   routes.post("/:projectId/test-suites/:suiteId/executions", async (context) => {
     const idempotencyKey = context.req.header("Idempotency-Key") ?? "";
     if (idempotencyKey.length < 1 || idempotencyKey.length > 200) return context.json(errors.invalid, 400);
@@ -50,6 +59,13 @@ export function createTestSuiteExecutionRoutes(executions: TestSuiteExecutionSer
   routes.get("/:projectId/test-suite-executions/:executionId", (context) => {
     try { return context.json({ execution: executions.get(context.req.param("projectId"), context.req.param("executionId")) }); }
     catch (error) { return mapError(context, error); }
+  });
+  routes.get("/:projectId/test-suite-executions/:executionId/report", (context) => {
+    try {
+      return context.json({ report: executions.report(
+        context.req.param("projectId"), context.req.param("executionId"),
+      ) });
+    } catch (error) { return mapError(context, error); }
   });
   routes.post("/:projectId/test-suite-executions/:executionId/cancel", (context) => {
     try {

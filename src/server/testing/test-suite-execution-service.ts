@@ -5,6 +5,11 @@ import {
   type TestSuiteExecutionDetail,
   type TestSuiteExecutionSummary,
 } from "../../shared/testing/test-suite-execution.js";
+import {
+  testSuiteExecutionReportOutlineSchema,
+  type TestSuiteExecutionReportOutline,
+  type TestSuiteExecutionReportPage,
+} from "../../shared/testing/test-suite-report.js";
 import { canonicalJson } from "../tools/tool-service.js";
 import { ToolRepository } from "../tools/tool-repository.js";
 import type { ProjectService } from "../projects/project-service.js";
@@ -15,7 +20,10 @@ import {
   type TestExecutionService,
 } from "./test-execution-service.js";
 import type { TestSuiteService } from "./test-suite-service.js";
-import { TestSuiteExecutionRepository } from "./test-suite-execution-repository.js";
+import {
+  TestSuiteExecutionRepository,
+  type TestSuiteExecutionCursorPosition,
+} from "./test-suite-execution-repository.js";
 import { runSuite, type SuiteMemberInvocationResult, type SuiteRunItem } from "./suite-runner.js";
 
 const startSchema = z.object({
@@ -39,6 +47,9 @@ export class TestSuiteExecutionConflictError extends Error {
 export interface TestSuiteExecutionService {
   start(input: unknown): TestSuiteExecutionDetail;
   get(projectId: string, executionId: string): TestSuiteExecutionDetail;
+  list(projectId: string, suiteId: string,
+    input?: { cursor?: string; limit?: number }): TestSuiteExecutionReportPage;
+  report(projectId: string, executionId: string): TestSuiteExecutionReportOutline;
   cancel(projectId: string, executionId: string): boolean;
   close(): Promise<void>;
 }
@@ -106,6 +117,69 @@ export function createTestSuiteExecutionService(deps: {
     return value;
   };
 
+  const decodeCursor = (value: string | undefined, projectId: string,
+    suiteId: string): TestSuiteExecutionCursorPosition | null => {
+    if (value === undefined) return null;
+    try {
+      const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as {
+        projectId?: unknown; suiteId?: unknown; createdAt?: unknown; id?: unknown;
+      };
+      if (parsed.projectId !== projectId || parsed.suiteId !== suiteId || typeof parsed.createdAt !== "string" ||
+          !z.string().datetime({ offset: true }).safeParse(parsed.createdAt).success ||
+          typeof parsed.id !== "string" || !z.uuid().safeParse(parsed.id).success) throw new Error();
+      return { createdAt: parsed.createdAt, id: parsed.id };
+    } catch { throw new InvalidTestSuiteExecutionError(); }
+  };
+
+  const encodeCursor = (projectId: string, suiteId: string,
+    position: TestSuiteExecutionCursorPosition): string =>
+    Buffer.from(JSON.stringify({ projectId, suiteId, ...position }), "utf8").toString("base64url");
+
+  const report = (projectId: string, executionId: string): TestSuiteExecutionReportOutline => {
+    const execution = get(projectId, executionId);
+    const members = execution.items.map((item) => {
+      if (item.testExecutionId === null) return { item, testExecution: null, calls: [] };
+      const testExecution = deps.testExecutions.get(projectId, item.testExecutionId);
+      if (testExecution.testCaseId !== item.testCaseId) throw new TestSuiteExecutionNotFoundError();
+      const cleanupIds = testExecution.definitionSnapshot.kind === "scenario"
+        ? new Set(testExecution.definitionSnapshot.cleanupSteps.map(({ id }) => id))
+        : new Set<string>();
+      return {
+        item,
+        testExecution: {
+          id: testExecution.id,
+          testCaseId: testExecution.testCaseId,
+          testCaseRevision: testExecution.testCaseRevision,
+          testCaseName: testExecution.definitionSnapshot.name,
+          testCaseKind: testExecution.definitionSnapshot.kind,
+          status: testExecution.status,
+          createdAt: testExecution.createdAt,
+          startedAt: testExecution.startedAt,
+          completedAt: testExecution.completedAt,
+          durationMs: testExecution.durationMs,
+          error: testExecution.error,
+        },
+        calls: [...testExecution.steps]
+          .sort((left, right) => left.position - right.position || left.attempt - right.attempt || left.id.localeCompare(right.id))
+          .map((step) => ({
+            stepRecordId: step.id,
+            stepId: step.stepId,
+            stepKind: cleanupIds.has(step.stepId) ? "cleanup" as const : "tool" as const,
+            position: step.position,
+            attempt: step.attempt,
+            runId: step.runId,
+            workflowExecutionId: step.workflowExecutionId,
+            status: step.status,
+            startedAt: step.startedAt,
+            completedAt: step.completedAt,
+            durationMs: step.durationMs,
+            error: step.error,
+          })),
+      };
+    });
+    return testSuiteExecutionReportOutlineSchema.parse({ execution, members });
+  };
+
   async function execute(projectId: string, executionId: string, inputsByMember: Record<string, Record<string, unknown>>,
     confirmDestructive: boolean): Promise<void> {
     const controller = active.get(key(projectId, executionId));
@@ -162,6 +236,28 @@ export function createTestSuiteExecutionService(deps: {
   }
 
   return {
+    list(rawProjectId, rawSuiteId, input = {}) {
+      const parsed = z.object({
+        projectId: z.uuid(),
+        suiteId: z.uuid(),
+        cursor: z.string().min(1).optional(),
+        limit: z.number().int().min(1).max(100).default(50),
+      }).strict().safeParse({ projectId: rawProjectId, suiteId: rawSuiteId, ...input });
+      if (!parsed.success) throw new InvalidTestSuiteExecutionError();
+      const page = repository(parsed.data.projectId).list(
+        parsed.data.projectId,
+        parsed.data.suiteId,
+        parsed.data.limit,
+        decodeCursor(parsed.data.cursor, parsed.data.projectId, parsed.data.suiteId),
+      );
+      return {
+        items: page.items,
+        nextCursor: page.next === null
+          ? null
+          : encodeCursor(parsed.data.projectId, parsed.data.suiteId, page.next),
+      };
+    },
+    report,
     start(raw) {
       const parsed = startSchema.safeParse(raw);
       if (!parsed.success) throw new InvalidTestSuiteExecutionError();
