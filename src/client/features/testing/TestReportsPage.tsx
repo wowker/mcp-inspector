@@ -12,6 +12,7 @@ import { Dialog } from "../../components/overlays/Dialog.js";
 import { ModuleHelpPopover } from "../../components/overlays/ModuleHelpPopover.js";
 import { Select } from "../../components/forms/Select.js";
 import { TestExecutionPanel } from "./TestExecutionPanel.js";
+import { SavedSuiteReportsWorkspace } from "./SavedSuiteReportsWorkspace.js";
 import "./testing.css";
 
 interface Props { api: InspectorApiClient; projectId: string }
@@ -34,6 +35,7 @@ export function TestReportsPage({ api, projectId }: Props) {
   const [bindings, setBindings] = useState<Record<string, string>>({});
   const [conflictPolicy, setConflictPolicy] = useState<"SKIP" | "COPY" | "OVERWRITE">("COPY");
   const [transferring, setTransferring] = useState(false);
+  const [reportKind, setReportKind] = useState<"case" | "suite">("case");
 
   const load = useCallback(() => {
     const version = ++requestVersion.current;
@@ -45,7 +47,7 @@ export function TestReportsPage({ api, projectId }: Props) {
   }, [api, projectId]);
 
   useEffect(() => {
-    setItems([]); setSelectedId(null); setExecution(null); setRunTraces({});
+    setItems([]); setSelectedId(null); setExecution(null); setRunTraces({}); setReportKind("case");
     setImportEnvelope(null); setConnections([]); setBindings({}); setTransferring(false);
     transferVersion.current += 1;
     load();
@@ -138,7 +140,11 @@ export function TestReportsPage({ api, projectId }: Props) {
           aria-label={t("report.importFile")} onChange={(event) => void chooseImport(event.target.files?.[0])} />
       </div>
     </div></header>
-    <div className="testing-workspace">
+    <div className="testing-reports__body"><div className="testing-report-tabs" role="tablist" aria-label={t("report.kinds")}>
+      <button type="button" role="tab" aria-selected={reportKind === "case"} onClick={() => setReportKind("case")}>{t("report.caseReports")}</button>
+      <button type="button" role="tab" aria-selected={reportKind === "suite"} onClick={() => setReportKind("suite")}>{t("report.suiteReports")}</button>
+    </div>
+    {reportKind === "case" ? <div className="testing-workspace">
       <aside className="testing-case-list" aria-label={t("report.list")}><header><h2>{t("report.list")}</h2><span>{items.length}</span></header>
         {loading && items.length === 0 ? <p className="testing-list-status">{t("report.loading")}</p>
           : error && items.length === 0 ? <div className="testing-list-error"><strong>{t("report.loadFailed")}</strong><br />
@@ -155,7 +161,7 @@ export function TestReportsPage({ api, projectId }: Props) {
             : execution === null ? <div className="testing-editor-placeholder" role="status"><p>{t("report.selectHint")}</p></div>
               : <TestExecutionPanel execution={execution} runTraces={runTraces} onUpdateBaseline={() => setBaselineOpen(true)} />}
       </div>
-    </div>
+    </div> : <SavedSuiteReportsWorkspace api={api} projectId={projectId} />}</div>
     {baselineOpen && execution !== null && <Dialog titleId="baseline-update-title" descriptionId="baseline-update-description"
       onClose={() => setBaselineOpen(false)} closeDisabled={updatingBaseline}>
       <div className="testing-delete-dialog"><h2 id="baseline-update-title">{t("report.baselineTitle")}</h2>

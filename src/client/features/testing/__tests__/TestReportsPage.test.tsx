@@ -71,6 +71,32 @@ describe("TestReportsPage", () => {
     expect(api.updateTestExecutionBaseline).toHaveBeenCalledWith(projectId, executionId, { revision: 1, confirm: true });
   });
 
+  it("lists saved suite report versions and opens one immutable execution", async () => {
+    const suiteId = "00000000-0000-4000-8000-000000000960";
+    const suiteExecutionId = "00000000-0000-4000-8000-000000000961";
+    const reportId = "00000000-0000-4000-8000-000000000962";
+    const suiteSnapshot = { id: suiteId, projectId, name: "发布回归", description: "", tags: [], revision: 1,
+      members: [], executionPolicy: { concurrency: 4, stopOnFailure: false }, createdAt: timestamp, updatedAt: timestamp };
+    const suiteExecution = { id: suiteExecutionId, projectId, suiteId, suiteRevision: 1, status: "PASSED" as const,
+      suiteSnapshot, summary: { total: 0, passed: 0, failed: 0, errors: 0, cancelled: 0 }, error: null,
+      createdAt: timestamp, startedAt: timestamp, completedAt: timestamp, durationMs: 20, items: [] };
+    const saved = { id: reportId, projectId, suiteId, suiteExecutionId, name: "生产发布前", versionLabel: "2.0",
+      note: "release", revision: 1, createdAt: timestamp, updatedAt: timestamp };
+    const api = {
+      listTestExecutions: vi.fn(async () => ({ items: [], nextCursor: null })),
+      listTestSuites: vi.fn(async () => ({ items: [], nextCursor: null })),
+      listSavedTestSuiteReports: vi.fn(async () => ({ items: [saved], nextCursor: null })),
+      listTestSuiteExecutions: vi.fn(async () => ({ items: [], nextCursor: null })),
+      getTestSuiteExecutionReport: vi.fn(async () => ({ execution: suiteExecution, members: [] })),
+    } as unknown as InspectorApiClient;
+    const user = userEvent.setup(); render(<TestReportsPage api={api} projectId={projectId} />);
+
+    await user.click(await screen.findByRole("tab", { name: "套件报告" }));
+    await user.click(await screen.findByRole("button", { name: /生产发布前.*2.0/ }));
+    expect(await screen.findByRole("heading", { name: "发布回归", level: 3 })).toBeVisible();
+    expect(api.getTestSuiteExecutionReport).toHaveBeenCalledWith(projectId, suiteExecutionId);
+  });
+
   it("requires an explicit Server binding before importing definitions", async () => {
     const envelope = { format: "mcp-inspector-automated-tests" as const, version: 1 as const, exportedAt: timestamp,
       sourceProject: { id: projectId, name: "Source" },

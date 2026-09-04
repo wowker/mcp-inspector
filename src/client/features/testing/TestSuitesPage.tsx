@@ -12,6 +12,7 @@ import { StatusBadge } from "../../components/feedback/StatusBadge.js";
 import { Dialog } from "../../components/overlays/Dialog.js";
 import { ModuleHelpPopover } from "../../components/overlays/ModuleHelpPopover.js";
 import { filterSearchableOptions } from "../../components/forms/SearchableSelect.js";
+import { TestSuiteReportViewer } from "./TestSuiteReportViewer.js";
 
 interface Props { api: InspectorApiClient; projectId: string; active?: boolean }
 interface Draft { id: string | null; revision: number | null; name: string; description: string; tags: string;
@@ -308,8 +309,12 @@ export function TestSuitesPage({ api, projectId, active = true }: Props) {
             </section>
           </div>
         </section>
-        {execution !== null && <section className="suite-report"><header><h3>{t("suite.report")}</h3><StatusBadge status={execution.status === "PASSED" ? "success" : terminal.has(execution.status) ? "danger" : "pending"}>{t(`execution.status.${execution.status}`)}</StatusBadge></header>
-          <ol>{execution.items.map((item) => <li key={item.id}><span>{cases.find(({ id }) => id === item.testCaseId)?.name ?? item.testCaseId}</span><StatusBadge status={item.status === "PASSED" ? "success" : terminal.has(item.status) ? "danger" : "pending"}>{t(`execution.status.${item.status}`)}</StatusBadge></li>)}</ol></section>}
+        {execution !== null && !terminal.has(execution.status) && <section className="suite-report"><header><h3>{t("suite.report")}</h3>
+          <StatusBadge status="pending">{t(`execution.status.${execution.status}`)}</StatusBadge></header>
+          <ol>{execution.items.map((item) => <li key={item.id}><span>{cases.find(({ id }) => id === item.testCaseId)?.name ?? item.testCaseId}</span>
+            <StatusBadge status="pending">{t(`execution.status.${item.status}`)}</StatusBadge></li>)}</ol></section>}
+        {execution !== null && terminal.has(execution.status) && draft.id !== null && <TestSuiteReportViewer api={api} projectId={projectId}
+          suiteId={draft.id} executionId={execution.id} />}
       </div>}</div>
     </div>
     {deleteOpen && <Dialog titleId="suite-delete-title" descriptionId="suite-delete-description" onClose={() => setDeleteOpen(false)} closeDisabled={saving}>

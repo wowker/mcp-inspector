@@ -87,10 +87,25 @@ test("runs a persisted Tool test suite through the production UI", async ({ page
     await page.getByRole("button", { name: "测试套件" }).click();
     await page.getByRole("button", { name: /Smoke suite/ }).click();
     await page.getByRole("button", { name: "执行套件" }).click();
-    const report = page.locator(".suite-report");
+    const report = page.locator(".suite-report-viewer");
     await expect(report).toBeVisible();
     await expect(report).toContainText("通过");
     await expect(report).toContainText("Echo smoke");
+    await expect(report.getByRole("article", { name: /运行/ })).toBeVisible();
+    await expect(report.getByText("suite-ok", { exact: true }).first()).toBeVisible();
+    expect((await new AxeBuilder({ page }).include(".suite-report-viewer")
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze()).violations).toEqual([]);
+
+    await report.getByRole("button", { name: "保存为版本" }).click();
+    await page.getByLabel("报告名称").fill("发布基线");
+    await page.getByLabel("版本号").fill("1.0");
+    await page.getByRole("button", { name: "保存报告" }).click();
+    await expect(report.getByRole("combobox", { name: "报告版本" })).toContainText("1.0");
+    await report.getByRole("button", { name: "保存为版本" }).click();
+    await page.getByLabel("报告名称").fill("参数升级后");
+    await page.getByLabel("版本号").fill("2.0");
+    await page.getByRole("button", { name: "保存报告" }).click();
+    await expect(report.getByRole("combobox", { name: "报告版本" })).toContainText("2.0");
 
     await page.getByRole("button", { name: "自动化测试" }).click();
     await page.getByRole("button", { name: /Echo smoke/ }).first().click();
@@ -141,6 +156,9 @@ test("runs a persisted Tool test suite through the production UI", async ({ page
     await page.getByRole("button", { name: /Echo smoke/ }).first().click();
     await expect(page.getByText(connectionId)).toBeVisible();
     await expect(page.getByText("Tool 快照 ID")).toBeVisible();
+    await page.getByRole("tab", { name: "套件报告" }).click();
+    await page.getByRole("button", { name: /2.0.*1.0/ }).click();
+    await expect(page.locator(".suite-report-viewer").getByText("suite-ok", { exact: true }).first()).toBeVisible();
 
     const exportResponse = await request.get(
       `${inspector.address.origin}/api/projects/${projectId}/automated-tests/export`, { headers },

@@ -142,17 +142,21 @@ describe("TestSuitesPage", () => {
   });
 
   it("confirms the complete suite scope before retrying a destructive execution", async () => {
+    const completedExecution = { id: "00000000-0000-4000-8000-000000000915", projectId, suiteId,
+      suiteRevision: 1, status: "PASSED" as const, suiteSnapshot: suite,
+      summary: { total: 1, passed: 1, failed: 0, errors: 0, cancelled: 0 }, error: null,
+      createdAt: "2026-09-01T00:00:00.000Z", startedAt: "2026-09-01T00:00:00.000Z",
+      completedAt: "2026-09-01T00:00:01.000Z", durationMs: 1_000, items: [] };
     const startTestSuiteExecution = vi.fn()
       .mockRejectedValueOnce(new Error("Destructive Tool confirmation is required"))
-      .mockResolvedValueOnce({ id: "00000000-0000-4000-8000-000000000915", projectId, suiteId,
-        suiteRevision: 1, status: "PASSED", suiteSnapshot: suite,
-        summary: { total: 1, passed: 1, failed: 0, errors: 0, cancelled: 0 }, error: null,
-        createdAt: "2026-09-01T00:00:00.000Z", startedAt: "2026-09-01T00:00:00.000Z",
-        completedAt: "2026-09-01T00:00:01.000Z", durationMs: 1_000, items: [] });
+      .mockResolvedValueOnce(completedExecution);
+    const getTestSuiteExecutionReport = vi.fn(async () => ({ execution: completedExecution, members: [] }));
     const api = {
       listTestSuites: vi.fn(async () => ({ items: [suiteSummary], nextCursor: null })),
       listTestCases: vi.fn(async () => ({ items: [], nextCursor: null })),
       getTestSuite: vi.fn(async () => suite), getTestCase: vi.fn(async () => toolCase), startTestSuiteExecution,
+      getTestSuiteExecutionReport, listSavedTestSuiteReports: vi.fn(async () => ({ items: [], nextCursor: null })),
+      listTestSuiteExecutions: vi.fn(async () => ({ items: [], nextCursor: null })),
     } as unknown as InspectorApiClient;
     const user = userEvent.setup(); render(<TestSuitesPage api={api} projectId={projectId} />);
     await user.click(await screen.findByRole("button", { name: /核心流程/ }));
@@ -162,6 +166,8 @@ describe("TestSuitesPage", () => {
     await user.click(screen.getByRole("button", { name: "确认执行" }));
     expect(startTestSuiteExecution).toHaveBeenLastCalledWith(projectId, suiteId, expect.any(String),
       { confirmDestructive: true });
+    expect(await screen.findByRole("heading", { name: "核心流程", level: 3 })).toBeVisible();
+    expect(getTestSuiteExecutionReport).toHaveBeenCalledWith(projectId, completedExecution.id);
   });
 
   it("deletes a selected suite only after confirmation", async () => {
@@ -196,6 +202,9 @@ describe("TestSuitesPage", () => {
       listTestCases: vi.fn(async () => ({ items: [{ ...suiteSummary, id: testCaseId, kind: "scenario",
         targetConnectionIds: [toolCase.target.connectionId] }], nextCursor: null })),
       getTestSuite: vi.fn(async () => suite), getTestCase: vi.fn(async () => scenarioCase), startTestSuiteExecution,
+      getTestSuiteExecutionReport: vi.fn(async () => ({ execution, members: [] })),
+      listSavedTestSuiteReports: vi.fn(async () => ({ items: [], nextCursor: null })),
+      listTestSuiteExecutions: vi.fn(async () => ({ items: [], nextCursor: null })),
     } as unknown as InspectorApiClient;
     const user = userEvent.setup(); render(<TestSuitesPage api={api} projectId={projectId} />);
     await user.click(await screen.findByRole("button", { name: /核心流程/ }));
