@@ -993,6 +993,22 @@ describe("DebugWorkspace", () => {
     await waitFor(() => expect(openTab).toHaveBeenCalledTimes(1));
   });
 
+  it("keeps one rendered Tab when an open response repeats an existing Tab identity", async () => {
+    const existing = tab("00000000-0000-4000-8000-000000000678", "sum", {});
+    const repeated = { ...existing, title: "sum （4）" };
+    const api = { listTabs: vi.fn(async () => [existing]), getTool: vi.fn(async () => tool), updateTab: vi.fn(),
+      openTab: vi.fn(async () => repeated) } as unknown as InspectorApiClient;
+    const view = render(<DebugWorkspace api={api} projectId={projectId} />);
+    await screen.findByRole("tab", { name: "sum" });
+
+    view.rerender(<DebugWorkspace api={api} projectId={projectId}
+      toolIntent={{ sequence: 1, tool: tool.tool, newTab: true }} />);
+
+    await waitFor(() => expect(api.openTab).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(document.querySelectorAll(`#tab-${existing.id}`)).toHaveLength(1));
+    expect(screen.getByRole("tab", { name: "sum （4）" })).toHaveAttribute("aria-selected", "true");
+  });
+
   it("opens history in a new editable Tab with its request and response restored", async () => {
     const opened = tab("00000000-0000-4000-8000-000000000633", "sum", {});
     const run: RunDetail = {

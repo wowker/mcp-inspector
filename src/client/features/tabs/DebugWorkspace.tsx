@@ -75,6 +75,21 @@ function splitPanePreset(ratio: number): SplitPanePreset | "custom" {
     .find(([, presetRatio]) => Math.abs(presetRatio - ratio) < 0.001)?.[0] ?? "custom";
 }
 
+function reconcileTabsByIdentity(tabs: DebugTabSummary[]): DebugTabSummary[] {
+  const reconciled: DebugTabSummary[] = [];
+  const indexes = new Map<string, number>();
+  for (const tab of tabs) {
+    const index = indexes.get(tab.id);
+    if (index === undefined) {
+      indexes.set(tab.id, reconciled.length);
+      reconciled.push(tab);
+    } else {
+      reconciled[index] = tab;
+    }
+  }
+  return reconciled;
+}
+
 function ActiveRunObserver({ api, projectId, tabId, runId, selected, onUpdate }: {
   api: InspectorApiClient; projectId: string; tabId: string; runId: string; selected: boolean;
   onUpdate: (tabId: string, runId: string, observation: ActiveObservation) => void;
@@ -137,11 +152,12 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
   saveTabFallbackRef.current = t("workspace.errors.saveTab");
 
   function assign(next: DebugTabSummary[]): void {
-    tabsRef.current = next; setTabs(next);
+    const reconciled = reconcileTabsByIdentity(next);
+    tabsRef.current = reconciled; setTabs(reconciled);
     setSubtreeDrafts((current) => {
       const retained: Record<string, Record<string, SubtreeDraft>> = {};
       for (const [tabId, drafts] of Object.entries(current)) {
-        const tab = next.find((item) => item.id === tabId); if (tab === undefined) continue;
+        const tab = reconciled.find((item) => item.id === tabId); if (tab === undefined) continue;
         const valid = Object.fromEntries(Object.entries(drafts).filter(([path, draft]) => {
           const canonical = valueAtJsonPointer(tab.arguments, path);
           return draft.base === (canonical === undefined ? "" : JSON.stringify(canonical, null, 2));
