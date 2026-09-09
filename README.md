@@ -140,6 +140,10 @@ npm run verify:release-artifacts
 
 发布只使用 npm 官方仓库 `https://registry.npmjs.org/`。版本遵循 SemVer：不兼容变更使用 `major`，向后兼容的新功能使用 `minor`，向后兼容的问题修复使用 `patch`。
 
+npm login --registry=https://registry.npmjs.org/ --auth-type=web
+
+npm whoami --registry=https://registry.npmjs.org/
+
 后续版本发布前，先提交完所有改动并确保 Git 工作区干净，然后执行：
 
 ```bash
