@@ -5,11 +5,15 @@ import type {
   AutomationDraft,
   AutomationDraftDefinition,
   AutomationDraftPage,
+  AuthoringApplyResult,
+  AuthoringDraftExecutionDetail,
+  AuthoringDraftExecutionSummary,
   AuthoringToolCallDetail,
   AuthoringToolCallPage,
   DraftValidationResult,
   InspectorApiClient,
 } from "../../api/api-client.js";
+import type { AuthoringAppliedAsset } from "../../../shared/authoring/apply.js";
 import { InspectorApiError } from "../../api/api-client.js";
 import { Button } from "../../components/actions/Button.js";
 import { FormField } from "../../components/forms/FormField.js";
@@ -23,7 +27,10 @@ interface AuthoringWorkspaceProps {
   projectId: string;
   active: boolean;
   enabled: boolean;
+  onOpenAsset(asset: AuthoringAppliedAsset): void;
 }
+
+const terminalExecutionStatuses = new Set(["PASSED", "FAILED", "ERROR", "CANCELLED", "INTERRUPTED"]);
 
 function failureState(error: unknown): Exclude<LoadState, "idle" | "loading" | "ready"> {
   if (error instanceof InspectorApiError && error.status === 401) return "unauthorized";
@@ -39,7 +46,7 @@ function callBadge(status: string): "idle" | "pending" | "success" | "warning" |
   return "idle";
 }
 
-export function AuthoringWorkspace({ api, projectId, active, enabled }: AuthoringWorkspaceProps) {
+export function AuthoringWorkspace({ api, projectId, active, enabled, onOpenAsset }: AuthoringWorkspaceProps) {
   const { t } = useTranslation("app");
   const [view, setView] = useState<WorkspaceView>("drafts");
   const [filter, setFilter] = useState("");
@@ -54,13 +61,19 @@ export function AuthoringWorkspace({ api, projectId, active, enabled }: Authorin
   const [detailState, setDetailState] = useState<LoadState>("idle");
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [action, setAction] = useState<"validate" | "execute" | "cancel" | "apply" | null>(null);
+  const [execution, setExecution] = useState<AuthoringDraftExecutionSummary | AuthoringDraftExecutionDetail | null>(null);
+  const [applyResult, setApplyResult] = useState<AuthoringApplyResult | null>(null);
   const loadedProject = useRef<string | null>(null);
   const projectIdRef = useRef(projectId);
   projectIdRef.current = projectId;
   const listRequestSequence = useRef(0);
   const detailRequestSequence = useRef(0);
+  const executionRequestSequence = useRef(0);
   const listScroll = useRef<HTMLDivElement>(null);
   const detailScroll = useRef<HTMLDivElement>(null);
+
+  useEffect(() => () => { executionRequestSequence.current += 1; }, []);
 
   async function loadLists(targetProjectId = projectId): Promise<void> {
     const requestSequence = ++listRequestSequence.current;
@@ -95,9 +108,12 @@ export function AuthoringWorkspace({ api, projectId, active, enabled }: Authorin
       setGoal("");
       setDefinitionText("");
       setValidation(null);
+      setExecution(null);
+      setApplyResult(null);
       setMessage(null);
       setState("idle");
       setDetailState("idle");
+      executionRequestSequence.current += 1;
       if (listScroll.current) listScroll.current.scrollTop = 0;
       if (detailScroll.current) detailScroll.current.scrollTop = 0;
     }
@@ -127,6 +143,8 @@ export function AuthoringWorkspace({ api, projectId, active, enabled }: Authorin
       setGoal(draft.goal);
       setDefinitionText(JSON.stringify(draft.definition, null, 2));
       setValidation(null);
+      setExecution(null);
+      setApplyResult(null);
       setDetailState("ready");
     } catch (error) {
       if (targetProjectId !== projectIdRef.current || requestSequence !== detailRequestSequence.current) return;
@@ -164,6 +182,9 @@ export function AuthoringWorkspace({ api, projectId, active, enabled }: Authorin
         idempotencyKey: crypto.randomUUID(),
       });
       setSelectedDraft({ ...selectedDraft, revision: result.revision, goal, definition, definitionDigest: result.definitionDigest });
+      setValidation(null);
+      setExecution(null);
+      setApplyResult(null);
       setDrafts((items) => items.map((item) => item.id === selectedDraft.id
         ? { ...item, revision: result.revision, goal } : item));
       setMessage(t("authoring.workspace.saved"));
@@ -178,13 +199,68 @@ export function AuthoringWorkspace({ api, projectId, active, enabled }: Authorin
 
   async function validateDraft(): Promise<void> {
     if (selectedDraft === null) return;
-    setMessage(null);
+    setAction("validate"); setMessage(null);
     try {
       const result = await api.validateAuthoringDraft(projectId, selectedDraft.id, selectedDraft.revision);
       setValidation(result);
     } catch {
       setMessage(t("authoring.workspace.validateFailed"));
+    } finally { setAction(null); }
+  }
+
+  async function executeDraft(): Promise<void> {
+    if (selectedDraft === null || validation?.status !== "VALID" ||
+        validation.draftRevision !== selectedDraft.revision) return;
+    const requestSequence = ++executionRequestSequence.current;
+    setAction("execute"); setMessage(null); setApplyResult(null);
+    try {
+      const started = await api.executeAuthoringDraft(projectId, selectedDraft.id, {
+        revision: selectedDraft.revision, validationDigest: validation.validationDigest,
+        idempotencyKey: crypto.randomUUID(),
+      });
+      if (requestSequence !== executionRequestSequence.current) return;
+      setExecution(started);
+      setAction(null);
+      while (!terminalExecutionStatuses.has(started.status) && requestSequence === executionRequestSequence.current) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        const current = await api.getAuthoringDraftExecution(projectId, started.id);
+        if (requestSequence !== executionRequestSequence.current) return;
+        setExecution(current);
+        if (terminalExecutionStatuses.has(current.status)) return;
+      }
+    } catch {
+      if (requestSequence === executionRequestSequence.current) {
+        setMessage(t("authoring.workspace.executeFailed")); setAction(null);
+      }
     }
+  }
+
+  async function cancelExecution(): Promise<void> {
+    if (execution === null || terminalExecutionStatuses.has(execution.status)) return;
+    setAction("cancel");
+    try {
+      await api.cancelAuthoringDraftExecution(projectId, execution.id);
+      executionRequestSequence.current += 1;
+      setExecution(await api.getAuthoringDraftExecution(projectId, execution.id));
+    } catch { setMessage(t("authoring.workspace.cancelFailed")); }
+    finally { setAction(null); }
+  }
+
+  async function applyDraft(): Promise<void> {
+    if (selectedDraft === null || validation?.status !== "VALID" ||
+        validation.draftRevision !== selectedDraft.revision) return;
+    setAction("apply"); setMessage(null);
+    try {
+      const result = await api.applyAuthoringDraft(projectId, selectedDraft.id, {
+        expectedRevision: selectedDraft.revision, validationDigest: validation.validationDigest,
+        idempotencyKey: crypto.randomUUID(),
+      });
+      setApplyResult(result);
+      setSelectedDraft({ ...selectedDraft, state: "APPLIED" });
+      setDrafts((items) => items.map((item) => item.id === selectedDraft.id ? { ...item, state: "APPLIED" } : item));
+      setMessage(t("authoring.workspace.applied"));
+    } catch { setMessage(t("authoring.workspace.applyFailed")); }
+    finally { setAction(null); }
   }
 
   function selectView(next: WorkspaceView): void {
@@ -224,6 +300,9 @@ export function AuthoringWorkspace({ api, projectId, active, enabled }: Authorin
   const visibleCalls = normalizedFilter === "" ? calls : calls.filter((call) =>
     call.toolName.toLocaleLowerCase().includes(normalizedFilter) || call.purpose.toLocaleLowerCase().includes(normalizedFilter));
   const items = view === "drafts" ? visibleDrafts : visibleCalls;
+  const validatedActionDisabledReason = selectedDraft?.state !== "ACTIVE"
+    ? t("authoring.workspace.appliedReadonly")
+    : validation?.status === "VALID" ? undefined : t("authoring.workspace.validateFirst");
   return <section className="authoring-workspace" aria-label={t("authoring.workspace.label")}>
     <aside className="authoring-workspace__navigator">
       <div className="authoring-view-tabs" role="tablist" aria-label={t("authoring.workspace.views")}>
@@ -261,20 +340,44 @@ export function AuthoringWorkspace({ api, projectId, active, enabled }: Authorin
       {detailState !== "loading" && view === "calls" && selectedCall === null && <div className="authoring-detail-state" role="status">{t("authoring.workspace.selectCall")}</div>}
       {detailState !== "loading" && selectedDraft !== null && <div className="authoring-draft-editor">
         <header><div><h2>{t("authoring.workspace.draftTitle")}</h2><p>{selectedDraft.id} · r{selectedDraft.revision}</p></div>
-          <div><Button variant="secondary" onClick={() => void validateDraft()}>{t("authoring.workspace.validate")}</Button>
-            <Button variant="primary" loading={saving} onClick={() => void saveDraft()}>{t("authoring.workspace.save")}</Button></div></header>
+          <div><Button variant="secondary" loading={action === "validate"} disabled={selectedDraft.state !== "ACTIVE"}
+            title={selectedDraft.state === "ACTIVE" ? undefined : t("authoring.workspace.appliedReadonly")}
+            onClick={() => void validateDraft()}>{t("authoring.workspace.validate")}</Button>
+            <Button variant="secondary" loading={action === "execute"} disabled={validation?.status !== "VALID" || selectedDraft.state !== "ACTIVE"}
+              title={validatedActionDisabledReason}
+              onClick={() => void executeDraft()}>{t("authoring.workspace.execute")}</Button>
+            {execution !== null && !terminalExecutionStatuses.has(execution.status) && <Button variant="secondary"
+              loading={action === "cancel"} onClick={() => void cancelExecution()}>{t("authoring.workspace.cancel")}</Button>}
+            <Button variant="secondary" loading={saving} disabled={selectedDraft.state !== "ACTIVE"}
+              onClick={() => void saveDraft()}>{t("authoring.workspace.save")}</Button>
+            <Button variant="primary" loading={action === "apply"} disabled={validation?.status !== "VALID" || selectedDraft.state !== "ACTIVE"}
+              title={validatedActionDisabledReason}
+              onClick={() => void applyDraft()}>{t("authoring.workspace.apply")}</Button></div></header>
         <FormField label={t("authoring.workspace.goal")} htmlFor="authoring-draft-goal">
-          <input id="authoring-draft-goal" value={goal} onChange={(event) => setGoal(event.target.value)} />
+          <input id="authoring-draft-goal" value={goal} disabled={selectedDraft.state !== "ACTIVE"}
+            onChange={(event) => { setGoal(event.target.value); setValidation(null); }} />
         </FormField>
         <FormField label={t("authoring.workspace.definition")} htmlFor="authoring-draft-definition">
           <textarea id="authoring-draft-definition" className="authoring-json-editor" value={definitionText}
-            onChange={(event) => setDefinitionText(event.target.value)} spellCheck={false} />
+            disabled={selectedDraft.state !== "ACTIVE"}
+            onChange={(event) => { setDefinitionText(event.target.value); setValidation(null); }} spellCheck={false} />
         </FormField>
         {message && <p className="authoring-inline-message" role="status">{message}</p>}
         {validation && <section className="authoring-validation" aria-label={t("authoring.workspace.validationResult")}>
           <h3><CheckCircle size={17} aria-hidden="true" />{validation.status}</h3>
           {validation.issues.length === 0 ? <p>{t("authoring.workspace.validationPassed")}</p>
             : <ul>{validation.issues.map((issue, index) => <li key={`${issue.code}-${index}`}><code>{issue.path}</code> {issue.message}</li>)}</ul>}
+        </section>}
+        {execution && <section className="authoring-validation" aria-label={t("authoring.workspace.executionResult")}>
+          <h3>{t("authoring.workspace.executionResult")} · {execution.status}</h3>
+          {"testCases" in execution && <pre>{JSON.stringify(execution.testCases, null, 2)}</pre>}
+        </section>}
+        {applyResult && <section className="authoring-validation" aria-label={t("authoring.workspace.applyResult")}>
+          <h3>{t("authoring.workspace.applyResult")}</h3>
+          <ul>{applyResult.assets.map((asset) => <li key={asset.draftLocalId}>
+            <code>{asset.draftLocalId}</code> → <button type="button" className="authoring-asset-link"
+              onClick={() => onOpenAsset(asset)}>{asset.formalAssetId} · r{asset.revision}</button>
+          </li>)}</ul>
         </section>}
       </div>}
       {detailState !== "loading" && selectedCall !== null && <div className="authoring-call-detail">

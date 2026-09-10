@@ -26,6 +26,7 @@ import {
   getAuthoringDraftExecutionInputSchema,
   startAuthoringDraftExecutionInputSchema,
 } from "../../shared/authoring/execution.js";
+import { applyAuthoringDraftInputSchema } from "../../shared/authoring/apply.js";
 import {
   AUTHORING_ASSET_TYPES,
   AUTHORING_LIMITS,
@@ -88,6 +89,11 @@ import {
   AuthoringDraftExecutionValidationError,
   type AuthoringDraftExecutionService,
 } from "./authoring-draft-execution-service.js";
+import {
+  AuthoringApplyConflictError,
+  AuthoringApplyValidationError,
+  type AuthoringApplyService,
+} from "./authoring-apply-service.js";
 
 interface Session {
   server: McpServer;
@@ -117,6 +123,7 @@ function createProtocolServer(options: {
   drafts?: AuthoringDraftService;
   validator?: AuthoringDraftValidator;
   executions?: AuthoringDraftExecutionService;
+  apply?: AuthoringApplyService;
   assets?: AuthoringAssetService;
 }): McpServer {
   const server = new McpServer({ name: "mcp-inspector-authoring", version: options.appVersion });
@@ -235,6 +242,12 @@ function createProtocolServer(options: {
       }
       if (error instanceof AuthoringDraftExecutionValidationError) {
         return failure("DRAFT_VALIDATION_STALE", "CONFLICT", error.message, false);
+      }
+      if (error instanceof AuthoringApplyValidationError) {
+        return failure("DRAFT_VALIDATION_STALE", "CONFLICT", error.message, false);
+      }
+      if (error instanceof AuthoringApplyConflictError) {
+        return failure("DRAFT_APPLY_CONFLICT", "CONFLICT", error.message, false);
       }
       if (error instanceof AuthoringAssetRevisionConflictError) {
         return failure("DRAFT_REVISION_CONFLICT", "CONFLICT", error.message, false);
@@ -369,6 +382,12 @@ function createProtocolServer(options: {
       executionId, cancelled: options.executions!.cancel(projectId, executionId),
     })));
   }
+  if (options.apply !== undefined) {
+    server.registerTool("inspector_save_draft", {
+      description: "Atomically saves one exact validated Draft revision as disabled formal test assets.",
+      inputSchema: applyAuthoringDraftInputSchema,
+    }, async (input) => draftAction(() => options.apply!.apply(input)));
+  }
   if (options.assets !== undefined) {
     server.registerTool("inspector_list_test_assets", {
       description: "Lists bounded existing Tool tests, scenarios, and suites for Draft seeding.",
@@ -393,6 +412,7 @@ export function createAuthoringMcpServer(options: {
   drafts?: AuthoringDraftService;
   validator?: AuthoringDraftValidator;
   executions?: AuthoringDraftExecutionService;
+  apply?: AuthoringApplyService;
   assets?: AuthoringAssetService;
 }): AuthoringMcpServer {
   const maxSessions = options.maxSessions ?? AUTHORING_LIMITS.maxSessions;
@@ -439,6 +459,7 @@ export function createAuthoringMcpServer(options: {
         drafts: options.drafts,
         validator: options.validator,
         executions: options.executions,
+        apply: options.apply,
         assets: options.assets,
       });
       const transport = new WebStandardStreamableHTTPServerTransport({

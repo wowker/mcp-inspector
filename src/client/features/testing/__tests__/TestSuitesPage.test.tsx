@@ -30,6 +30,19 @@ describe("TestSuitesPage", () => {
   beforeEach(async () => { await i18n.changeLanguage("zh-CN"); });
   afterEach(cleanup);
 
+  it("opens a formal suite by stable Authoring asset ID", async () => {
+    const api = {
+      listTestSuites: vi.fn(async () => ({ items: [suiteSummary], nextCursor: null })),
+      listTestCases: vi.fn(async () => ({ items: [{ ...toolCase,
+        targetConnectionIds: [toolCase.target.connectionId] }], nextCursor: null })),
+      getTestSuite: vi.fn(async () => suite),
+    } as unknown as InspectorApiClient;
+    render(<TestSuitesPage api={api} projectId={projectId}
+      openIntent={{ sequence: 1, projectId, testSuiteId: suiteId }} />);
+    expect(await screen.findByDisplayValue("核心流程")).toBeVisible();
+    expect(api.getTestSuite).toHaveBeenCalledWith(projectId, suiteId);
+  });
+
   it("uses the compact testing module header", async () => {
     const api = {
       listTestSuites: vi.fn(async () => ({ items: [], nextCursor: null })),

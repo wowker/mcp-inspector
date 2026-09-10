@@ -85,6 +85,8 @@ import { createAuthoringPolicyService, type AuthoringPolicyService } from "./aut
 import type { AuthoringCallService } from "./authoring/authoring-call-service.js";
 import type { AuthoringDraftService } from "./authoring/authoring-draft-service.js";
 import type { AuthoringDraftValidator } from "./authoring/authoring-draft-validator.js";
+import type { AuthoringDraftExecutionService } from "./authoring/authoring-draft-execution-service.js";
+import type { AuthoringApplyService } from "./authoring/authoring-apply-service.js";
 import { createAuthoringWorkspaceRoutes } from "./authoring/authoring-workspace-routes.js";
 
 export interface AppDependencies {
@@ -123,6 +125,8 @@ export interface AppDependencies {
   authoringCalls?: AuthoringCallService;
   authoringDrafts?: AuthoringDraftService;
   authoringDraftValidator?: AuthoringDraftValidator;
+  authoringDraftExecutions?: AuthoringDraftExecutionService;
+  authoringApply?: AuthoringApplyService;
   staticRoot?: string;
 }
 
@@ -366,6 +370,7 @@ export function createApp(deps: AppDependencies): Hono {
         deps.authoringDraftValidator !== undefined) {
       app.route("/api/projects", createAuthoringWorkspaceRoutes({
         calls: deps.authoringCalls, drafts: deps.authoringDrafts, validator: deps.authoringDraftValidator,
+        executions: deps.authoringDraftExecutions, apply: deps.authoringApply,
       }));
     }
     app.route("/api/projects", createConnectionRoutes(connections));

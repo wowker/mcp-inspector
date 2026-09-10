@@ -22,7 +22,8 @@ import "./testing.css";
 
 export interface TestCaseSourceIntent {
   sequence: number;
-  source: { kind: "run"; run: RunDetail } | { kind: "saved-item"; item: SavedItemDetail };
+  source: { kind: "run"; run: RunDetail } | { kind: "saved-item"; item: SavedItemDetail }
+    | { kind: "asset"; projectId: string; testCaseId: string };
 }
 
 interface Props { api: InspectorApiClient; projectId: string; sourceIntent?: TestCaseSourceIntent | null; active?: boolean }
@@ -95,6 +96,11 @@ export function TestCasesPage({ api, projectId, sourceIntent = null, active = tr
     if (sourceIntent === null) return;
     const version = ++detailVersion.current;
     const source = sourceIntent.source;
+    if (source.kind === "asset") {
+      if (source.projectId !== projectId) return;
+      void select(source.testCaseId);
+      return;
+    }
     if (source.kind === "run" && source.run.projectId !== projectId) return;
     if (source.kind === "saved-item" && source.item.projectId !== projectId) return;
     const preview = source.kind === "run"

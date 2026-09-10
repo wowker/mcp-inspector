@@ -49,6 +49,10 @@
 .authoring-validation { border-top: 1px solid var(--ui-border); padding-top: 12px; }
 .authoring-validation h3 { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; }
 .authoring-validation p, .authoring-validation ul { color: var(--ui-text-muted); font-size: 12px; }
+.authoring-validation pre { max-height: 320px; margin: 8px 0 0; overflow: auto; padding: 10px; border: 1px solid var(--ui-border); border-radius: var(--ui-control-radius); background: var(--ui-surface); font: 12px/1.5 var(--ui-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.authoring-asset-link { padding: 2px 4px; border: 0; border-radius: var(--ui-control-radius); color: var(--ui-accent); background: transparent; font: inherit; cursor: pointer; }
+.authoring-asset-link:hover { background: var(--ui-accent-muted); }
+.authoring-asset-link:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 1px; }
 .authoring-call-detail dl { display: flex; flex-wrap: wrap; gap: 20px; margin: 0; }
 .authoring-call-detail dl div { display: grid; gap: 3px; }
 .authoring-call-detail dt { color: var(--ui-text-muted); font-size: 11px; }

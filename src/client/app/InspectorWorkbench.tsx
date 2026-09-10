@@ -24,10 +24,11 @@ import { RunHistoryPage } from "../features/runs/RunHistoryPage.js";
 import { EnvironmentVariablesPage } from "../features/environment/EnvironmentVariablesPage.js";
 import { LanguageSwitcher } from "../i18n/LanguageSwitcher.js";
 import { TestCasesPage, type TestCaseSourceIntent } from "../features/testing/TestCasesPage.js";
-import { TestSuitesPage } from "../features/testing/TestSuitesPage.js";
+import { TestSuitesPage, type TestSuiteOpenIntent } from "../features/testing/TestSuitesPage.js";
 import { TestReportsPage } from "../features/testing/TestReportsPage.js";
 import { PressureTestsPage } from "../features/testing/PressureTestsPage.js";
 import { AuthoringPage } from "../features/authoring/AuthoringPage.js";
+import type { AuthoringAppliedAsset } from "../../shared/authoring/apply.js";
 import { ServerTab } from "./ServerTab.js";
 
 type WorkbenchPage = "servers" | "tools" | "authoring" | "environment" | "testing" | "suites" | "pressure" | "reports" | "history";
@@ -91,6 +92,7 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
   const [activeTool, setActiveTool] = useState<{ connectionId: string; name: string } | null>(null);
   const [oauthConnectionUpdate, setOauthConnectionUpdate] = useState<ConnectionSummary | null>(null);
   const [testCaseSourceIntent, setTestCaseSourceIntent] = useState<TestCaseSourceIntent | null>(null);
+  const [testSuiteOpenIntent, setTestSuiteOpenIntent] = useState<TestSuiteOpenIntent | null>(null);
   const closedServerIds = useRef(new Set<string>());
   const serversRef = useRef(servers); serversRef.current = servers;
   const pageLabels: Record<WorkbenchPage, string> = {
@@ -212,6 +214,18 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
     if (item.projectId !== project.id) return;
     setTestCaseSourceIntent((current) => ({ sequence: (current?.sequence ?? 0) + 1, source: { kind: "saved-item", item } }));
     setPage("testing");
+  }
+
+  function openAuthoringAsset(asset: AuthoringAppliedAsset): void {
+    if (asset.kind === "TEST_CASE") {
+      setTestCaseSourceIntent((current) => ({ sequence: (current?.sequence ?? 0) + 1,
+        source: { kind: "asset", projectId: project.id, testCaseId: asset.formalAssetId } }));
+      setPage("testing");
+      return;
+    }
+    setTestSuiteOpenIntent((current) => ({ sequence: (current?.sequence ?? 0) + 1,
+      projectId: project.id, testSuiteId: asset.formalAssetId }));
+    setPage("suites");
   }
 
   function navigateServerTabs(event: KeyboardEvent<HTMLButtonElement>, index: number): void {
@@ -337,13 +351,15 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
             <TestCasesPage api={api} projectId={project.id} sourceIntent={testCaseSourceIntent} active={page === "testing"} />
           </div>}
           {(page === "suites" || mountedPersistentPages.has("suites")) && <div className="workbench-page-slot" hidden={page !== "suites"}>
-            <TestSuitesPage api={api} projectId={project.id} active={page === "suites"} />
+            <TestSuitesPage api={api} projectId={project.id} active={page === "suites"}
+              openIntent={testSuiteOpenIntent} />
           </div>}
           {(page === "pressure" || mountedPersistentPages.has("pressure")) && <div className="workbench-page-slot" hidden={page !== "pressure"}>
             <PressureTestsPage api={api} projectId={project.id} active={page === "pressure"} />
           </div>}
           {(page === "authoring" || mountedPersistentPages.has("authoring")) && <div className="workbench-page-slot" hidden={page !== "authoring"}>
-            <AuthoringPage api={api} projectId={project.id} active={page === "authoring"} />
+            <AuthoringPage api={api} projectId={project.id} active={page === "authoring"}
+              onOpenAsset={openAuthoringAsset} />
           </div>}
           {(page === "tools" || mountedPersistentPages.has("tools")) && <div className="workbench-page-slot workbench-page-slot--tools" hidden={page !== "tools"}>
             <section

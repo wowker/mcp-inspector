@@ -132,6 +132,13 @@ import {
 } from "../../shared/authoring/draft.js";
 import { draftValidationResultSchema, type DraftValidationResult } from "../../shared/authoring/validation.js";
 import {
+  authoringDraftExecutionDetailSchema,
+  authoringDraftExecutionSummarySchema,
+  type AuthoringDraftExecutionDetail,
+  type AuthoringDraftExecutionSummary,
+} from "../../shared/authoring/execution.js";
+import { authoringApplyResultSchema, type AuthoringApplyResult } from "../../shared/authoring/apply.js";
+import {
   authoringToolCallDetailSchema,
   authoringToolCallPageSchema,
   type AuthoringToolCallDetail,
@@ -159,6 +166,8 @@ export type { AuthoringSettingsStatus, AuthoringTokenIssue } from "../../shared/
 export type { AutomationDraft, AutomationDraftDefinition, AutomationDraftMutationResult,
   AutomationDraftPage } from "../../shared/authoring/draft.js";
 export type { DraftValidationResult } from "../../shared/authoring/validation.js";
+export type { AuthoringDraftExecutionDetail, AuthoringDraftExecutionSummary } from "../../shared/authoring/execution.js";
+export type { AuthoringApplyResult } from "../../shared/authoring/apply.js";
 export type { AuthoringToolCallDetail, AuthoringToolCallPage } from "../../shared/authoring/calls.js";
 
 export interface ProjectSummary {
@@ -319,6 +328,14 @@ export interface InspectorApiClient {
     idempotencyKey: string;
   }): Promise<AutomationDraftMutationResult>;
   validateAuthoringDraft(projectId: string, draftId: string, revision: number): Promise<DraftValidationResult>;
+  executeAuthoringDraft(projectId: string, draftId: string, input: {
+    revision: number; validationDigest: string; idempotencyKey: string;
+  }): Promise<AuthoringDraftExecutionSummary>;
+  getAuthoringDraftExecution(projectId: string, executionId: string): Promise<AuthoringDraftExecutionDetail>;
+  cancelAuthoringDraftExecution(projectId: string, executionId: string): Promise<boolean>;
+  applyAuthoringDraft(projectId: string, draftId: string, input: {
+    expectedRevision: number; validationDigest: string; idempotencyKey: string;
+  }): Promise<AuthoringApplyResult>;
   listAuthoringCalls(projectId: string): Promise<AuthoringToolCallPage>;
   getAuthoringCall(projectId: string, callId: string): Promise<AuthoringToolCallDetail>;
   listTools(projectId: string, connectionId: string): Promise<CatalogToolSummary[]>;
@@ -1197,6 +1214,57 @@ export function createApiClient(_legacySessionToken?: string): InspectorApiClien
         throw new Error("Invalid Authoring validation response");
       }
       return validation;
+    },
+    async executeAuthoringDraft(projectId, draftId, input) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/authoring/drafts/${encodeURIComponent(draftId)}/execute`,
+        { method: "POST", headers, body: JSON.stringify({ ...input, inputs: {} }) },
+      );
+      const value = await decodeResponse<unknown>(response);
+      if (!isObject(value) || !("execution" in value)) throw new Error("Invalid Authoring execution response");
+      const execution = authoringDraftExecutionSummarySchema.parse(value.execution);
+      if (execution.projectId !== projectId || execution.draftId !== draftId || execution.draftRevision !== input.revision) {
+        throw new Error("Invalid Authoring execution response");
+      }
+      return execution;
+    },
+    async getAuthoringDraftExecution(projectId, executionId) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/authoring/executions/${encodeURIComponent(executionId)}`,
+        { headers },
+      );
+      const value = await decodeResponse<unknown>(response);
+      if (!isObject(value) || !("execution" in value)) throw new Error("Invalid Authoring execution response");
+      const execution = authoringDraftExecutionDetailSchema.parse(value.execution);
+      if (execution.projectId !== projectId || execution.id !== executionId) {
+        throw new Error("Invalid Authoring execution response");
+      }
+      return execution;
+    },
+    async cancelAuthoringDraftExecution(projectId, executionId) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/authoring/executions/${encodeURIComponent(executionId)}/cancel`,
+        { method: "POST", headers },
+      );
+      const value = await decodeResponse<unknown>(response);
+      if (!isObject(value) || value.executionId !== executionId || typeof value.cancelled !== "boolean") {
+        throw new Error("Invalid Authoring cancellation response");
+      }
+      return value.cancelled;
+    },
+    async applyAuthoringDraft(projectId, draftId, input) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/authoring/drafts/${encodeURIComponent(draftId)}/apply`,
+        { method: "POST", headers, body: JSON.stringify(input) },
+      );
+      const value = await decodeResponse<unknown>(response);
+      if (!isObject(value) || !("result" in value)) throw new Error("Invalid Authoring Apply response");
+      const result = authoringApplyResultSchema.parse(value.result);
+      if (result.projectId !== projectId || result.draftId !== draftId ||
+          result.draftRevision !== input.expectedRevision || result.validationDigest !== input.validationDigest) {
+        throw new Error("Invalid Authoring Apply response");
+      }
+      return result;
     },
     async listAuthoringCalls(projectId) {
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/authoring/calls`, { headers });

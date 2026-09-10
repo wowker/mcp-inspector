@@ -341,12 +341,12 @@
 - Modify: `src/client/features/testing/TestSuitesPage.tsx`
 - Modify: `src/client/app/InspectorWorkbench.test.tsx`
 
-- [ ] Add failing tests for `inspector_save_draft`, exact validation requirement, idempotent response, Apply mapping display, and opening the saved case/suite by stable ID.
-- [ ] Register save with exact revision, validation digest, and idempotency key.
-- [ ] Add validate, execute, cancel, save, and “open asset” actions with correct loading/disabled explanations.
-- [ ] Preserve existing testing editor tabs and unsaved state while navigating from Authoring; do not auto-enable the saved asset.
-- [ ] Run focused MCP/UI tests and `npm run verify` as Checkpoint F.
-- [ ] Commit with `feat(authoring): complete draft save workflow`.
+- [x] Add failing tests for `inspector_save_draft`, exact validation requirement, idempotent response, Apply mapping display, and opening the saved case/suite by stable ID.
+- [x] Register save with exact revision, validation digest, and idempotency key.
+- [x] Add validate, execute, cancel, save, and “open asset” actions with correct loading/disabled explanations.
+- [x] Preserve existing testing editor tabs and unsaved state while navigating from Authoring; do not auto-enable the saved asset.
+- [x] Run focused MCP/UI tests and `npm run verify` as Checkpoint F.
+- [x] Commit with `feat(authoring): complete draft save workflow`.
 
 ---
 

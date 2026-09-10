@@ -14,7 +14,8 @@ import { ModuleHelpPopover } from "../../components/overlays/ModuleHelpPopover.j
 import { filterSearchableOptions } from "../../components/forms/SearchableSelect.js";
 import { TestSuiteReportViewer } from "./TestSuiteReportViewer.js";
 
-interface Props { api: InspectorApiClient; projectId: string; active?: boolean }
+export interface TestSuiteOpenIntent { sequence: number; projectId: string; testSuiteId: string }
+interface Props { api: InspectorApiClient; projectId: string; active?: boolean; openIntent?: TestSuiteOpenIntent | null }
 interface Draft { id: string | null; revision: number | null; name: string; description: string; tags: string;
   concurrency: number; stopOnFailure: boolean; members: TestSuiteDefinition["members"] }
 const emptyDraft = (): Draft => ({ id: null, revision: null, name: "", description: "", tags: "",
@@ -47,7 +48,7 @@ async function loadScenarioDetails(api: InspectorApiClient, projectId: string,
   return details;
 }
 
-export function TestSuitesPage({ api, projectId, active = true }: Props) {
+export function TestSuitesPage({ api, projectId, active = true, openIntent = null }: Props) {
   const { t } = useTranslation("testing");
   const version = useRef(0);
   const detailVersion = useRef(0);
@@ -80,6 +81,10 @@ export function TestSuitesPage({ api, projectId, active = true }: Props) {
     if (active && !wasActive.current) reload();
     wasActive.current = active;
   }, [active, reload]);
+
+  useEffect(() => {
+    if (openIntent !== null && openIntent.projectId === projectId) void select(openIntent.testSuiteId);
+  }, [openIntent?.sequence, projectId]);
 
   async function select(id: string) {
     const current = ++detailVersion.current;

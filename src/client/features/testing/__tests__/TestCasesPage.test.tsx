@@ -96,6 +96,16 @@ beforeEach(async () => { await i18n.changeLanguage("zh-CN"); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("TestCasesPage", () => {
+  it("opens a formal test by stable Authoring asset ID", async () => {
+    const client = api({ getTestCase: vi.fn().mockResolvedValue(existingDefinition) });
+    render(<TestCasesPage api={client} projectId={projectId}
+      sourceIntent={{ sequence: 1, source: { kind: "asset", projectId, testCaseId } }} />);
+    await screen.findByRole("heading", { name: "编辑单 Tool 测试" });
+    await userEvent.setup().click(screen.getByRole("button", { name: "基本信息" }));
+    expect(await screen.findByDisplayValue("已有用例")).toBeVisible();
+    expect(client.getTestCase).toHaveBeenCalledWith(projectId, testCaseId);
+  });
+
   it("uses the compact testing module header", async () => {
     const { container } = render(<TestCasesPage api={api()} projectId={projectId} />);
 

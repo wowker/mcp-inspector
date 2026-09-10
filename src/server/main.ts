@@ -30,6 +30,7 @@ import { createTestSuiteService } from "./testing/test-suite-service.js";
 import { createAuthoringDraftValidator } from "./authoring/authoring-draft-validator.js";
 import { createAuthoringDraftExecutionService } from "./authoring/authoring-draft-execution-service.js";
 import { createAuthoringAssetService } from "./authoring/authoring-asset-service.js";
+import { createAuthoringApplyService } from "./authoring/authoring-apply-service.js";
 
 export interface InspectorAddress {
   host: "127.0.0.1";
@@ -262,6 +263,9 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
     },
   });
   const authoringAssets = createAuthoringAssetService({ projects, testCases, testSuites });
+  const authoringApply = createAuthoringApplyService({
+    projects, drafts: authoringDrafts, validator: authoringDraftValidator, testCases, testSuites,
+  });
   const authoringMcp = createAuthoringMcpServer({
     appVersion: config.version,
     endpoint: () => `${serverOrigin}/mcp/authoring`,
@@ -270,6 +274,7 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
     drafts: authoringDrafts,
     validator: authoringDraftValidator,
     executions: authoringDraftExecutions,
+    apply: authoringApply,
     assets: authoringAssets,
   });
   const workflowExecutions = createWorkflowExecutionService({
@@ -299,6 +304,8 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
     authoringCalls,
     authoringDrafts,
     authoringDraftValidator,
+    authoringDraftExecutions,
+    authoringApply,
     testCases,
     testSuites,
     staticRoot,

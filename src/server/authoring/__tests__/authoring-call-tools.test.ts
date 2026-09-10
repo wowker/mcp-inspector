@@ -13,6 +13,7 @@ import type { AuthoringDraftService } from "../authoring-draft-service.js";
 import type { AuthoringDraftValidator } from "../authoring-draft-validator.js";
 import type { AuthoringAssetService } from "../authoring-asset-service.js";
 import type { AuthoringDraftExecutionService } from "../authoring-draft-execution-service.js";
+import type { AuthoringApplyService } from "../authoring-apply-service.js";
 
 const projectId = "00000000-0000-4000-8000-000000005001";
 const connectionId = "00000000-0000-4000-8000-000000005002";
@@ -20,6 +21,7 @@ const callId = "00000000-0000-4000-8000-000000005003";
 const runId = "00000000-0000-4000-8000-000000005004";
 const draftId = "00000000-0000-4000-8000-000000005005";
 const executionId = "00000000-0000-4000-8000-000000005008";
+const applyId = "00000000-0000-4000-8000-000000005009";
 const endpoint = new URL("http://127.0.0.1:8500/mcp/authoring");
 
 const detail = {
@@ -83,8 +85,11 @@ describe("Authoring call MCP tools", () => {
       list: vi.fn(() => ({ items: [executionSummary] })),
       waitForTerminal: vi.fn(), cancel: vi.fn(() => true), close: vi.fn(),
     };
+    const apply: AuthoringApplyService = { apply: vi.fn(() => ({ applyId, projectId, draftId, draftRevision: 1,
+      validationDigest: "c".repeat(64), assets: [{ draftLocalId: "case-1", kind: "TEST_CASE" as const,
+        formalAssetId: "00000000-0000-4000-8000-000000005010", revision: 1 }], appliedAt: detail.createdAt })) };
     const server = createAuthoringMcpServer({
-      appVersion: "3.0.0-test", endpoint: endpoint.toString(), calls, drafts, validator, assets, executions,
+      appVersion: "3.0.0-test", endpoint: endpoint.toString(), calls, drafts, validator, assets, executions, apply,
     });
     const app = createApp({
       sessionToken: "browser-session", allowedOrigin: endpoint.origin, version: "3.0.0-test",
@@ -102,7 +107,7 @@ describe("Authoring call MCP tools", () => {
       repository.close();
       rmSync(dataRoot, { recursive: true, force: true });
     });
-    return { client, calls, drafts, validator, assets, executions };
+    return { client, calls, drafts, validator, assets, executions, apply };
   }
 
   it("calls a downstream Tool and returns traceable call and Run identities", async () => {
@@ -112,7 +117,8 @@ describe("Authoring call MCP tools", () => {
       "inspector_create_draft", "inspector_create_draft_from_call", "inspector_list_drafts",
       "inspector_get_draft", "inspector_replace_draft",
       "inspector_validate_draft", "inspector_execute_draft", "inspector_get_draft_execution",
-      "inspector_cancel_draft_execution", "inspector_list_test_assets", "inspector_get_test_asset",
+      "inspector_cancel_draft_execution", "inspector_save_draft", "inspector_list_test_assets",
+      "inspector_get_test_asset",
     ]);
     const result = await client.callTool({ name: "inspector_call_tool", arguments: {
       projectId, connectionId, toolName: "sum", toolSchemaHash: "a".repeat(64), arguments: { a: 2 },
@@ -176,6 +182,18 @@ describe("Authoring call MCP tools", () => {
     } });
     expect(cancelled.structuredContent).toMatchObject({ ok: true, data: { executionId, cancelled: true } });
     expect(executions.start).toHaveBeenCalledWith(expect.objectContaining({ validationDigest: "c".repeat(64) }));
+  });
+
+  it("saves one exact validated Draft revision and returns stable formal mappings", async () => {
+    const { client, apply } = await fixture();
+    const saved = await client.callTool({ name: "inspector_save_draft", arguments: {
+      projectId, draftId, expectedRevision: 1, validationDigest: "c".repeat(64), idempotencyKey: "save-once",
+    } });
+    expect(saved.structuredContent).toMatchObject({ ok: true, data: { applyId, draftId,
+      assets: [{ draftLocalId: "case-1", kind: "TEST_CASE",
+        formalAssetId: "00000000-0000-4000-8000-000000005010", revision: 1 }] } });
+    expect(apply.apply).toHaveBeenCalledWith(expect.objectContaining({ expectedRevision: 1,
+      validationDigest: "c".repeat(64), idempotencyKey: "save-once" }));
   });
 
   it("lists summaries and gets sanitized detail without project identity substitution", async () => {

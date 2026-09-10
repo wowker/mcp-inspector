@@ -78,6 +78,8 @@ function api(): InspectorApiClient {
     enableAuthoring: vi.fn(), rotateAuthoringToken: vi.fn(), disableAuthoring: vi.fn(),
     listAuthoringDrafts: vi.fn().mockResolvedValue({ items: [], nextCursor: null }), getAuthoringDraft: vi.fn(),
     replaceAuthoringDraft: vi.fn(), validateAuthoringDraft: vi.fn(),
+    executeAuthoringDraft: vi.fn(), getAuthoringDraftExecution: vi.fn(),
+    cancelAuthoringDraftExecution: vi.fn(), applyAuthoringDraft: vi.fn(),
     listAuthoringCalls: vi.fn().mockResolvedValue({ items: [], nextCursor: null }), getAuthoringCall: vi.fn(),
     listTools: vi.fn().mockResolvedValue([]), refreshTools: vi.fn().mockResolvedValue([]), getTool: vi.fn(), deleteTool: vi.fn(),
     listToolFolders: vi.fn().mockResolvedValue([]), createToolFolder: vi.fn(), renameToolFolder: vi.fn(),

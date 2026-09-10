@@ -6,9 +6,11 @@ import { InspectorApiError } from "../../api/api-client.js";
 import { Button } from "../../components/actions/Button.js";
 import { StatusBadge } from "../../components/feedback/StatusBadge.js";
 import { AuthoringWorkspace } from "./AuthoringWorkspace.js";
+import type { AuthoringAppliedAsset } from "../../../shared/authoring/apply.js";
 import "./authoring.css";
 
-interface AuthoringPageProps { api: InspectorApiClient; projectId: string; active: boolean }
+interface AuthoringPageProps { api: InspectorApiClient; projectId: string; active: boolean;
+  onOpenAsset?(asset: AuthoringAppliedAsset): void }
 type SettingsLoadState = "loading" | "ready" | "unauthorized" | "interrupted" | "error";
 
 const emptySettings: AuthoringSettingsStatus = {
@@ -16,7 +18,7 @@ const emptySettings: AuthoringSettingsStatus = {
   tokenRotatedAt: null, updatedAt: null,
 };
 
-export function AuthoringPage({ api, projectId, active }: AuthoringPageProps) {
+export function AuthoringPage({ api, projectId, active, onOpenAsset = () => undefined }: AuthoringPageProps) {
   const { t } = useTranslation("app");
   const [settings, setSettings] = useState(emptySettings);
   const [endpoint, setEndpoint] = useState("");
@@ -113,6 +115,7 @@ export function AuthoringPage({ api, projectId, active }: AuthoringPageProps) {
         <strong>{t("authoring.tokenTitle")}</strong><p>{t("authoring.tokenWarning")}</p><code>{issuedToken}</code></div>
         <Button variant="secondary" onClick={() => void copy(issuedToken)}><Copy size={16} />{t("authoring.copyToken")}</Button></div>}
     </section>}
-    <AuthoringWorkspace api={api} projectId={projectId} active={active} enabled={state === "ready" && settings.enabled} />
+    <AuthoringWorkspace api={api} projectId={projectId} active={active}
+      enabled={state === "ready" && settings.enabled} onOpenAsset={onOpenAsset} />
   </section>;
 }

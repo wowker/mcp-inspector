@@ -12,6 +12,8 @@ const firstProjectId = "00000000-0000-4000-8000-000000000801";
 const secondProjectId = "00000000-0000-4000-8000-000000000802";
 const draftId = "00000000-0000-4000-8000-000000000803";
 const callId = "00000000-0000-4000-8000-000000000804";
+const executionId = "00000000-0000-4000-8000-000000000806";
+const formalCaseId = "00000000-0000-4000-8000-000000000807";
 const now = "2026-09-10T00:00:00.000Z";
 const emptyDefinition = { version: 1 as const, testCases: [], suites: [], sourceAssets: [], evidence: [] };
 
@@ -36,6 +38,8 @@ function api(overrides: Partial<InspectorApiClient> = {}): InspectorApiClient {
       revision: 1, state: "ACTIVE", goal: "创建订单回归测试", definitionDigest: "a".repeat(64),
       definition: emptyDefinition, createdAt: now, updatedAt: now }),
     replaceAuthoringDraft: vi.fn(), validateAuthoringDraft: vi.fn(),
+    executeAuthoringDraft: vi.fn(), getAuthoringDraftExecution: vi.fn(),
+    cancelAuthoringDraftExecution: vi.fn(), applyAuthoringDraft: vi.fn(),
     listAuthoringCalls: vi.fn().mockResolvedValue({ items: [{ callId, projectId: firstProjectId,
       connectionId: "00000000-0000-4000-8000-000000000805", toolName: "create_order",
       context: { kind: "STANDALONE", label: "diagnose" }, purpose: "DIAGNOSTIC", status: "SUCCEEDED",
@@ -118,5 +122,32 @@ describe("AuthoringPage", () => {
     fireEvent.keyDown(drafts, { key: "ArrowRight" });
     await waitFor(() => expect(screen.getByRole("tab", { name: "调用记录" })).toHaveFocus());
     expect(screen.getByRole("tab", { name: "调用记录" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("validates, trial-runs, applies, and opens a stable formal asset mapping", async () => {
+    const user = userEvent.setup();
+    const validation = { id: callId, projectId: firstProjectId, draftId, draftRevision: 1,
+      definitionDigest: "a".repeat(64), toolSchemaHashes: {}, validationDigest: "c".repeat(64),
+      status: "VALID" as const, issues: [], createdAt: now };
+    const client = api({
+      validateAuthoringDraft: vi.fn().mockResolvedValue(validation),
+      executeAuthoringDraft: vi.fn().mockResolvedValue({ id: executionId, projectId: firstProjectId, draftId,
+        draftRevision: 1, definitionDigest: "a".repeat(64), validationDigest: "c".repeat(64),
+        status: "PASSED", createdAt: now, startedAt: now, completedAt: now, durationMs: 1 }),
+      applyAuthoringDraft: vi.fn().mockResolvedValue({ applyId: callId, projectId: firstProjectId, draftId,
+        draftRevision: 1, validationDigest: "c".repeat(64), appliedAt: now,
+        assets: [{ draftLocalId: "case-1", kind: "TEST_CASE", formalAssetId: formalCaseId, revision: 1 }] }),
+    });
+    const onOpenAsset = vi.fn();
+    render(<AuthoringPage api={client} projectId={firstProjectId} active onOpenAsset={onOpenAsset} />);
+    await user.click(await screen.findByRole("button", { name: /创建订单回归测试/ }));
+    expect(screen.getByRole("button", { name: "试运行" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "验证" }));
+    await screen.findByText("当前修订通过确定性验证。");
+    await user.click(screen.getByRole("button", { name: "试运行" }));
+    expect(await screen.findByText(/试运行结果 · PASSED/)).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "保存到自动化测试" }));
+    await user.click(await screen.findByRole("button", { name: `${formalCaseId} · r1` }));
+    expect(onOpenAsset).toHaveBeenCalledWith(expect.objectContaining({ formalAssetId: formalCaseId }));
   });
 });

@@ -3,6 +3,7 @@ import { createApiClient } from "../api-client.js";
 
 const projectId = "00000000-0000-4000-8000-000000000811";
 const draftId = "00000000-0000-4000-8000-000000000812";
+const executionId = "00000000-0000-4000-8000-000000000813";
 const now = "2026-09-10T00:00:00.000Z";
 
 describe("Authoring workspace API decoding", () => {
@@ -45,5 +46,37 @@ describe("Authoring workspace API decoding", () => {
       expect.objectContaining({ method: "PUT", body: JSON.stringify({
         expectedRevision: 1, goal: "goal", definition, idempotencyKey: "save-one",
       }) }));
+  });
+
+  it("decodes exact Draft execution and Apply identities", async () => {
+    const client = createApiClient("session");
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ execution: {
+      id: executionId, projectId, draftId, draftRevision: 2, definitionDigest: "a".repeat(64),
+      validationDigest: "c".repeat(64), status: "QUEUED", createdAt: now,
+      startedAt: null, completedAt: null, durationMs: null,
+    } }), { status: 202, headers: { "content-type": "application/json" } }));
+    await expect(client.executeAuthoringDraft(projectId, draftId, { revision: 2,
+      validationDigest: "c".repeat(64), idempotencyKey: "execute" })).resolves.toMatchObject({
+      id: executionId, projectId, draftId, draftRevision: 2,
+    });
+
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ result: {
+      applyId: executionId, projectId, draftId, draftRevision: 2, validationDigest: "c".repeat(64),
+      assets: [], appliedAt: now,
+    } }), { status: 200, headers: { "content-type": "application/json" } }));
+    await expect(client.applyAuthoringDraft(projectId, draftId, { expectedRevision: 2,
+      validationDigest: "c".repeat(64), idempotencyKey: "apply" })).resolves.toMatchObject({
+      projectId, draftId, draftRevision: 2,
+    });
+  });
+
+  it("rejects foreign Apply mappings before they reach navigation state", async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ result: {
+      applyId: executionId, projectId: "00000000-0000-4000-8000-000000000899", draftId,
+      draftRevision: 1, validationDigest: "c".repeat(64), assets: [], appliedAt: now,
+    } }), { status: 200, headers: { "content-type": "application/json" } }));
+    await expect(createApiClient("session").applyAuthoringDraft(projectId, draftId, { expectedRevision: 1,
+      validationDigest: "c".repeat(64), idempotencyKey: "apply" }))
+      .rejects.toThrow("Invalid Authoring Apply response");
   });
 });

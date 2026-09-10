@@ -59,6 +59,8 @@ function api(overrides: Partial<InspectorApiClient> = {}): InspectorApiClient {
     replaceAuthoringPolicy: vi.fn(),
     getAuthoringSettings: vi.fn(), enableAuthoring: vi.fn(), rotateAuthoringToken: vi.fn(), disableAuthoring: vi.fn(),
     listAuthoringDrafts: vi.fn(), getAuthoringDraft: vi.fn(), replaceAuthoringDraft: vi.fn(), validateAuthoringDraft: vi.fn(),
+    executeAuthoringDraft: vi.fn(), getAuthoringDraftExecution: vi.fn(),
+    cancelAuthoringDraftExecution: vi.fn(), applyAuthoringDraft: vi.fn(),
     listAuthoringCalls: vi.fn(), getAuthoringCall: vi.fn(),
     listTools: vi.fn().mockResolvedValue([]),
     refreshTools: vi.fn().mockResolvedValue([]),
