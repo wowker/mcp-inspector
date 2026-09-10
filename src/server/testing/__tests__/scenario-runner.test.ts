@@ -1,6 +1,13 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type { ScenarioTestCaseDefinition } from "../../../shared/testing/test-case.js";
-import { runScenario, type ScenarioInvocationResult } from "../scenario-runner.js";
+import type { ScriptRunner } from "../../workflows/script-runner.js";
+import {
+  createArgumentTransformExecutor,
+  runScenario,
+  ScenarioRunnerError,
+  type ScenarioInvocationResult,
+} from "../scenario-runner.js";
 
 const projectId = "00000000-0000-4000-8000-000000001901";
 const connectionId = "00000000-0000-4000-8000-000000001902";
@@ -12,18 +19,78 @@ function definition(): ScenarioTestCaseDefinition {
     inputs: [{ name: "storeId", description: "", isRequired: true }], assertions: [], failurePolicy: "STOP",
     steps: [{ id: "create", name: "Create", target: { connectionId, toolName: "create_order" },
       fixedArguments: {}, mappings: [{ targetPath: "$.store_id", source: { kind: "SCENARIO_INPUT", name: "storeId" }, isRequired: true }],
-      extractors: [{ name: "orderId", source: "RESULT", path: "$.order_id", isRequired: true }], assertions: [], condition: null, polling: null, onFailure: "STOP" },
+      extractors: [{ name: "orderId", source: "RESULT", path: "$.order_id", isRequired: true }], assertions: [], condition: null, polling: null, argumentTransform: null, onFailure: "STOP" },
     { id: "inspect", name: "Inspect", target: { connectionId, toolName: "get_order" }, fixedArguments: {},
       mappings: [{ targetPath: "$.order_id", source: { kind: "VARIABLE", name: "orderId" }, isRequired: true }], extractors: [],
-      assertions: [], condition: null, polling: { intervalMs: 250, maxAttempts: 3, timeoutMs: 1000,
+      assertions: [], condition: null, argumentTransform: null, polling: { intervalMs: 250, maxAttempts: 3, timeoutMs: 1000,
         until: [{ id: "ready", source: "MCP_RESULT", path: "$.status", operator: "EQUALS", expected: "ready" }], failWhen: [] }, onFailure: "STOP" }],
     cleanupSteps: [{ id: "cleanup", name: "Cleanup", target: { connectionId, toolName: "delete_order" }, fixedArguments: {},
       mappings: [{ targetPath: "$.order_id", source: { kind: "STEP_RESPONSE", stepId: "create", path: "$.order_id" }, isRequired: true }],
-      extractors: [], assertions: [], condition: null, polling: null, onFailure: "CONTINUE" }],
+      extractors: [], assertions: [], condition: null, polling: null, argumentTransform: null, onFailure: "CONTINUE" }],
   };
 }
 
 describe("runScenario", () => {
+  it("applies a step transform after mappings and before the Tool boundary", async () => {
+    const scenario = definition();
+    scenario.steps = [scenario.steps[0]!];
+    scenario.cleanupSteps = [];
+    scenario.steps[0]!.argumentTransform = {
+      source: "export default () => ({})", sourceDigest: "a".repeat(64),
+    };
+    const transformArguments = async (input: { fixedArguments: unknown; mappedArguments: unknown;
+      inputs: unknown; variables: unknown }) => {
+      expect(input).toMatchObject({ fixedArguments: {}, mappedArguments: { store_id: "s-1" },
+        inputs: { storeId: "s-1" }, variables: {} });
+      return { transformed_store_id: "s-1" };
+    };
+    let invokedArguments: unknown;
+    const result = await runScenario({ definition: scenario, inputs: { storeId: "s-1" } }, {
+      transformArguments,
+      invoke: async ({ argumentsValue }) => {
+        invokedArguments = argumentsValue;
+        return { sources: { MCP_RESULT: { order_id: "o-1" } }, runId: "run", workflowExecutionId: null };
+      }, wait: async () => undefined, resolveEnvironment: async () => undefined,
+    });
+
+    expect(result.status).toBe("PASSED");
+    expect(invokedArguments).toEqual({ transformed_store_id: "s-1" });
+  });
+
+  it("surfaces a precise transform error without invoking the Tool", async () => {
+    const scenario = definition();
+    scenario.steps = [scenario.steps[0]!];
+    scenario.steps[0]!.extractors = [];
+    scenario.cleanupSteps = [];
+    scenario.steps[0]!.argumentTransform = {
+      source: "export default () => { throw new Error('secret'); }", sourceDigest: "a".repeat(64),
+    };
+    const result = await runScenario({ definition: scenario, inputs: { storeId: "s-1" } }, {
+      transformArguments: async () => { throw new ScenarioRunnerError("ARGUMENT_TRANSFORM_RUNTIME_ERROR", "Argument transform failed at line 1"); },
+      invoke: async () => { throw new Error("must not invoke"); },
+      wait: async () => undefined, resolveEnvironment: async () => undefined,
+    });
+
+    expect(result).toMatchObject({ status: "ERROR",
+      error: { code: "ARGUMENT_TRANSFORM_RUNTIME_ERROR", message: "Argument transform failed at line 1" },
+      steps: [{ status: "ERROR", argumentsValue: null,
+        error: { code: "ARGUMENT_TRANSFORM_RUNTIME_ERROR" } }] });
+  });
+
+  it("rejects transformed arguments that exceed the bounded output contract", async () => {
+    const runner = {
+      activeCount: 0,
+      run: async () => ({ arguments: { value: "x".repeat(300_000) }, variables: {}, stagedEnvironment: [], logs: [] }),
+      close: async () => undefined,
+    } satisfies ScriptRunner;
+    const source = "export default () => ({})";
+    const execute = createArgumentTransformExecutor(runner);
+
+    await expect(execute({ source, sourceDigest: createHash("sha256").update(source).digest("hex"),
+      fixedArguments: {}, mappedArguments: {}, inputs: {}, variables: {} }))
+      .rejects.toMatchObject({ code: "ARGUMENT_TRANSFORM_OUTPUT_LIMIT" });
+  });
+
   it("maps prior values, polls deterministically, and always runs cleanup without persisting variables", async () => {
     const calls: Array<{ toolName: string; argumentsValue: unknown; attempt: number }> = [];
     let inspectAttempt = 0;

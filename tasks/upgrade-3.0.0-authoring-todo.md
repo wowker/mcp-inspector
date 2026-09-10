@@ -35,7 +35,7 @@
 
 ## Slice E — Trial execution and step-local QuickJS
 
-- [ ] Task 14: Bounded step-local `argumentTransform`.
+- [x] Task 14: Bounded step-local `argumentTransform`.
 - [ ] Task 15: Asynchronous Draft trial execution.
 - [ ] Checkpoint E: focused gates and `npm run verify` pass.
 

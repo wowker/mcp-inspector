@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { jsonObjectSchema, jsonValueSchema } from "../tool-definition.js";
 import { assertionDefinitionSchema } from "./assertions.js";
+import { SCRIPT_SOURCE_MAX_BYTES } from "../script-workflow.js";
 
 export const TEST_CASE_NAME_MAX_LENGTH = 120;
 export const TEST_CASE_DESCRIPTION_MAX_LENGTH = 2_000;
@@ -64,6 +65,12 @@ export const scenarioInputDefinitionSchema = z.object({
 
 export const scenarioConditionSchema = assertionDefinitionSchema;
 
+export const argumentTransformSchema = z.object({
+  source: z.string().min(1).max(SCRIPT_SOURCE_MAX_BYTES)
+    .refine((value) => value.trim().length > 0, "Argument transform source is required"),
+  sourceDigest: z.string().regex(/^[a-f0-9]{64}$/u),
+}).strict();
+
 export const pollingPolicySchema = z.object({
   intervalMs: z.number().int().min(250).max(60_000),
   maxAttempts: z.number().int().min(1).max(100),
@@ -82,6 +89,7 @@ export const scenarioStepDefinitionSchema = z.object({
   assertions: z.array(assertionDefinitionSchema).max(STEP_COLLECTION_MAX_COUNT),
   condition: scenarioConditionSchema.nullable(),
   polling: pollingPolicySchema.nullable(),
+  argumentTransform: argumentTransformSchema.nullable().default(null),
   onFailure: z.enum(["STOP", "CONTINUE", "SKIP_REMAINING"]),
 }).strict();
 
@@ -222,6 +230,7 @@ export type ValueSource = z.output<typeof valueSourceSchema>;
 export type ArgumentMapping = z.output<typeof argumentMappingSchema>;
 export type ResponseExtractor = z.output<typeof responseExtractorSchema>;
 export type ScenarioInputDefinition = z.output<typeof scenarioInputDefinitionSchema>;
+export type ArgumentTransform = z.output<typeof argumentTransformSchema>;
 export type ScenarioStepDefinition = z.output<typeof scenarioStepDefinitionSchema>;
 export type ToolTestCaseDefinition = z.output<typeof toolTestCaseDefinitionSchema>;
 export type ScenarioTestCaseDefinition = z.output<typeof scenarioTestCaseDefinitionSchema>;

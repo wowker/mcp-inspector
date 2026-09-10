@@ -108,7 +108,7 @@ describe("Authoring Draft validation and asset discovery", () => {
       name: "Write", description: "", tags: [], inputs: [], assertions: [], failurePolicy: "STOP" as const,
       steps: [{ id: "write", name: "Write", target: { connectionId, toolName: "write_tool" },
         fixedArguments: { a: 1 }, mappings: [], extractors: [], assertions: [], condition: null,
-        polling: null, onFailure: "STOP" as const }], cleanupSteps: [] }], suites: [], evidence: [],
+        polling: null, argumentTransform: null, onFailure: "STOP" as const }], cleanupSteps: [] }], suites: [], evidence: [],
       sourceAssets: [{ draftLocalId: "case-1", kind: "TEST_CASE" as const, assetId, revision: 1 }] };
     const created = state.drafts.create({ projectId, goal: "", idempotencyKey: "create-conflicts" });
     const replaced = state.drafts.replace({ projectId, draftId: created.draftId, expectedRevision: 1,
@@ -117,6 +117,27 @@ describe("Authoring Draft validation and asset discovery", () => {
     expect(result.issues.map(({ code }) => code)).toEqual(expect.arrayContaining([
       "AUTHORING_POLICY_DENIED", "CLEANUP_REQUIRED", "SOURCE_REVISION_CONFLICT",
     ]));
+  });
+
+  it("reports a stale argument transform digest at the exact step path", () => {
+    const state = fixture();
+    const definition = { version: 1 as const, testCases: [{ localId: "case-1", kind: "scenario" as const,
+      name: "Transform", description: "", tags: [], inputs: [], assertions: [], failurePolicy: "STOP" as const,
+      steps: [{ id: "step-1", name: "Step 1", target: { connectionId, toolName: "read_tool" },
+        fixedArguments: { a: 1 }, mappings: [], extractors: [], assertions: [], condition: null, polling: null,
+        argumentTransform: { source: "export default ({ mappedArguments }) => mappedArguments",
+          sourceDigest: "0".repeat(64) }, onFailure: "STOP" as const }], cleanupSteps: [] }],
+      suites: [], evidence: [], sourceAssets: [] };
+    const created = state.drafts.create({ projectId, goal: "", idempotencyKey: "create-transform-digest" });
+    const replaced = state.drafts.replace({ projectId, draftId: created.draftId, expectedRevision: 1,
+      goal: "", definition, idempotencyKey: "replace-transform-digest" });
+
+    const result = state.validator.validate({ projectId, draftId: created.draftId, revision: replaced.revision });
+
+    expect(result.issues).toContainEqual(expect.objectContaining({
+      code: "ARGUMENT_TRANSFORM_DIGEST_MISMATCH",
+      path: "definition.testCases[0].steps[0].argumentTransform.sourceDigest",
+    }));
   });
 
   it("rejects stale validation requests before inspecting Tools", () => {

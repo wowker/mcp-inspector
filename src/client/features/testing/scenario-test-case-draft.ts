@@ -23,6 +23,7 @@ export interface ScenarioStepDraft {
   assertions: AssertionDefinition[];
   condition: AssertionDefinition | null;
   polling: ScenarioStepDefinition["polling"];
+  argumentTransform: ScenarioStepDefinition["argumentTransform"];
   onFailure: ScenarioStepDefinition["onFailure"];
 }
 
@@ -55,7 +56,7 @@ function stepFromDefinition(step: ScenarioStepDefinition): ScenarioStepDraft {
       ...mapping, literalText: mapping.source.kind === "LITERAL" ? JSON.stringify(mapping.source.value, null, 2) : undefined,
     })),
     extractors: step.extractors, assertions: step.assertions, condition: step.condition,
-    polling: step.polling, onFailure: step.onFailure };
+    polling: step.polling, argumentTransform: step.argumentTransform, onFailure: step.onFailure };
 }
 
 function mappingSource(mapping: ScenarioArgumentMappingDraft): ValueSource {
@@ -67,7 +68,8 @@ function stepDefinition(step: ScenarioStepDraft): ScenarioStepDefinition {
   return { id: step.id, name: step.name.trim(), target: { connectionId: step.connectionId, toolName: step.toolName },
     fixedArguments: step.fixedArguments, mappings: step.mappings.map((mapping) => ({ targetPath: mapping.targetPath,
       source: mappingSource(mapping), isRequired: mapping.isRequired })), extractors: step.extractors,
-    assertions: step.assertions, condition: step.condition, polling: step.polling, onFailure: step.onFailure };
+    assertions: step.assertions, condition: step.condition, polling: step.polling,
+    argumentTransform: step.argumentTransform, onFailure: step.onFailure };
 }
 
 export function draftFromScenarioDefinition(definition: ScenarioTestCaseDefinition): ScenarioTestCaseDraft {
@@ -85,7 +87,7 @@ export function addScenarioStep(
 ): ScenarioTestCaseDraft {
   const collection = section === "main" ? draft.steps : draft.cleanupSteps;
   const next: ScenarioStepDraft = { id, name: `Step ${collection.length + 1}`, connectionId: "", toolName: "",
-    fixedArguments: {}, mappings: [], extractors: [], assertions: [], condition: null, polling: null,
+    fixedArguments: {}, mappings: [], extractors: [], assertions: [], condition: null, polling: null, argumentTransform: null,
     onFailure: section === "cleanup" ? "CONTINUE" : "STOP" };
   return section === "main" ? { ...draft, steps: [...draft.steps, next] }
     : { ...draft, cleanupSteps: [...draft.cleanupSteps, next] };

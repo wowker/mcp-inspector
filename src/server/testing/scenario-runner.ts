@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from "node:crypto";
 import { evaluateAssertion, type AssertionContext } from "../../shared/testing/assertion-engine.js";
 import type { AssertionDefinition, AssertionResult } from "../../shared/testing/assertions.js";
 import type {
@@ -7,6 +8,11 @@ import type {
 } from "../../shared/testing/test-case.js";
 import type { JsonObject, JsonValue } from "../../shared/tool-definition.js";
 import type { ScenarioStepStatus, TestExecutionStatus } from "../../shared/testing/test-execution.js";
+import {
+  ARGUMENT_TRANSFORM_OUTPUT_MAX_BYTES,
+  ARGUMENT_TRANSFORM_TIMEOUT_MS,
+} from "../../shared/script-workflow.js";
+import { ScriptExecutionError, type ScriptRunner } from "../workflows/script-runner.js";
 
 const forbiddenPathSegments = new Set(["__proto__", "prototype", "constructor"]);
 const maxPathSegments = 128;
@@ -69,6 +75,15 @@ export interface ScenarioRunnerDependencies {
     connectionId: string,
     name: string,
   ): Promise<JsonValue | undefined>;
+  transformArguments?(input: {
+    source: string;
+    sourceDigest: string;
+    fixedArguments: JsonObject;
+    mappedArguments: JsonObject;
+    inputs: JsonObject;
+    variables: JsonObject;
+    signal?: AbortSignal;
+  }): Promise<JsonObject>;
   createId?: () => string;
   now?: () => number;
 }
@@ -77,6 +92,37 @@ export interface RunScenarioInput {
   definition: ScenarioTestCaseDefinition;
   inputs: JsonObject;
   signal?: AbortSignal;
+}
+
+export function createArgumentTransformExecutor(runner: ScriptRunner): NonNullable<ScenarioRunnerDependencies["transformArguments"]> {
+  return async (input) => {
+    const sourceDigest = createHash("sha256").update(input.source, "utf8").digest("hex");
+    if (sourceDigest !== input.sourceDigest) {
+      throw new ScenarioRunnerError("ARGUMENT_TRANSFORM_DIGEST_MISMATCH", "Argument transform source digest does not match");
+    }
+    try {
+      const result = await runner.run({
+        evaluationId: randomUUID(), phase: "transform", source: input.source,
+        arguments: input.mappedArguments, response: null, variables: input.variables, environment: {},
+        transformContext: { fixedArguments: input.fixedArguments, mappedArguments: input.mappedArguments,
+          inputs: input.inputs, variables: input.variables }, signal: input.signal,
+        limits: { timeoutMs: ARGUMENT_TRANSFORM_TIMEOUT_MS, maxLogs: 0, maxToolCalls: 0 },
+      });
+      if (Buffer.byteLength(JSON.stringify(result.arguments), "utf8") > ARGUMENT_TRANSFORM_OUTPUT_MAX_BYTES) {
+        throw new ScenarioRunnerError("ARGUMENT_TRANSFORM_OUTPUT_LIMIT", "Argument transform output limit exceeded");
+      }
+      return result.arguments;
+    } catch (error) {
+      if (error instanceof ScenarioRunnerError) throw error;
+      if (!(error instanceof ScriptExecutionError)) throw error;
+      if (error.code === "CANCELLED") {
+        throw new ScenarioRunnerError("TEST_EXECUTION_CANCELLED", "Scenario execution was cancelled");
+      }
+      const location = error.line === null ? "" : ` at line ${error.line}`;
+      throw new ScenarioRunnerError(`ARGUMENT_TRANSFORM_${error.code}`,
+        `Argument transform ${error.code.toLocaleLowerCase().replaceAll("_", " ")}${location}`);
+    }
+  };
 }
 
 export class ScenarioRunnerError extends Error {
@@ -246,6 +292,7 @@ async function resolveArguments(
   variables: JsonObject,
   stepResponses: ReadonlyMap<string, JsonValue | undefined>,
   dependencies: ScenarioRunnerDependencies,
+  signal?: AbortSignal,
 ): Promise<JsonObject> {
   const result = cloneJson(step.fixedArguments);
   for (const mapping of step.mappings) {
@@ -259,6 +306,20 @@ async function resolveArguments(
       continue;
     }
     setPath(result, mapping.targetPath, resolved.value!);
+  }
+  if (step.argumentTransform !== null) {
+    if (dependencies.transformArguments === undefined) {
+      throw new ScenarioRunnerError("ARGUMENT_TRANSFORM_UNAVAILABLE", "Argument transform sandbox is unavailable");
+    }
+    return dependencies.transformArguments({
+      source: step.argumentTransform.source,
+      sourceDigest: step.argumentTransform.sourceDigest,
+      fixedArguments: cloneJson(step.fixedArguments),
+      mappedArguments: cloneJson(result),
+      inputs: cloneJson(inputs),
+      variables: cloneJson(variables),
+      signal,
+    });
   }
   return result;
 }
@@ -307,7 +368,13 @@ async function runStep(
   stepResponses: Map<string, JsonValue | undefined>,
   dependencies: ScenarioRunnerDependencies,
 ): Promise<ScenarioRunStepResult[]> {
-  const argumentsValue = await resolveArguments(step, inputs, variables, stepResponses, dependencies);
+  let argumentsValue: JsonObject;
+  try {
+    argumentsValue = await resolveArguments(step, inputs, variables, stepResponses, dependencies, input.signal);
+  } catch (error) {
+    return [{ stepId: step.id, position, attempt: 1, status: "ERROR", argumentsValue: null,
+      runId: null, workflowExecutionId: null, assertions: [], error: errorResult(error) }];
+  }
   const startedAt = (dependencies.now ?? Date.now)();
   const maxAttempts = step.polling?.maxAttempts ?? 1;
   const results: ScenarioRunStepResult[] = [];

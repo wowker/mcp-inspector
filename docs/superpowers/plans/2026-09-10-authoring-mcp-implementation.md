@@ -284,12 +284,12 @@
 - Create: `src/shared/__tests__/authoring-argument-transform.test.ts`
 - Modify: `src/server/testing/__tests__/scenario-runner.test.ts`
 
-- [ ] Add failing backward-compatibility tests proving old revisions parse unchanged and transforms are optional.
-- [ ] Add sandbox tests for deterministic input/output, time/memory/output limits, thrown errors, forbidden network/filesystem/Node/environment/Tool access, and secret redaction.
-- [ ] Execute the transform only at its step boundary and include source digest in the formal revision.
-- [ ] Replace generic scenario-step failure with the precise transform/path/evaluation error where applicable.
-- [ ] Run focused schema/runner tests and `npm run typecheck`.
-- [ ] Commit with `feat(testing): add step argument transforms`.
+- [x] Add failing backward-compatibility tests proving old revisions parse unchanged and transforms are optional.
+- [x] Add sandbox tests for deterministic input/output, time/memory/output limits, thrown errors, forbidden network/filesystem/Node/environment/Tool access, and secret redaction.
+- [x] Execute the transform only at its step boundary and include source digest in the formal revision.
+- [x] Replace generic scenario-step failure with the precise transform/path/evaluation error where applicable.
+- [x] Run focused schema/runner tests and `npm run typecheck`.
+- [x] Commit with `feat(testing): add step argument transforms`.
 
 ### Task 15: Implement asynchronous Draft trial execution
 

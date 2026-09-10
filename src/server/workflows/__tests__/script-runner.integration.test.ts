@@ -1,9 +1,10 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createScriptRunner,
   type ScriptRunner,
 } from "../script-runner.js";
+import { createArgumentTransformExecutor } from "../../testing/scenario-runner.js";
 
 describe("isolated script runner", () => {
   let runner: ScriptRunner | undefined;
@@ -86,6 +87,88 @@ describe("isolated script runner", () => {
         XMLHttpRequest: "undefined",
       },
     });
+  });
+
+  it("runs argument transforms with only frozen deterministic step inputs", async () => {
+    const result = await makeRunner().run({
+      evaluationId: randomUUID(),
+      phase: "transform",
+      source: `export default function transform(ctx) {
+        let randomError = null;
+        try { Math.random(); } catch (error) { randomError = error.message; }
+        return {
+          ...ctx.fixedArguments,
+          ...ctx.mappedArguments,
+          input: ctx.inputs.storeId,
+          prior: ctx.variables.previous,
+          capabilities: {
+            date: typeof Date,
+            process: typeof process,
+            require: typeof require,
+            fetch: typeof fetch,
+            tools: typeof ctx.tools,
+            env: typeof ctx.env,
+            randomError,
+            frozen: Object.isFrozen(ctx) && Object.isFrozen(ctx.inputs),
+          },
+        };
+      }`,
+      arguments: { mapped: true }, response: null, variables: { previous: "step-1" }, environment: { secret: "hidden" },
+      transformContext: {
+        fixedArguments: { fixed: true }, mappedArguments: { mapped: true },
+        inputs: { storeId: "store-1" }, variables: { previous: "step-1" },
+      },
+      limits: { maxLogs: 0, maxToolCalls: 0 },
+    });
+
+    expect(result.arguments).toEqual({
+      fixed: true, mapped: true, input: "store-1", prior: "step-1",
+      capabilities: {
+        date: "undefined", process: "undefined", require: "undefined", fetch: "undefined",
+        tools: "undefined", env: "undefined", randomError: "Forbidden capability", frozen: true,
+      },
+    });
+    expect(result.variables).toEqual({ previous: "step-1" });
+    expect(result.logs).toEqual([]);
+    expect(result.stagedEnvironment).toEqual([]);
+  });
+
+  it("redacts thrown transform input and rejects non-object output", async () => {
+    const current = makeRunner();
+    const secret = "draft-secret-value";
+    const source = "export default ({ inputs }) => { throw new Error(inputs.secret); }";
+    const execute = createArgumentTransformExecutor(current);
+    await expect(execute({
+      source,
+      sourceDigest: createHash("sha256").update(source).digest("hex"),
+      fixedArguments: {}, mappedArguments: {}, inputs: { secret }, variables: {},
+    })).rejects.not.toThrow(secret);
+
+    await expect(current.run({
+      evaluationId: randomUUID(), phase: "transform", source: "export default () => ['not-an-object']",
+      arguments: {}, response: null, variables: {}, environment: {},
+      transformContext: { fixedArguments: {}, mappedArguments: {}, inputs: {}, variables: {} },
+    })).rejects.toMatchObject({ code: "RUNTIME_ERROR", phase: "transform", message: "Argument transform failed" });
+  });
+
+  it("enforces transform CPU, memory, and output bounds", async () => {
+    const current = makeRunner();
+    const transformContext = { fixedArguments: {}, mappedArguments: {}, inputs: {}, variables: {} };
+    await expect(current.run({
+      evaluationId: randomUUID(), phase: "transform",
+      source: "export default function transform() { while (true) {} }",
+      arguments: {}, response: null, variables: {}, environment: {}, transformContext,
+      limits: { timeoutMs: 100 },
+    })).rejects.toMatchObject({ code: "TIMEOUT", phase: "transform" });
+
+    await expect(current.run({
+      evaluationId: randomUUID(), phase: "transform",
+      source: `export default function transform() {
+        const values = []; while (true) values.push(new Uint8Array(512 * 1024));
+      }`,
+      arguments: {}, response: null, variables: {}, environment: {}, transformContext,
+      limits: { timeoutMs: 2_000, memoryBytes: 4 * 1024 * 1024 },
+    })).rejects.toMatchObject({ code: "MEMORY_LIMIT", phase: "transform" });
   });
 
   it("awaits bounded host Tool calls without exposing the host callback", async () => {

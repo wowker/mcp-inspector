@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -252,6 +253,32 @@ describe("TestExecutionService", () => {
       });
       expect(completed.steps.every(({ runId }) => value.runs.get(projectId, runId!).tabId === null)).toBe(true);
       expect(value.environment.resolve(projectId, connectionId)).toMatchObject({ project: {}, server: { API_TOKEN: "fixture-token" } });
+    } finally { await close(value); }
+  });
+
+  it("applies a persisted step argument transform before invoking the Tool", async () => {
+    const value = fixture();
+    const source = `export default ({ fixedArguments, mappedArguments, inputs }) => ({
+      a: fixedArguments.base + mappedArguments.offset + inputs.increment
+    })`;
+    try {
+      const testCase = value.testCases.create(projectId, {
+        kind: "scenario", name: "Transformed sum", description: "", tags: [], isEnabled: true,
+        inputs: [{ name: "increment", description: "", isRequired: true }], assertions: [], failurePolicy: "STOP",
+        steps: [{ id: "transform", name: "Transform", target: { connectionId, toolName: "sum" },
+          fixedArguments: { base: 1 },
+          mappings: [{ targetPath: "$.offset", source: { kind: "LITERAL", value: 2 }, isRequired: true }],
+          extractors: [], assertions: [], condition: null, polling: null, onFailure: "STOP",
+          argumentTransform: { source, sourceDigest: createHash("sha256").update(source).digest("hex") } }],
+        cleanupSteps: [],
+      });
+      await value.connections.connect(projectId, connectionId);
+      const started = value.executions.start({
+        projectId, testCaseId: testCase.id, idempotencyKey: "transform-once", inputs: { increment: 3 },
+      });
+      const completed = await value.executions.waitForTerminal(projectId, started.id);
+      expect(completed.status).toBe("PASSED");
+      expect(value.session.calls[0]?.arguments).toEqual({ a: 6 });
     } finally { await close(value); }
   });
 

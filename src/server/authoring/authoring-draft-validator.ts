@@ -103,6 +103,19 @@ function validateAssertion(assertion: AssertionDefinition, path: string, issues:
   }
 }
 
+function validateArgumentTransform(
+  transform: { source: string; sourceDigest: string } | null,
+  path: string,
+  issues: AuthoringValidationIssue[],
+): void {
+  if (transform === null) return;
+  const digest = createHash("sha256").update(transform.source, "utf8").digest("hex");
+  if (digest !== transform.sourceDigest) {
+    issues.push(issue("ARGUMENT_TRANSFORM_DIGEST_MISMATCH", `${path}.sourceDigest`,
+      "Argument transform source digest does not match its source"));
+  }
+}
+
 function findSecretLiteral(value: JsonValue, path: string, issues: AuthoringValidationIssue[], depth = 0): void {
   if (depth > 50) return;
   if (typeof value === "string" && /(?:bearer\s+\S+|sk-[A-Za-z0-9_-]{8,})/iu.test(value)) {
@@ -226,6 +239,7 @@ export function createAuthoringDraftValidator(options: {
             `${stepPath}.extractors[${extractorIndex}].path`, issues));
           step.assertions.forEach((assertion, assertionIndex) => validateAssertion(assertion,
             `${stepPath}.assertions[${assertionIndex}]`, issues));
+          validateArgumentTransform(step.argumentTransform, `${stepPath}.argumentTransform`, issues);
           if (step.condition !== null) validateAssertion(step.condition, `${stepPath}.condition`, issues);
           step.polling?.until.forEach((assertion, assertionIndex) => validateAssertion(assertion,
             `${stepPath}.polling.until[${assertionIndex}]`, issues));

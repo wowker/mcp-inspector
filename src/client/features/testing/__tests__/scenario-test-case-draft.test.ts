@@ -47,9 +47,9 @@ describe("scenario test case draft", () => {
       id: "00000000-0000-4000-8000-000000001803", projectId, kind: "scenario", name: "Cleanup",
       description: "", tags: [], revision: 3, isEnabled: true, createdAt: now, updatedAt: now,
       inputs: [], steps: [{ id: "create", name: "Create", target: { connectionId, toolName: "create" },
-        fixedArguments: {}, mappings: [], extractors: [], assertions: [], condition: null, polling: null, onFailure: "STOP" }],
+        fixedArguments: {}, mappings: [], extractors: [], assertions: [], condition: null, polling: null, argumentTransform: null, onFailure: "STOP" }],
       cleanupSteps: [{ id: "cleanup", name: "Cleanup", target: { connectionId, toolName: "remove" },
-        fixedArguments: {}, mappings: [], extractors: [], assertions: [], condition: null, polling: null, onFailure: "CONTINUE" }],
+        fixedArguments: {}, mappings: [], extractors: [], assertions: [], condition: null, polling: null, argumentTransform: null, onFailure: "CONTINUE" }],
       assertions: [], failurePolicy: "STOP",
     };
     const draft = draftFromScenarioDefinition(definition);

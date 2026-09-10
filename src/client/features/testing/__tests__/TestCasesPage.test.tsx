@@ -37,7 +37,7 @@ const existingScenarioDefinition = {
   isEnabled: true, inputs: [{ name: "initial", description: "起始值", isRequired: true }], assertions: [],
   failurePolicy: "STOP" as const, cleanupSteps: [], createdAt: timestamp, updatedAt: timestamp,
   steps: [{ id: "first", name: "第一步", target: { connectionId, toolName: "get_price" }, fixedArguments: {},
-    mappings: [], extractors: [], assertions: [], condition: null, polling: null, onFailure: "STOP" as const }],
+    mappings: [], extractors: [], assertions: [], condition: null, polling: null, argumentTransform: null, onFailure: "STOP" as const }],
 };
 const executionId = "00000000-0000-4000-8000-000000000106";
 const runId = "00000000-0000-4000-8000-000000000109";

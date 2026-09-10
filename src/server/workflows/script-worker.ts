@@ -37,7 +37,7 @@ function toScriptError(start: StartMessage, value: unknown): ScriptError {
   const stackLimited = /stack overflow|stack size/i.test(rawMessage);
   const syntax = name === "SyntaxError";
   const forbiddenModule = /module|import/i.test(rawMessage) && /load|resolve|dynamic/i.test(rawMessage);
-  const forbiddenCapability = forbiddenModule || rawMessage === "Forbidden object path";
+  const forbiddenCapability = forbiddenModule || rawMessage === "Forbidden object path" || rawMessage === "Forbidden capability";
   const location = sourceLocation(value);
   return {
     code: interrupted ? "TIMEOUT" : memoryLimited ? "MEMORY_LIMIT" : stackLimited ? "STACK_LIMIT" : syntax ? "SYNTAX_ERROR" : forbiddenCapability ? "FORBIDDEN_CAPABILITY" : "RUNTIME_ERROR",
@@ -51,7 +51,7 @@ function toScriptError(start: StartMessage, value: unknown): ScriptError {
         ? "Script contains invalid JavaScript"
         : forbiddenModule
           ? "Module imports are not available in scripts"
-          : rawMessage.slice(0, 2_000),
+          : start.phase === "transform" ? "Argument transform failed" : rawMessage.slice(0, 2_000),
     phase: start.phase,
     line: location.line,
     column: location.column,
@@ -65,6 +65,7 @@ function bootstrap(start: StartMessage): string {
     response: start.response,
     variables: start.variables,
     environment: start.environment,
+    transformContext: start.transformContext,
   });
   return `
     (() => {
@@ -119,12 +120,13 @@ function bootstrap(start: StartMessage): string {
         environment: clone(initial.environment),
         stagedEnvironment: [],
       };
+      const isTransform = ${JSON.stringify(start.phase === "transform")};
       const canMutateArguments = ${JSON.stringify(start.phase === "before")};
       const requireBefore = () => {
         if (!canMutateArguments) throw new Error("After scripts cannot modify completed request arguments");
       };
       const log = (level, message, data) => __hostLog(level, String(message), data);
-      const ctx = {
+      const workflowCtx = {
         arguments: Object.freeze({
           get: (path) => clone(get(state.arguments, path)),
           set: (path, value) => { requireBefore(); set(state.arguments, path, value); },
@@ -191,6 +193,9 @@ function bootstrap(start: StartMessage): string {
           inspect: (message, data) => log("info", message, data),
         }),
       };
+      const transformCtx = initial.transformContext === null ? null : freeze(clone(initial.transformContext));
+      if (isTransform && transformCtx === null) throw new TypeError("Argument transform context is required");
+      const ctx = isTransform ? transformCtx : workflowCtx;
       globalThis.__workflowContext = Object.freeze(ctx);
       globalThis.__workflowResult = () => clone({
         arguments: state.arguments,
@@ -198,12 +203,16 @@ function bootstrap(start: StartMessage): string {
         stagedEnvironment: state.stagedEnvironment,
       });
       globalThis.console = Object.freeze({
-        debug: ctx.log.debug,
-        log: ctx.log.info,
-        info: ctx.log.info,
-        warn: ctx.log.warn,
-        error: ctx.log.error,
+        debug: workflowCtx.log.debug,
+        log: workflowCtx.log.info,
+        info: workflowCtx.log.info,
+        warn: workflowCtx.log.warn,
+        error: workflowCtx.log.error,
       });
+      if (isTransform) {
+        Object.defineProperty(globalThis, "Date", { value: undefined, configurable: false, writable: false });
+        Object.defineProperty(Math, "random", { value: () => { throw new Error("Forbidden capability"); }, configurable: false, writable: false });
+      }
       const constructors = [
         (() => {}).constructor,
         (async () => {}).constructor,
@@ -330,7 +339,7 @@ async function evaluate(start: StartMessage): Promise<void> {
     runtime.setInterruptHandler(shouldInterruptAfterDeadline(Date.now() + start.limits.timeoutMs));
     vm = runtime.newContext();
     installLogger(vm, start);
-    installToolCaller(vm, runtime, start);
+    if (start.phase !== "transform") installToolCaller(vm, runtime, start);
 
     unwrap(vm, vm.evalCode(bootstrap(start), "workflow-bootstrap.js")).dispose();
     const namespace = unwrap(vm, vm.evalCode(start.source, "workflow-script.mjs", { type: "module" }));
@@ -366,6 +375,16 @@ async function evaluate(start: StartMessage): Promise<void> {
       const dumped = vm.dump(resolved.error);
       resolved.error.dispose();
       throw dumped;
+    }
+    if (start.phase === "transform") {
+      const transformed = vm.dump(resolved.value) as unknown;
+      resolved.value.dispose();
+      if (transformed === null || Array.isArray(transformed) || typeof transformed !== "object") {
+        throw { name: "TypeError", message: "Argument transform must return a JSON object" };
+      }
+      send({ version: 1, type: "completed", arguments: transformed as JsonObject,
+        variables: start.variables, stagedEnvironment: [] });
+      return;
     }
     resolved.value.dispose();
 

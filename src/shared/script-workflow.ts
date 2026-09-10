@@ -4,6 +4,8 @@ import { jsonObjectSchema, jsonValueSchema } from "./tool-definition.js";
 export const SCRIPT_SOURCE_MAX_BYTES = 2_097_152;
 export const SCRIPT_TIMEOUT_MIN_MS = 100;
 export const SCRIPT_TIMEOUT_MAX_MS = 60_000;
+export const ARGUMENT_TRANSFORM_TIMEOUT_MS = 1_000;
+export const ARGUMENT_TRANSFORM_OUTPUT_MAX_BYTES = 262_144;
 
 const uuid = z.uuid();
 const timestamp = z.string().datetime({ offset: true });
@@ -165,7 +167,7 @@ export const scriptErrorCodeSchema = z.enum([
 export const scriptErrorSchema = z.object({
   code: scriptErrorCodeSchema,
   message: z.string().min(1).max(2_000),
-  phase: z.enum(["before", "after"]),
+  phase: z.enum(["before", "after", "transform"]),
   line: z.number().int().positive().nullable(),
   column: z.number().int().positive().nullable(),
   excerpt: z.string().max(4_096).nullable(),
@@ -234,16 +236,33 @@ const limitsSchema = z.object({
 const startMessageSchema = z.object({
   version: z.literal(1),
   type: z.literal("start"),
-  operation: z.enum(["execute", "validate"]),
+  operation: z.enum(["execute", "validate", "transform"]),
   evaluationId: uuid,
-  phase: z.enum(["before", "after"]),
+  phase: z.enum(["before", "after", "transform"]),
   source: scriptSource,
   arguments: jsonObjectSchema,
   response: jsonValueSchema.nullable(),
   variables: jsonObjectSchema,
   environment: jsonObjectSchema,
+  transformContext: z.object({
+    fixedArguments: jsonObjectSchema,
+    mappedArguments: jsonObjectSchema,
+    inputs: jsonObjectSchema,
+    variables: jsonObjectSchema,
+  }).strict().nullable(),
   limits: limitsSchema,
-}).strict();
+}).strict().superRefine((message, context) => {
+  if (message.operation === "transform" && message.phase !== "transform" ||
+      message.operation === "execute" && message.phase === "transform") {
+    context.addIssue({ code: "custom", path: ["operation"], message: "Transform operation and phase must match" });
+  }
+  if (message.phase === "transform" && message.transformContext === null) {
+    context.addIssue({ code: "custom", path: ["transformContext"], message: "Transform context is required" });
+  }
+  if (message.phase !== "transform" && message.transformContext !== null) {
+    context.addIssue({ code: "custom", path: ["transformContext"], message: "Transform context is not allowed" });
+  }
+});
 
 const hostCallMessageSchema = z.object({
   version: z.literal(1),

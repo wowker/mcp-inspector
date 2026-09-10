@@ -6,7 +6,7 @@ import {
   type SandboxMessage,
 } from "../../shared/script-workflow.js";
 
-export type ScriptPhase = "before" | "after";
+export type ScriptPhase = "before" | "after" | "transform";
 export type ScriptErrorCode = Extract<SandboxMessage, { type: "failed" }>["error"]["code"];
 
 export interface ScriptLogEntry {
@@ -37,6 +37,12 @@ export interface ScriptRunInput {
   response: JsonValue | null;
   variables: JsonObject;
   environment: JsonObject;
+  transformContext?: {
+    fixedArguments: JsonObject;
+    mappedArguments: JsonObject;
+    inputs: JsonObject;
+    variables: JsonObject;
+  };
   limits?: Partial<ScriptLimits>;
   onToolCall?: (
     input: { server: string; name: string; arguments: JsonObject },
@@ -338,7 +344,7 @@ export function createScriptRunner(options: ScriptRunnerOptions = {}): ScriptRun
         const start: SandboxMessage = {
           version: 1,
           type: "start",
-          operation: input.validateOnly === true ? "validate" : "execute",
+          operation: input.validateOnly === true ? "validate" : input.phase === "transform" ? "transform" : "execute",
           evaluationId: input.evaluationId,
           phase: input.phase,
           source: input.source,
@@ -346,6 +352,7 @@ export function createScriptRunner(options: ScriptRunnerOptions = {}): ScriptRun
           response: input.response,
           variables: input.variables,
           environment: input.environment,
+          transformContext: input.transformContext ?? null,
           limits,
         };
         child.send(start, (error) => {

@@ -122,7 +122,7 @@ export function createWorkflowService(
           error: {
             code: error.code,
             message: error.message,
-            phase: error.phase,
+            phase: parsed.data.phase,
             line: error.line,
             column: error.column,
             excerpt: error.excerpt,

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -5,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createConnectionService } from "../../connections/connection-service.js";
 import { createProjectService } from "../../projects/project-service.js";
 import {
+  InvalidTestCaseError,
   TestCaseRevisionConflictError,
   createTestCaseService,
 } from "../test-case-service.js";
@@ -113,6 +115,23 @@ describe("TestCaseService", () => {
         "SELECT count(*) AS count FROM test_case_revisions WHERE test_case_id = ?",
       ).get(created.id)).toEqual({ count: 1 });
       await expect(connections.delete(projectId, connectionA)).resolves.toBeUndefined();
+    } finally { await connections.close(); projects.close(); }
+  });
+
+  it("rejects a scenario revision whose argument transform digest is stale", async () => {
+    const { projects, connections, service } = fixture();
+    const source = "export default ({ mappedArguments }) => mappedArguments";
+    const scenario = {
+      kind: "scenario" as const, name: "Digest-bound scenario", description: "", tags: [], isEnabled: true,
+      inputs: [], assertions: [], failurePolicy: "STOP" as const, cleanupSteps: [],
+      steps: [{ id: "step-1", name: "Step 1", target: { connectionId: connectionA, toolName: "list_stores" },
+        fixedArguments: {}, mappings: [], extractors: [], assertions: [], condition: null, polling: null,
+        argumentTransform: { source, sourceDigest: "0".repeat(64) }, onFailure: "STOP" as const }],
+    };
+    try {
+      expect(() => service.create(projectId, scenario)).toThrow(InvalidTestCaseError);
+      scenario.steps[0].argumentTransform.sourceDigest = createHash("sha256").update(source).digest("hex");
+      expect(service.create(projectId, scenario)).toMatchObject({ revision: 1, steps: [{ argumentTransform: { source } }] });
     } finally { await connections.close(); projects.close(); }
   });
 });

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
   testCaseDefinitionSchema,
@@ -71,15 +71,28 @@ function targetsOf(definition: TestCaseMutation | TestCaseDefinition): ToolTarge
   return [...definition.steps, ...definition.cleanupSteps].map(({ target }) => target);
 }
 
+function ensureArgumentTransformDigests(definition: TestCaseMutation): void {
+  if (definition.kind !== "scenario") return;
+  for (const step of [...definition.steps, ...definition.cleanupSteps]) {
+    if (step.argumentTransform === null) continue;
+    const digest = createHash("sha256").update(step.argumentTransform.source, "utf8").digest("hex");
+    if (digest !== step.argumentTransform.sourceDigest) {
+      throw new InvalidTestCaseError("Argument transform source digest does not match");
+    }
+  }
+}
+
 function parseMutation(value: unknown): TestCaseMutation {
   const parsed = testCaseMutationSchema.safeParse(value);
   if (!parsed.success) throw new InvalidTestCaseError(parsed.error.issues[0]?.message);
+  ensureArgumentTransformDigests(parsed.data);
   return parsed.data;
 }
 
 function parseUpdate(value: unknown): UpdateTestCaseRequest {
   const parsed = updateTestCaseRequestSchema.safeParse(value);
   if (!parsed.success) throw new InvalidTestCaseError(parsed.error.issues[0]?.message);
+  ensureArgumentTransformDigests(parsed.data.definition);
   return parsed.data;
 }
 

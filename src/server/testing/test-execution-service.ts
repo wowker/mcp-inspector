@@ -19,9 +19,15 @@ import { canonicalJson } from "../tools/tool-service.js";
 import type { WorkflowExecutionDetail } from "../workflows/workflow-execution-repository.js";
 import type { WorkflowExecutionService } from "../workflows/workflow-execution-service.js";
 import type { WorkflowService } from "../workflows/workflow-service.js";
+import { createScriptRunner, type ScriptRunner } from "../workflows/script-runner.js";
 import type { TestCaseService } from "./test-case-service.js";
 import { TestExecutionRepository, type TestExecutionCursorPosition } from "./test-execution-repository.js";
-import { runScenario, ScenarioRunnerError, type ScenarioInvocationResult } from "./scenario-runner.js";
+import {
+  createArgumentTransformExecutor,
+  runScenario,
+  ScenarioRunnerError,
+  type ScenarioInvocationResult,
+} from "./scenario-runner.js";
 
 const startSchema = z.object({
   projectId: z.uuid(),
@@ -123,11 +129,14 @@ export function createTestExecutionService(deps: {
   workflows: WorkflowService;
   workflowExecutions: WorkflowExecutionService;
   environment: EnvironmentService;
+  scriptRunner?: ScriptRunner;
   createId?: () => string;
   now?: () => Date;
 }): TestExecutionService {
   const createId = deps.createId ?? randomUUID;
   const now = deps.now ?? (() => new Date());
+  const scriptRunner = deps.scriptRunner ?? createScriptRunner();
+  const ownsScriptRunner = deps.scriptRunner === undefined;
   const active = new Map<string, ActiveExecution>();
   const operations = new Map<string, Promise<void>>();
   const recoveredProjects = new Set<string>();
@@ -288,6 +297,7 @@ export function createTestExecutionService(deps: {
           const resolved = deps.environment.resolve(projectId, connectionId);
           return scope === "PROJECT" ? resolved.project[name] : resolved.server[name];
         },
+        transformArguments: createArgumentTransformExecutor(scriptRunner),
         createId: () => generatedId("Assertion result"),
         now: () => now().getTime(),
       });
@@ -512,6 +522,7 @@ export function createTestExecutionService(deps: {
     async close() {
       for (const state of active.values()) state.controller.abort();
       await Promise.allSettled([...operations.values()]);
+      if (ownsScriptRunner) await scriptRunner.close();
       active.clear(); operations.clear();
     },
   };
