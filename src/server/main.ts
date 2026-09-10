@@ -19,6 +19,7 @@ import { createWorkflowExecutionService } from "./workflows/workflow-execution-s
 import { createWorkflowDebugService } from "./workflows/workflow-debug-service.js";
 import { InstallationSettingsRepository } from "./registry/installation-settings-repository.js";
 import { createAuthoringAuthService } from "./authoring/authoring-auth-service.js";
+import { createAuthoringMcpServer } from "./authoring/authoring-mcp-server.js";
 
 export interface InspectorAddress {
   host: "127.0.0.1";
@@ -174,6 +175,11 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
   }
   const authoringAuth = createAuthoringAuthService({ repository: installationSettings });
   let allowedOrigin = clientOrigin ?? "";
+  let serverOrigin = "";
+  const authoringMcp = createAuthoringMcpServer({
+    appVersion: config.version,
+    endpoint: () => `${serverOrigin}/mcp/authoring`,
+  });
   let environment: ReturnType<typeof createEnvironmentService> | undefined;
   let environmentProfiles: ReturnType<typeof createEnvironmentProfileService> | undefined;
   const connections = createConnectionService(projects, {
@@ -215,6 +221,8 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
     workflowExecutions,
     workflowDebug,
     authoringAuth,
+    authoringMcp,
+    authoringOrigin: () => serverOrigin,
     staticRoot,
   });
   let server: ServerType | undefined;
@@ -230,6 +238,7 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
     closePromise = (async () => {
       removeSignalHandlers();
       const listenerClose = server === undefined ? Promise.resolve() : closeServer(server);
+      await authoringMcp.close();
       await workflowExecutions.close();
       await workflowDebug.close();
       await runs.close();
@@ -264,7 +273,7 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
     }
     const address = server.address();
     if (address === null || typeof address === "string") throw new Error("Inspector did not bind TCP");
-    const serverOrigin = `http://${config.host}:${address.port}`;
+    serverOrigin = `http://${config.host}:${address.port}`;
     allowedOrigin ||= serverOrigin;
     if (options.installSignalHandlers !== false) {
       process.once("SIGINT", onSignal);

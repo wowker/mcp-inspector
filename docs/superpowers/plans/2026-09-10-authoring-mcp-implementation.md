@@ -37,12 +37,12 @@
 - Modify: `src/server/__tests__/main.test.ts`
 - Modify: `src/server/__tests__/bin-entry.test.ts`
 
-- [ ] Add failing tests for default port `8500`, explicit test port `0`, CLI `--port`, environment fallback, invalid values, and precedence `CLI > MCP_INSPECTOR_PORT > 8500`.
-- [ ] Run `npx vitest run src/server/__tests__/main.test.ts src/server/__tests__/bin-entry.test.ts` and confirm the new assertions fail.
-- [ ] Implement one exported port parser used by the bin entry and development entry; accept integers `1..65535` for user input and preserve programmatic `0`.
-- [ ] Make occupied-port startup report an actionable sanitized message and never choose another port.
-- [ ] Re-run the focused tests and `npm run typecheck`.
-- [ ] Commit with `feat(runtime): add configurable authoring port contract`.
+- [x] Add failing tests for default port `8500`, explicit test port `0`, CLI `--port`, environment fallback, invalid values, and precedence `CLI > MCP_INSPECTOR_PORT > 8500`.
+- [x] Run `npx vitest run src/server/__tests__/main.test.ts src/server/__tests__/bin-entry.test.ts` and confirm the new assertions fail.
+- [x] Implement one exported port parser used by the bin entry and development entry; accept integers `1..65535` for user input and preserve programmatic `0`.
+- [x] Make occupied-port startup report an actionable sanitized message and never choose another port.
+- [x] Re-run the focused tests and `npm run typecheck`.
+- [x] Commit with `feat(runtime): add configurable authoring port contract`.
 
 ### Task 2: Add installation registry migrations and settings storage
 
@@ -55,13 +55,13 @@
 - Create: `src/server/registry/__tests__/registry-migrations.test.ts`
 - Modify: `src/server/projects/project-registry.ts`
 
-- [ ] Write migration tests for a fresh install and a legacy `registry.sqlite` containing `project_registry` but no migration history.
-- [ ] Assert project rows survive adoption and migration source/dist bytes are identical after packaging.
-- [ ] Implement a transactional registry migrator that records numbered migrations and fails closed on checksum/history conflicts.
-- [ ] Refactor `ProjectRegistry` to use the registry migrator instead of inline table creation; installation settings must use the same `registry.sqlite` file.
-- [ ] Store only Authoring enabled state, Token digest/hint, creation/rotation timestamps, and non-secret installation settings.
-- [ ] Run the registry migration tests and `npm run typecheck`.
-- [ ] Commit with `feat(registry): add authoring installation settings`.
+- [x] Write migration tests for a fresh install and a legacy `registry.sqlite` containing `project_registry` but no migration history.
+- [x] Assert project rows survive adoption and migration source/dist bytes are identical after packaging.
+- [x] Implement a transactional registry migrator that records numbered migrations and fails closed on checksum/history conflicts.
+- [x] Refactor `ProjectRegistry` to use the registry migrator instead of inline table creation; installation settings must use the same `registry.sqlite` file.
+- [x] Store only Authoring enabled state, Token digest/hint, creation/rotation timestamps, and non-secret installation settings.
+- [x] Run the registry migration tests and `npm run typecheck`.
+- [x] Commit with `feat(registry): add authoring installation settings`.
 
 ### Task 3: Implement one-time Authoring Token management
 
@@ -73,13 +73,13 @@
 - Create: `src/server/authoring/__tests__/authoring-auth-service.test.ts`
 - Modify: `src/server/app.ts`
 
-- [ ] Add failing tests for enable, one-time plaintext return, digest-only persistence, constant-time verification, rotation invalidation, disablement, and sanitized errors.
-- [ ] Define shared REST request/response schemas without a reusable plaintext Token field.
-- [ ] Implement high-entropy Token generation and a versioned cryptographic digest; never log or persist plaintext.
-- [ ] Mount browser-session-protected enable/rotate/disable/status routes under `/api/authoring/settings`.
-- [ ] Verify Token material does not appear in URLs, Toast-compatible messages, repository rows, or test log captures.
-- [ ] Run focused auth/app tests and `npm run typecheck`.
-- [ ] Commit with `feat(authoring): add installation token management`.
+- [x] Add failing tests for enable, one-time plaintext return, digest-only persistence, constant-time verification, rotation invalidation, disablement, and sanitized errors.
+- [x] Define shared REST request/response schemas without a reusable plaintext Token field.
+- [x] Implement high-entropy Token generation and a versioned cryptographic digest; never log or persist plaintext.
+- [x] Mount browser-session-protected enable/rotate/disable/status routes under `/api/authoring/settings`.
+- [x] Verify Token material does not appear in URLs, Toast-compatible messages, repository rows, or test log captures.
+- [x] Run focused auth/app tests and `npm run typecheck`.
+- [x] Commit with `feat(authoring): add installation token management`.
 
 ### Task 4: Mount the authenticated Streamable HTTP walking skeleton
 
@@ -91,13 +91,13 @@
 - Create: `src/server/authoring/__tests__/authoring-mcp-routes.test.ts`
 - Modify: `package.json`
 
-- [ ] Move `@modelcontextprotocol/sdk` from development to production dependencies and record the lockfile change.
-- [ ] Add failing protocol tests for initialize, bounded stateful sessions, `inspector_get_capabilities`, missing/invalid Token, disabled service, invalid Origin, unsupported media, oversized body, and shutdown.
-- [ ] Mount `/mcp/authoring` before the SPA fallback and outside browser session middleware.
-- [ ] Authenticate every MCP request; treat session IDs as protocol state only, never authority.
-- [ ] Return the stable success/error envelope and no stack, SQL, path, credential, or raw downstream body.
-- [ ] Run focused protocol tests, `npm run typecheck`, then `npm run verify` as Checkpoint A.
-- [ ] Commit with `feat(authoring): expose authenticated mcp transport`.
+- [x] Move `@modelcontextprotocol/sdk` from development to production dependencies and record the lockfile change.
+- [x] Add failing protocol tests for initialize, bounded stateful sessions, `inspector_get_capabilities`, missing/invalid Token, disabled service, invalid Origin, unsupported media, oversized body, and shutdown.
+- [x] Mount `/mcp/authoring` before the SPA fallback and outside browser session middleware.
+- [x] Authenticate every MCP request; treat session IDs as protocol state only, never authority.
+- [x] Return the stable success/error envelope and no stack, SQL, path, credential, or raw downstream body.
+- [x] Run focused protocol tests, `npm run typecheck`, then `npm run verify` as Checkpoint A.
+- [x] Commit with `feat(authoring): expose authenticated mcp transport`.
 
 ---
 

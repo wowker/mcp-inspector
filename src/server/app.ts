@@ -78,6 +78,8 @@ import {
 } from "./comparison/run-comparison-service.js";
 import type { AuthoringAuthService } from "./authoring/authoring-auth-service.js";
 import { createAuthoringSettingsRoutes } from "./authoring/authoring-settings-routes.js";
+import type { AuthoringMcpServer } from "./authoring/authoring-mcp-server.js";
+import { createAuthoringMcpRoutes } from "./authoring/authoring-mcp-routes.js";
 
 export interface AppDependencies {
   sessionToken: string;
@@ -109,6 +111,8 @@ export interface AppDependencies {
   comparisonRules?: ComparisonRuleService;
   runComparisons?: RunComparisonService;
   authoringAuth?: AuthoringAuthService;
+  authoringMcp?: AuthoringMcpServer;
+  authoringOrigin?: string | (() => string);
   staticRoot?: string;
 }
 
@@ -227,6 +231,14 @@ export function createApp(deps: AppDependencies): Hono {
   const app = new Hono();
   const sessionBootstrap = deps.sessionBootstrap ?? createSessionBootstrap();
   const oauthReturnTickets = new Map<string, number>();
+
+  if (deps.authoringAuth !== undefined && deps.authoringMcp !== undefined) {
+    app.route("/mcp/authoring", createAuthoringMcpRoutes({
+      auth: deps.authoringAuth,
+      server: deps.authoringMcp,
+      allowedOrigins: [deps.allowedOrigin, deps.authoringOrigin ?? deps.allowedOrigin],
+    }));
+  }
 
   app.get("/bootstrap/:ticket", (context) => {
     if (!sessionBootstrap.consume(context.req.param("ticket"))) {

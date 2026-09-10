@@ -71,7 +71,6 @@ const artifactSha256 = createHash("sha256").update(artifactBytes).digest("hex");
 console.log(JSON.stringify({
   initialJavaScriptGzipKiB: Number((javascriptBytes / 1024).toFixed(2)),
   initialCssGzipKiB: Number((cssBytes / 1024).toFixed(2)),
-  migrationCount: migrationNames.length,
   ...packageResult,
   artifact: ".release/package.tgz",
   artifactSha256,

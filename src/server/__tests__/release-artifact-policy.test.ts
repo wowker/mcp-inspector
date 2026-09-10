@@ -24,7 +24,9 @@ describe("release artifact policy", () => {
       "dist/server/workflows/script-worker.js",
       "dist/server/projects/migrations/001_projects.sql",
       "dist/server/projects/migrations/002_connections.sql",
-    ])).toEqual({ fileCount: 9, migrationCount: 2 });
+      "dist/server/registry/migrations/001_registry.sql",
+      "dist/server/registry/migrations/002_authoring.sql",
+    ])).toEqual({ fileCount: 11, migrationCount: 4 });
   });
 
   it("rejects source files, missing runtime files, and migration gaps", () => {
@@ -32,12 +34,23 @@ describe("release artifact policy", () => {
       "dist/server/main.js", "dist/server/workflows/script-worker.js"];
     expect(() => validatePublishedFiles([...runtime, "src/client/main.tsx", "dist/server/projects/migrations/001_a.sql"]))
       .toThrow(/unexpected files/u);
-    expect(() => validatePublishedFiles([...runtime, "dist/server/projects/migrations/002_b.sql"]))
+    expect(() => validatePublishedFiles([
+      ...runtime,
+      "dist/server/projects/migrations/001_a.sql",
+      "dist/server/registry/migrations/002_b.sql",
+    ]))
       .toThrow(/not contiguous/u);
+    expect(() => validatePublishedFiles([...runtime, "dist/server/projects/migrations/001_a.sql"]))
+      .toThrow(/registry SQLite migrations/u);
     expect(() => validatePublishedFiles(["package.json", "README.md"]))
       .toThrow(/missing runtime files/u);
     for (const unsafe of ["dist/credentials.txt", "bin/debug-dump", "dist/client/assets/.env", "dist/server/main.js.map"]) {
-      expect(() => validatePublishedFiles([...runtime, "dist/server/projects/migrations/001_a.sql", unsafe]))
+      expect(() => validatePublishedFiles([
+        ...runtime,
+        "dist/server/projects/migrations/001_a.sql",
+        "dist/server/registry/migrations/001_registry.sql",
+        unsafe,
+      ]))
         .toThrow(/unexpected files/u);
     }
   });

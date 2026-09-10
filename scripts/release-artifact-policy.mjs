@@ -36,6 +36,7 @@ export function validatePublishedFiles(files) {
   const allowedPatterns = [
     /^dist\/client\/assets\/[A-Za-z0-9][A-Za-z0-9_-]*-[A-Za-z0-9_-]{8,}\.(?:css|js)$/u,
     /^dist\/server\/projects\/migrations\/\d{3}_[a-z0-9_]+\.sql$/u,
+    /^dist\/server\/registry\/migrations\/\d{3}_[a-z0-9_]+\.sql$/u,
   ];
   const unexpected = names.filter((name) =>
     !exact.has(name) && !allowedPatterns.some((pattern) => pattern.test(name)));
@@ -50,17 +51,22 @@ export function validatePublishedFiles(files) {
     throw new Error(`npm package is missing runtime files: ${missing.join(", ")}`);
   }
 
-  const migrations = names
-    .filter((name) => /^dist\/server\/projects\/migrations\/\d{3}_.+\.sql$/u.test(name))
-    .sort();
-  if (migrations.length === 0) {
-    throw new Error("npm package is missing SQLite migrations");
-  }
-  const versions = migrations.map((name) => Number(name.match(/\/(\d{3})_/u)?.[1]));
-  const expected = versions.map((_, index) => index + 1);
-  if (versions.some((version, index) => version !== expected[index])) {
-    throw new Error(`npm package migrations are not contiguous: ${versions.join(", ")}`);
+  const migrationRoots = ["projects", "registry"];
+  let migrationCount = 0;
+  for (const root of migrationRoots) {
+    const migrations = names
+      .filter((name) => new RegExp(`^dist/server/${root}/migrations/\\d{3}_.+\\.sql$`, "u").test(name))
+      .sort();
+    if (migrations.length === 0) {
+      throw new Error(`npm package is missing ${root} SQLite migrations`);
+    }
+    const versions = migrations.map((name) => Number(name.match(/\/(\d{3})_/u)?.[1]));
+    const expected = versions.map((_, index) => index + 1);
+    if (versions.some((version, index) => version !== expected[index])) {
+      throw new Error(`npm package migrations are not contiguous for ${root}: ${versions.join(", ")}`);
+    }
+    migrationCount += migrations.length;
   }
 
-  return { fileCount: names.length, migrationCount: migrations.length };
+  return { fileCount: names.length, migrationCount };
 }
