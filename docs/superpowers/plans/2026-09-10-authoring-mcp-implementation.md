@@ -243,12 +243,12 @@
 - Modify: `src/server/authoring/authoring-mcp-server.ts`
 - Create: `src/server/authoring/__tests__/authoring-draft-validator.test.ts`
 
-- [ ] Add failing table tests for current Tool hashes, arguments, references, JSON paths, assertion operands, suite membership, policy, cleanup requirement, secret-shaped literals, and source revision conflicts.
-- [ ] Produce validation results bound to `draftId + revision + definitionDigest + toolSchemaHashes`; validation must never call downstream Tools.
-- [ ] Register validate/list-assets/get-asset tools with bounded sanitized results.
-- [ ] Require exact source revision for existing asset updates and never expose enable/delete operations.
-- [ ] Run focused validation/asset tests and `npm run typecheck`.
-- [ ] Commit with `feat(authoring): validate drafts against current assets`.
+- [x] Add failing table tests for current Tool hashes, arguments, references, JSON paths, assertion operands, suite membership, policy, cleanup requirement, secret-shaped literals, and source revision conflicts.
+- [x] Produce validation results bound to `draftId + revision + definitionDigest + toolSchemaHashes`; validation must never call downstream Tools.
+- [x] Register validate/list-assets/get-asset tools with bounded sanitized results.
+- [x] Require exact source revision for existing asset updates and never expose enable/delete operations.
+- [x] Run focused validation/asset tests and `npm run typecheck`.
+- [x] Commit with `feat(authoring): validate drafts against current assets`.
 
 ### Task 13: Build the Authoring MCP workspace shell
 

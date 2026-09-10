@@ -31,7 +31,7 @@ class AssertionInputError extends Error {}
 const forbiddenSegments = new Set(["__proto__", "prototype", "constructor"]);
 const MAX_PATH_SEGMENTS = 128;
 
-function parsePath(path: string): Array<string | number> {
+export function parseAssertionPath(path: string): Array<string | number> {
   if (path === "" || path === "$") return [];
   if (!path.startsWith("$")) throw new AssertionInputError("Assertion path must start with $");
   const segments: Array<string | number> = [];
@@ -80,7 +80,7 @@ function parsePath(path: string): Array<string | number> {
 }
 
 function resolve(source: JsonValue | undefined, path: string): ResolvedValue {
-  const segments = parsePath(path);
+  const segments = parseAssertionPath(path);
   if (source === undefined) return { exists: false, resolvedPath: path || "$" };
   let value: JsonValue = source;
   for (const segment of segments) {

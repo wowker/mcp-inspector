@@ -89,7 +89,7 @@ function cloneJson<T extends JsonValue>(value: T): T {
   return structuredClone(value);
 }
 
-function parsePath(path: string): Array<string | number> {
+export function parseScenarioPath(path: string): Array<string | number> {
   if (path === "" || path === "$") return [];
   if (!path.startsWith("$")) throw new ScenarioRunnerError("INVALID_JSON_PATH", "JSON path must start with $");
   const segments: Array<string | number> = [];
@@ -144,7 +144,7 @@ function parsePath(path: string): Array<string | number> {
 function resolvePath(source: JsonValue | undefined, path: string): ResolvedValue {
   if (source === undefined) return { exists: false };
   let current: JsonValue = source;
-  for (const segment of parsePath(path)) {
+  for (const segment of parseScenarioPath(path)) {
     if (typeof segment === "number") {
       if (!Array.isArray(current) || segment >= current.length) return { exists: false };
       current = current[segment]!;
@@ -158,7 +158,7 @@ function resolvePath(source: JsonValue | undefined, path: string): ResolvedValue
 }
 
 function setPath(target: JsonObject, path: string, value: JsonValue): void {
-  const segments = parsePath(path);
+  const segments = parseScenarioPath(path);
   if (segments.length === 0) {
     if (value === null || Array.isArray(value) || typeof value !== "object") {
       throw new ScenarioRunnerError("INPUT_MAPPING_FAILED", "The root arguments value must be an object");

@@ -17,6 +17,11 @@ import {
   replaceDraftInputSchema,
 } from "../../shared/authoring/draft.js";
 import {
+  getTestAssetInputSchema,
+  listTestAssetsInputSchema,
+  validateDraftInputSchema,
+} from "../../shared/authoring/validation.js";
+import {
   AUTHORING_ASSET_TYPES,
   AUTHORING_LIMITS,
   AUTHORING_PROTOCOL_VERSION,
@@ -61,6 +66,16 @@ import {
 import { InvalidAuthoringDraftCursorError } from "./authoring-draft-repository.js";
 import { TestCaseNotFoundError } from "../testing/test-case-service.js";
 import { TestSuiteNotFoundError } from "../testing/test-suite-service.js";
+import {
+  AuthoringAssetNotFoundError,
+  AuthoringAssetRevisionConflictError,
+  InvalidAuthoringAssetCursorError,
+  type AuthoringAssetService,
+} from "./authoring-asset-service.js";
+import {
+  AuthoringDraftValidationStaleError,
+  type AuthoringDraftValidator,
+} from "./authoring-draft-validator.js";
 
 interface Session {
   server: McpServer;
@@ -88,6 +103,8 @@ function createProtocolServer(options: {
   catalog?: AuthoringCatalogService;
   calls?: AuthoringCallService;
   drafts?: AuthoringDraftService;
+  validator?: AuthoringDraftValidator;
+  assets?: AuthoringAssetService;
 }): McpServer {
   const server = new McpServer({ name: "mcp-inspector-authoring", version: options.appVersion });
   const meta = () => ({ requestId: randomUUID(), protocolVersion: AUTHORING_PROTOCOL_VERSION });
@@ -191,6 +208,18 @@ function createProtocolServer(options: {
           error instanceof AuthoringDraftSourceRevisionConflictError) {
         return failure("DRAFT_REVISION_CONFLICT", "CONFLICT", error.message, false);
       }
+      if (error instanceof AuthoringDraftValidationStaleError) {
+        return failure("DRAFT_VALIDATION_STALE", "CONFLICT", error.message, false);
+      }
+      if (error instanceof AuthoringAssetRevisionConflictError) {
+        return failure("DRAFT_REVISION_CONFLICT", "CONFLICT", error.message, false);
+      }
+      if (error instanceof InvalidAuthoringAssetCursorError) {
+        return failure("INVALID_INPUT", "VALIDATION", error.message, false);
+      }
+      if (error instanceof AuthoringAssetNotFoundError) {
+        return failure("SOURCE_NOT_FOUND", "NOT_FOUND", error.message, false);
+      }
       if (error instanceof AuthoringDraftIdempotencyConflictError) {
         return failure("IDEMPOTENCY_CONFLICT", "CONFLICT", error.message, false);
       }
@@ -293,6 +322,23 @@ function createProtocolServer(options: {
       inputSchema: replaceDraftInputSchema,
     }, async (input) => draftAction(() => options.drafts!.replace(input)));
   }
+  if (options.validator !== undefined) {
+    server.registerTool("inspector_validate_draft", {
+      description: "Deterministically validates one exact Draft revision without calling downstream Tools.",
+      inputSchema: validateDraftInputSchema,
+    }, async (input) => draftAction(() => options.validator!.validate(input)));
+  }
+  if (options.assets !== undefined) {
+    server.registerTool("inspector_list_test_assets", {
+      description: "Lists bounded existing Tool tests, scenarios, and suites for Draft seeding.",
+      inputSchema: listTestAssetsInputSchema,
+    }, async ({ projectId, ...input }) => draftAction(() => options.assets!.list(projectId, input)));
+    server.registerTool("inspector_get_test_asset", {
+      description: "Returns a mandatory-redacted existing test asset at one exact current revision.",
+      inputSchema: getTestAssetInputSchema,
+    }, async ({ projectId, kind, assetId, revision }) =>
+      draftAction(() => options.assets!.get(projectId, kind, assetId, revision)));
+  }
   return server;
 }
 
@@ -304,6 +350,8 @@ export function createAuthoringMcpServer(options: {
   catalog?: AuthoringCatalogService;
   calls?: AuthoringCallService;
   drafts?: AuthoringDraftService;
+  validator?: AuthoringDraftValidator;
+  assets?: AuthoringAssetService;
 }): AuthoringMcpServer {
   const maxSessions = options.maxSessions ?? AUTHORING_LIMITS.maxSessions;
   const maxRequestBytes = options.maxRequestBytes ?? AUTHORING_LIMITS.maxRequestBytes;
@@ -347,6 +395,8 @@ export function createAuthoringMcpServer(options: {
         catalog: options.catalog,
         calls: options.calls,
         drafts: options.drafts,
+        validator: options.validator,
+        assets: options.assets,
       });
       const transport = new WebStandardStreamableHTTPServerTransport({
         sessionIdGenerator: randomUUID,

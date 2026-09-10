@@ -22,7 +22,8 @@ export const draftScenarioTestCaseSchema = z.object({
   ...scenarioAuthoredShape,
   localId,
 }).strict().superRefine((definition, context) => {
-  const parsed = scenarioTestCaseMutationSchema.safeParse({ ...definition, isEnabled: false });
+  const { localId: _localId, ...authored } = definition;
+  const parsed = scenarioTestCaseMutationSchema.safeParse({ ...authored, isEnabled: false });
   if (!parsed.success) {
     for (const issue of parsed.error.issues) context.addIssue({ ...issue, path: issue.path });
   }

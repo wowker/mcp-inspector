@@ -27,6 +27,8 @@ import { isSensitiveHeaderName } from "../shared/custom-headers.js";
 import { createAuthoringDraftService } from "./authoring/authoring-draft-service.js";
 import { createTestCaseService } from "./testing/test-case-service.js";
 import { createTestSuiteService } from "./testing/test-suite-service.js";
+import { createAuthoringDraftValidator } from "./authoring/authoring-draft-validator.js";
+import { createAuthoringAssetService } from "./authoring/authoring-asset-service.js";
 
 export interface InspectorAddress {
   host: "127.0.0.1";
@@ -248,12 +250,18 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
   const authoringDrafts = createAuthoringDraftService({
     projects, calls: authoringCalls, testCases, testSuites,
   });
+  const authoringDraftValidator = createAuthoringDraftValidator({
+    projects, drafts: authoringDrafts, tools, policies: authoringPolicies, testCases, testSuites,
+  });
+  const authoringAssets = createAuthoringAssetService({ projects, testCases, testSuites });
   const authoringMcp = createAuthoringMcpServer({
     appVersion: config.version,
     endpoint: () => `${serverOrigin}/mcp/authoring`,
     catalog: authoringCatalog,
     calls: authoringCalls,
     drafts: authoringDrafts,
+    validator: authoringDraftValidator,
+    assets: authoringAssets,
   });
   const workflowExecutions = createWorkflowExecutionService({
     projects, connections, tabs, workflows, environment: runtimeEnvironment, runs,

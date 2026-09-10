@@ -10,6 +10,8 @@ import { createAuthoringAuthService } from "../authoring-auth-service.js";
 import type { AuthoringCallService } from "../authoring-call-service.js";
 import { createAuthoringMcpServer } from "../authoring-mcp-server.js";
 import type { AuthoringDraftService } from "../authoring-draft-service.js";
+import type { AuthoringDraftValidator } from "../authoring-draft-validator.js";
+import type { AuthoringAssetService } from "../authoring-asset-service.js";
 
 const projectId = "00000000-0000-4000-8000-000000005001";
 const connectionId = "00000000-0000-4000-8000-000000005002";
@@ -60,8 +62,17 @@ describe("Authoring call MCP tools", () => {
         createdAt: detail.createdAt, updatedAt: detail.createdAt })),
       replace: vi.fn(() => ({ ...draftResult, revision: 2 })),
     };
+    const validator: AuthoringDraftValidator = { validate: vi.fn(() => ({
+      id: "00000000-0000-4000-8000-000000005006", projectId, draftId, draftRevision: 1,
+      definitionDigest: "b".repeat(64), toolSchemaHashes: {}, validationDigest: "c".repeat(64),
+      status: "VALID" as const, issues: [], createdAt: detail.createdAt,
+    })) };
+    const assets: AuthoringAssetService = {
+      list: vi.fn(() => ({ items: [], nextCursor: null })),
+      get: vi.fn(() => ({ id: "00000000-0000-4000-8000-000000005007", revision: 1 })),
+    };
     const server = createAuthoringMcpServer({
-      appVersion: "3.0.0-test", endpoint: endpoint.toString(), calls, drafts,
+      appVersion: "3.0.0-test", endpoint: endpoint.toString(), calls, drafts, validator, assets,
     });
     const app = createApp({
       sessionToken: "browser-session", allowedOrigin: endpoint.origin, version: "3.0.0-test",
@@ -79,7 +90,7 @@ describe("Authoring call MCP tools", () => {
       repository.close();
       rmSync(dataRoot, { recursive: true, force: true });
     });
-    return { client, calls, drafts };
+    return { client, calls, drafts, validator, assets };
   }
 
   it("calls a downstream Tool and returns traceable call and Run identities", async () => {
@@ -88,6 +99,7 @@ describe("Authoring call MCP tools", () => {
       "inspector_get_capabilities", "inspector_call_tool", "inspector_list_tool_calls", "inspector_get_tool_call",
       "inspector_create_draft", "inspector_create_draft_from_call", "inspector_list_drafts",
       "inspector_get_draft", "inspector_replace_draft",
+      "inspector_validate_draft", "inspector_list_test_assets", "inspector_get_test_asset",
     ]);
     const result = await client.callTool({ name: "inspector_call_tool", arguments: {
       projectId, connectionId, toolName: "sum", toolSchemaHash: "a".repeat(64), arguments: { a: 2 },
@@ -118,6 +130,21 @@ describe("Authoring call MCP tools", () => {
     expect(replaced.structuredContent).toMatchObject({ ok: true, data: { draftId, revision: 2 } });
     expect(drafts.createFromCall).toHaveBeenCalledWith(expect.objectContaining({ callId }));
     expect(drafts.replace).toHaveBeenCalledWith(expect.objectContaining({ expectedRevision: 1 }));
+  });
+
+  it("validates exact Draft revisions and discovers existing test assets", async () => {
+    const { client, validator, assets } = await fixture();
+    const validated = await client.callTool({ name: "inspector_validate_draft", arguments: {
+      projectId, draftId, revision: 1,
+    } });
+    expect(validated.structuredContent).toMatchObject({ ok: true, data: { status: "VALID", draftId } });
+    await client.callTool({ name: "inspector_list_test_assets", arguments: { projectId, limit: 10 } });
+    await client.callTool({ name: "inspector_get_test_asset", arguments: {
+      projectId, kind: "TEST_CASE", assetId: "00000000-0000-4000-8000-000000005007", revision: 1,
+    } });
+    expect(validator.validate).toHaveBeenCalledWith({ projectId, draftId, revision: 1 });
+    expect(assets.get).toHaveBeenCalledWith(projectId, "TEST_CASE",
+      "00000000-0000-4000-8000-000000005007", 1);
   });
 
   it("lists summaries and gets sanitized detail without project identity substitution", async () => {
