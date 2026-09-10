@@ -41,13 +41,13 @@
 
 ## Slice F — Atomic Apply and editor handoff
 
-- [ ] Task 16: Atomic save of exact validated revision.
-- [ ] Task 17: MCP save and UI editor handoff.
-- [ ] Checkpoint F: focused gates and `npm run verify` pass.
+- [x] Task 16: Atomic save of exact validated revision.
+- [x] Task 17: MCP save and UI editor handoff.
+- [x] Checkpoint F: focused gates and `npm run verify` pass.
 
 ## Slice G — Hardening and release
 
-- [ ] Task 18: Security, limits, restart, and observability.
+- [x] Task 18: Security, limits, restart, and observability.
 - [ ] Task 19: E2E, documentation, packaging, and release gates.
 - [ ] Final: `npm run verify` passes.
 - [ ] Final: `npm run verify:release-artifacts` passes.

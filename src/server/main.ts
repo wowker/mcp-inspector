@@ -22,7 +22,7 @@ import { createAuthoringAuthService } from "./authoring/authoring-auth-service.j
 import { createAuthoringMcpServer } from "./authoring/authoring-mcp-server.js";
 import { createAuthoringPolicyService } from "./authoring/authoring-policy-service.js";
 import { createAuthoringCatalogService } from "./authoring/authoring-catalog-service.js";
-import { createAuthoringCallService } from "./authoring/authoring-call-service.js";
+import { createAuthoringCallService, type AuthoringAuditEvent } from "./authoring/authoring-call-service.js";
 import { isSensitiveHeaderName } from "../shared/custom-headers.js";
 import { createAuthoringDraftService } from "./authoring/authoring-draft-service.js";
 import { createTestCaseService } from "./testing/test-case-service.js";
@@ -52,6 +52,7 @@ export interface StartInspectorOptions {
   version?: string;
   openBrowser?: (url: string) => void | Promise<void>;
   installSignalHandlers?: boolean;
+  writeAudit?: (event: AuthoringAuditEvent) => void;
 }
 
 interface InspectorCliStartOptions {
@@ -234,6 +235,7 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
     policies: authoringPolicies,
     tools,
     runs,
+    audit: options.writeAudit ?? ((event) => { console.info(JSON.stringify({ event: "authoring_call", ...event })); }),
     resolveSecrets(projectId, connectionId) {
       const values: string[] = [];
       const connection = connections.get(projectId, connectionId);
@@ -323,8 +325,10 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
     closePromise = (async () => {
       removeSignalHandlers();
       const listenerClose = server === undefined ? Promise.resolve() : closeServer(server);
-      await authoringMcp.close();
+      authoringMcp.beginShutdown();
       await authoringDraftExecutions.close();
+      await authoringCalls.close?.();
+      await authoringMcp.close();
       await workflowExecutions.close();
       await workflowDebug.close();
       await runs.close();

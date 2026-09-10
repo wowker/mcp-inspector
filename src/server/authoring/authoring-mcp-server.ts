@@ -52,6 +52,7 @@ import {
   AuthoringCallNotFoundError,
   AuthoringCallOutcomeUnknownError,
   AuthoringCallRateLimitError,
+  AuthoringCallShuttingDownError,
   AuthoringCleanupContextError,
   AuthoringDraftContextError,
   AuthoringPolicyDeniedError,
@@ -94,6 +95,7 @@ import {
   AuthoringApplyValidationError,
   type AuthoringApplyService,
 } from "./authoring-apply-service.js";
+import { authoringBoundedLimit } from "./authoring-limits.js";
 
 interface Session {
   server: McpServer;
@@ -103,6 +105,7 @@ interface Session {
 export interface AuthoringMcpServer {
   readonly maxRequestBytes: number;
   isClosed(): boolean;
+  beginShutdown(): void;
   handleRequest(request: Request, parsedBody?: unknown): Promise<Response>;
   close(): Promise<void>;
 }
@@ -187,6 +190,9 @@ function createProtocolServer(options: {
       if (error instanceof AuthoringCallRateLimitError || error instanceof AuthoringCallConcurrencyError ||
           error instanceof AuthoringCallGlobalLimitError) {
         return failure("CALL_LIMIT_REACHED", "RATE_LIMIT", error.message, true);
+      }
+      if (error instanceof AuthoringCallShuttingDownError) {
+        return failure("AUTHORING_SHUTTING_DOWN", "CONNECTION", error.message, true);
       }
       if (error instanceof AuthoringCallOutcomeUnknownError) {
         return failure("CALL_OUTCOME_UNKNOWN", "CONFLICT", error.message, false);
@@ -415,20 +421,20 @@ export function createAuthoringMcpServer(options: {
   apply?: AuthoringApplyService;
   assets?: AuthoringAssetService;
 }): AuthoringMcpServer {
-  const maxSessions = options.maxSessions ?? AUTHORING_LIMITS.maxSessions;
-  const maxRequestBytes = options.maxRequestBytes ?? AUTHORING_LIMITS.maxRequestBytes;
-  if (!Number.isSafeInteger(maxSessions) || maxSessions < 1) throw new Error("maxSessions must be a positive integer");
-  if (!Number.isSafeInteger(maxRequestBytes) || maxRequestBytes < 1) {
-    throw new Error("maxRequestBytes must be a positive integer");
-  }
+  const maxSessions = authoringBoundedLimit(options.maxSessions, AUTHORING_LIMITS.maxSessions,
+    AUTHORING_LIMITS.maxSessions, "maxSessions");
+  const maxRequestBytes = authoringBoundedLimit(options.maxRequestBytes, AUTHORING_LIMITS.maxRequestBytes,
+    AUTHORING_LIMITS.maxRequestBytes, "maxRequestBytes");
 
   const sessions = new Map<string, Session>();
   let pendingInitializations = 0;
   let closed = false;
+  let sessionsClosed = false;
 
   return {
     maxRequestBytes,
     isClosed: () => closed,
+    beginShutdown() { closed = true; },
     async handleRequest(request, parsedBody) {
       if (closed) return jsonError(503, "AUTHORING_SHUTTING_DOWN", "Authoring MCP is shutting down");
 
@@ -487,8 +493,9 @@ export function createAuthoringMcpServer(options: {
       }
     },
     async close() {
-      if (closed) return;
       closed = true;
+      if (sessionsClosed) return;
+      sessionsClosed = true;
       const active = [...sessions.values()];
       sessions.clear();
       await Promise.allSettled(active.map(({ server }) => server.close()));

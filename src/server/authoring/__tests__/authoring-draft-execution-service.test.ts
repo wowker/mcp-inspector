@@ -205,6 +205,30 @@ describe("AuthoringDraftExecutionService", () => {
     } finally { await state.service.close(); state.projects.close(); }
   });
 
+  it("cancels and persists active Draft executions when the service shuts down", async () => {
+    let startedCall!: () => void;
+    const began = new Promise<void>((resolve) => { startedCall = resolve; });
+    const state = fixture(async (input, signal) => {
+      startedCall();
+      await new Promise<void>((resolve) => signal?.addEventListener("abort", () => resolve(), { once: true }));
+      return { id: state.createId(), projectId, connectionId, toolName: input.toolName,
+        toolSnapshotId: state.createId(), toolSchemaHash, context: input.context, purpose: input.purpose,
+        status: "CANCELLED", runId: state.createId(), idempotencyKey: input.idempotencyKey,
+        arguments: input.arguments, mayHaveSideEffects: false, response: null,
+        error: { code: "CALL_CANCELLED", message: "Cancelled" }, createdAt: state.now().toISOString(),
+        startedAt: state.now().toISOString(), completedAt: state.now().toISOString(), durationMs: 1 };
+    });
+    try {
+      const draft = state.createDraft(toolDefinition());
+      const execution = state.service.start({ projectId, draftId: draft.draftId, revision: draft.revision,
+        validationDigest, idempotencyKey: "shutdown", inputs: {} });
+      await began;
+      await state.service.close();
+      expect(state.service.get(projectId, execution.id)).toMatchObject({ status: "CANCELLED",
+        testCases: [expect.objectContaining({ status: "CANCELLED" })] });
+    } finally { await state.service.close(); state.projects.close(); }
+  });
+
   it("marks active executions interrupted when a project is recovered after restart", async () => {
     const state = fixture();
     try {

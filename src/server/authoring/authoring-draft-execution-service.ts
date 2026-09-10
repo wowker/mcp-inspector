@@ -11,6 +11,7 @@ import {
 import { evaluateAssertion, type AssertionContext } from "../../shared/testing/assertion-engine.js";
 import type { AssertionDefinition, AssertionResult } from "../../shared/testing/assertions.js";
 import type { JsonObject, JsonValue } from "../../shared/tool-definition.js";
+import { AUTHORING_LIMITS } from "../../shared/authoring/protocol.js";
 import { createScriptRunner, type ScriptRunner } from "../workflows/script-runner.js";
 import { canonicalJson } from "../tools/tool-service.js";
 import {
@@ -29,7 +30,7 @@ import {
 } from "./authoring-draft-execution-repository.js";
 
 const terminal = new Set(["PASSED", "FAILED", "ERROR", "CANCELLED", "INTERRUPTED"]);
-const maximumStoredResultBytes = 1_048_576;
+const maximumStoredResultBytes = AUTHORING_LIMITS.maxStructuredResponseBytes;
 
 export class AuthoringDraftExecutionNotFoundError extends Error {
   constructor() { super("Authoring Draft execution not found"); this.name = "AuthoringDraftExecutionNotFoundError"; }
@@ -53,7 +54,12 @@ export interface AuthoringDraftExecutionService {
   close(): Promise<void>;
 }
 
-interface ActiveExecution { controller: AbortController; startedAt: number }
+interface ActiveExecution {
+  controller: AbortController;
+  executionId: string;
+  projectId: string;
+  startedAt: number;
+}
 
 function assertionContext(response: JsonValue | null, error: { code: string; message: string } | null,
   status: string, durationMs: number | null): AssertionContext {
@@ -235,7 +241,8 @@ export function createAuthoringDraftExecutionService(options: {
           inputs: input.inputs, createdAt: now().toISOString() });
         if (created.created) {
           const operationKey = key(input.projectId, created.execution.id);
-          const state = { controller: new AbortController(), startedAt: now().getTime() };
+          const state = { controller: new AbortController(), executionId: created.execution.id,
+            projectId: input.projectId, startedAt: now().getTime() };
           active.set(operationKey, state);
           const operation = Promise.resolve().then(() => execute(input.projectId, created.execution.id, input))
             .finally(() => { active.delete(operationKey); operations.delete(operationKey); });
@@ -281,7 +288,10 @@ export function createAuthoringDraftExecutionService(options: {
       return changed;
     },
     async close() {
-      for (const state of active.values()) state.controller.abort();
+      for (const state of active.values()) {
+        repository(state.projectId).cancel(state.projectId, state.executionId, now().toISOString(), elapsed(state.startedAt));
+        state.controller.abort();
+      }
       await Promise.allSettled([...operations.values()]);
       if (ownsScriptRunner) await scriptRunner.close();
       active.clear(); operations.clear();

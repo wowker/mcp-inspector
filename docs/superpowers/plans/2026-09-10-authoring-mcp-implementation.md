@@ -362,12 +362,12 @@
 - Create: `src/server/authoring/__tests__/authoring-security.test.ts`
 - Create: `src/server/authoring/__tests__/authoring-restart.test.ts`
 
-- [ ] Add adversarial tests for prompt-like downstream text, prototype keys, cursor tampering, traversal-shaped IDs, oversized schemas/results/Drafts, Origin spoofing, Token leakage, and cross-project/connection access.
-- [ ] Enforce documented request, session, call, concurrency, duration, Draft, output, and pagination bounds outside AI-controlled input.
-- [ ] Emit sanitized audit fields: request/tool IDs, stable resource IDs, policy decision, status, duration, error code, redaction count, and truncation only.
-- [ ] Implement bounded shutdown ordering: reject new work, cancel Draft executions, settle/mark calls, close MCP sessions, then close existing runtimes and databases.
-- [ ] Run security/restart tests and `npm run typecheck`.
-- [ ] Commit with `fix(authoring): harden local authoring boundary`.
+- [x] Add adversarial tests for prompt-like downstream text, prototype keys, cursor tampering, traversal-shaped IDs, oversized schemas/results/Drafts, Origin spoofing, Token leakage, and cross-project/connection access.
+- [x] Enforce documented request, session, call, concurrency, duration, Draft, output, and pagination bounds outside AI-controlled input.
+- [x] Emit sanitized audit fields: request/tool IDs, stable resource IDs, policy decision, status, duration, error code, redaction count, and truncation only.
+- [x] Implement bounded shutdown ordering: reject new work, cancel Draft executions, settle/mark calls, close MCP sessions, then close existing runtimes and databases.
+- [x] Run security/restart tests and `npm run typecheck`.
+- [x] Commit with `fix(authoring): harden local authoring boundary`.
 
 ### Task 19: Complete E2E, documentation, packaging, and release gates
 

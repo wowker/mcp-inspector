@@ -23,8 +23,13 @@ import type { ToolService } from "../tools/tool-service.js";
 import { canonicalJson } from "../tools/tool-service.js";
 import { AuthoringCallRepository, type StoredAuthoringCall } from "./authoring-call-repository.js";
 import type { AuthoringPolicyService } from "./authoring-policy-service.js";
+import { authoringBoundedLimit } from "./authoring-limits.js";
+import {
+  boundAuthoringValue,
+  sanitizeAuthoringError,
+  sanitizeAuthoringValue,
+} from "./authoring-redaction.js";
 
-const sensitiveKey = /(?:^|[-_])(authorization|token|secret|password|passwd|cookie|api[-_]?key)(?:$|[-_])/iu;
 const uuid = z.string().uuid();
 const terminalCallStatuses = new Set<AuthoringCallStatus>([
   "SUCCEEDED", "FAILED", "UNKNOWN", "BLOCKED", "CANCELLED",
@@ -66,44 +71,34 @@ export class AuthoringCleanupContextError extends Error {
 export class AuthoringCallNotFoundError extends Error {
   constructor() { super("Authoring call not found"); this.name = "AuthoringCallNotFoundError"; }
 }
+export class AuthoringCallShuttingDownError extends Error {
+  constructor() { super("Authoring calls are shutting down"); this.name = "AuthoringCallShuttingDownError"; }
+}
+
+export interface AuthoringAuditEvent {
+  requestId: string;
+  callId: string | null;
+  runId: string | null;
+  projectId: string;
+  connectionId: string;
+  toolName: string;
+  policyDecision: "ALLOWED" | "DENIED";
+  status: AuthoringCallStatus;
+  durationMs: number | null;
+  errorCode: string | null;
+  redactionCount: number;
+  truncated: boolean;
+}
 
 export interface AuthoringCallService {
   call(input: AuthoringCallToolInput, signal?: AbortSignal): Promise<AuthoringToolCallDetail>;
   get(projectId: string, callId: string): AuthoringToolCallDetail;
   list(projectId: string, input?: Omit<AuthoringListToolCallsInput, "projectId">): AuthoringToolCallPage;
-}
-
-function redactText(value: string, secrets: readonly string[]): string {
-  let result = value.replace(/Bearer\s+[^\s"']+/giu, "Bearer [REDACTED]");
-  for (const secret of secrets) {
-    if (secret.length > 0) result = result.replaceAll(secret, "[REDACTED]");
-  }
-  return result;
-}
-
-function sanitize(value: unknown, secrets: readonly string[] = [], depth = 0): JsonValue {
-  if (depth > 50) return "[TRUNCATED]";
-  if (value === null || typeof value === "boolean") return value;
-  if (typeof value === "number") return Number.isFinite(value) ? value : "[INVALID_NUMBER]";
-  if (typeof value === "string") return redactText(value, secrets);
-  if (Array.isArray(value)) return value.slice(0, 10_000).map((item) => sanitize(item, secrets, depth + 1));
-  if (typeof value !== "object") return "[UNAVAILABLE]";
-  const result: JsonObject = {};
-  for (const [key, item] of Object.entries(value as Record<string, unknown>).slice(0, 10_000)) {
-    result[key] = sensitiveKey.test(key) ? "[REDACTED]" : sanitize(item, secrets, depth + 1);
-  }
-  return result;
+  close?(): Promise<void>;
 }
 
 function bounded(value: JsonValue, maximumBytes = AUTHORING_LIMITS.maxStructuredResponseBytes): JsonValue {
-  const json = JSON.stringify(value);
-  if (Buffer.byteLength(json, "utf8") <= maximumBytes) return value;
-  return {
-    truncated: true,
-    originalBytes: Buffer.byteLength(json, "utf8"),
-    sha256: createHash("sha256").update(json).digest("hex"),
-    preview: Array.from(json).slice(0, 512).join(""),
-  };
+  return boundAuthoringValue(value, maximumBytes).value;
 }
 
 function mayHaveSideEffects(
@@ -114,8 +109,10 @@ function mayHaveSideEffects(
     annotations?.readOnlyHint !== true || annotations.destructiveHint === true;
 }
 
-function runError(run: RunDetail): { code: string; message: string } | null {
-  if (run.response?.error !== null && run.response?.error !== undefined) return run.response.error;
+function runError(run: RunDetail, secrets: readonly string[]): { code: string; message: string } | null {
+  if (run.response?.error !== null && run.response?.error !== undefined) {
+    return sanitizeAuthoringError(run.response.error, secrets);
+  }
   if (run.status === "failed") return { code: "CALL_FAILED", message: "Downstream Tool call failed" };
   if (run.status === "cancelled") return { code: "CALL_CANCELLED", message: "Downstream Tool call was cancelled" };
   if (run.status === "interrupted") return { code: "CALL_INTERRUPTED", message: "Downstream Tool call was interrupted" };
@@ -152,14 +149,16 @@ export function createAuthoringCallService(options: {
   now?: () => Date;
   resolveSecrets?: (projectId: string, connectionId: string) => string[];
   maxGlobalCalls?: number;
+  audit?: (event: AuthoringAuditEvent) => void;
 }): AuthoringCallService {
   const createId = options.createId ?? randomUUID;
   const now = options.now ?? (() => new Date());
-  const maxGlobalCalls = options.maxGlobalCalls ?? AUTHORING_LIMITS.maxGlobalCalls;
-  if (!Number.isSafeInteger(maxGlobalCalls) || maxGlobalCalls < 1 || maxGlobalCalls > AUTHORING_LIMITS.maxGlobalCalls) {
-    throw new Error("Authoring global call limit is invalid");
-  }
+  const maxGlobalCalls = authoringBoundedLimit(options.maxGlobalCalls, AUTHORING_LIMITS.maxGlobalCalls,
+    AUTHORING_LIMITS.maxGlobalCalls, "Authoring global call limit");
   let activeCalls = 0;
+  let acceptingCalls = true;
+  const activeControllers = new Set<AbortController>();
+  const activeSettlements = new Set<Promise<void>>();
   const repository = (projectId: string) => new AuthoringCallRepository(options.projects.open(projectId));
 
   function secrets(projectId: string, connectionId: string): string[] {
@@ -172,7 +171,7 @@ export function createAuthoringCallService(options: {
     const value = run.response?.result;
     return value === null || value === undefined
       ? null
-      : bounded(sanitize(value, secrets(call.projectId, call.connectionId)), 512 * 1024);
+      : bounded(sanitizeAuthoringValue(value, secrets(call.projectId, call.connectionId)).value, 512 * 1024);
   }
 
   function detail(call: StoredAuthoringCall): AuthoringToolCallDetail {
@@ -212,7 +211,7 @@ export function createAuthoringCallService(options: {
     const run = options.runs.getRedacted(call.projectId, call.runId);
     const finished = repository(call.projectId).finish({
       projectId: call.projectId, callId: call.id, status: terminalStatus(call, run),
-      summary: responseSummary(run), error: runError(run),
+      summary: responseSummary(run), error: runError(run, secrets(call.projectId, call.connectionId)),
       completedAt: run.completedAt ?? now().toISOString(), durationMs: run.durationMs ?? 0,
     });
     return detail(finished);
@@ -220,6 +219,7 @@ export function createAuthoringCallService(options: {
 
   return {
     async call(rawInput, signal) {
+      if (!acceptingCalls) throw new AuthoringCallShuttingDownError();
       const input = authoringCallToolInputSchema.parse(rawInput);
       const { idempotencyKey: _idempotencyKey, ...requestIdentity } = input;
       const canonicalRequest = canonicalJson(requestIdentity);
@@ -230,6 +230,10 @@ export function createAuthoringCallService(options: {
       }
       const policy = options.policies.get(input.projectId, input.connectionId);
       if (!options.policies.isToolAllowed(input.projectId, input.connectionId, input.toolName)) {
+        options.audit?.({ requestId: randomUUID(), callId: null,
+          runId: null, projectId: input.projectId, connectionId: input.connectionId, toolName: input.toolName,
+          policyDecision: "DENIED", status: "BLOCKED", durationMs: 0, errorCode: "AUTHORING_POLICY_DENIED",
+          redactionCount: 0, truncated: false });
         throw new AuthoringPolicyDeniedError();
       }
       const requestHash = createHash("sha256").update(canonicalRequest).digest("hex");
@@ -252,7 +256,8 @@ export function createAuthoringCallService(options: {
 
       const createdAtDate = now();
       const secretValues = secrets(input.projectId, input.connectionId);
-      const sanitizedArguments = sanitize(input.arguments, secretValues);
+      const argumentSanitization = sanitizeAuthoringValue(input.arguments, secretValues);
+      const sanitizedArguments = argumentSanitization.value;
       if (!isJsonValue(sanitizedArguments) || typeof sanitizedArguments !== "object" || sanitizedArguments === null || Array.isArray(sanitizedArguments)) {
         throw new AuthoringToolArgumentsError([]);
       }
@@ -280,6 +285,13 @@ export function createAuthoringCallService(options: {
 
       activeCalls += 1;
       const call = claimed.call;
+      const internalController = new AbortController();
+      activeControllers.add(internalController);
+      const effectiveSignal = signal === undefined ? internalController.signal
+        : AbortSignal.any([signal, internalController.signal]);
+      let settle!: () => void;
+      const settlement = new Promise<void>((resolve) => { settle = resolve; });
+      activeSettlements.add(settlement);
       try {
         let run;
         try {
@@ -295,23 +307,42 @@ export function createAuthoringCallService(options: {
               message: error instanceof RunToolSnapshotChangedError ? "Tool Schema changed" : "Tool call could not start" },
             completedAt: now().toISOString(), durationMs: 0,
           });
+          options.audit?.({ requestId: call.id, callId: call.id, runId: null, projectId: call.projectId,
+            connectionId: call.connectionId, toolName: call.toolName, policyDecision: "ALLOWED",
+            status: blocked.status, durationMs: 0, errorCode: blocked.error?.code ?? null,
+            redactionCount: argumentSanitization.redactionCount, truncated: argumentSanitization.truncated });
           if (error instanceof RunToolSnapshotChangedError) throw new AuthoringToolSchemaChangedError();
           return detail(blocked);
         }
         repository(input.projectId).markRunning(input.projectId, call.id, run.id, now().toISOString());
-        try { await options.runs.waitForTerminal(input.projectId, run.id, signal); }
+        try { await options.runs.waitForTerminal(input.projectId, run.id, effectiveSignal); }
         catch { /* Cancellation makes the Run terminal before rejecting the wait. */ }
         const terminalRun = options.runs.getRedacted(input.projectId, run.id);
         const currentCall = repository(input.projectId).get(input.projectId, call.id)!;
         const status = terminalStatus(currentCall, terminalRun);
         const finished = repository(input.projectId).finish({
           projectId: input.projectId, callId: call.id, status,
-          summary: responseSummary(terminalRun), error: runError(terminalRun),
+          summary: responseSummary(terminalRun), error: runError(terminalRun, secretValues),
           completedAt: terminalRun.completedAt ?? now().toISOString(), durationMs: terminalRun.durationMs ?? 0,
         });
+        const responseSanitization = terminalRun.response?.result === undefined
+          ? { value: null, redactionCount: 0, truncated: false }
+          : sanitizeAuthoringValue(terminalRun.response.result, secretValues);
+        const argumentOutputTruncated = boundAuthoringValue(sanitizedArguments, 256 * 1024).truncated;
+        const responseOutputTruncated = terminalRun.response?.result === undefined ? false
+          : boundAuthoringValue(responseSanitization.value, 512 * 1024).truncated;
+        options.audit?.({ requestId: call.id, callId: call.id, runId: run.id, projectId: call.projectId,
+          connectionId: call.connectionId, toolName: call.toolName, policyDecision: "ALLOWED",
+          status: finished.status, durationMs: finished.durationMs, errorCode: finished.error?.code ?? null,
+          redactionCount: argumentSanitization.redactionCount + responseSanitization.redactionCount,
+          truncated: argumentSanitization.truncated || responseSanitization.truncated || argumentOutputTruncated ||
+            responseOutputTruncated || terminalRun.response?.truncated === true });
         return detail(finished);
       } finally {
         activeCalls -= 1;
+        activeControllers.delete(internalController);
+        settle();
+        activeSettlements.delete(settlement);
       }
     },
     get(projectId, callId) {
@@ -340,6 +371,11 @@ export function createAuthoringCallService(options: {
         })),
         nextCursor: page.nextCursor,
       };
+    },
+    async close() {
+      acceptingCalls = false;
+      for (const controller of activeControllers) controller.abort();
+      await Promise.allSettled([...activeSettlements]);
     },
   };
 }

@@ -195,7 +195,7 @@ describe("Authoring MCP Streamable HTTP route", () => {
 
   test("stops accepting protocol traffic during shutdown", async () => {
     const { app, authoringMcp, token } = await fixture();
-    await authoringMcp.close();
+    authoringMcp.beginShutdown();
     const response = await app.request("/mcp/authoring", {
       method: "POST",
       headers: {
@@ -207,6 +207,8 @@ describe("Authoring MCP Streamable HTTP route", () => {
     });
     expect(response.status).toBe(503);
     expect(await response.json()).toMatchObject({ error: { code: "AUTHORING_SHUTTING_DOWN" } });
+    await authoringMcp.close();
+    await authoringMcp.close();
   });
 
   test("completes initialize, list, call, and close over the real loopback listener", async () => {
