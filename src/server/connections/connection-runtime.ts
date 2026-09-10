@@ -30,7 +30,7 @@ export interface ConnectionRuntime {
   status(connectionId: string): ConnectionRecord["status"];
   callTool(
     connectionId: string,
-    input: Parameters<McpSession["callTool"]>[0],
+    input: Parameters<McpSession["callTool"]>[0] & { timeoutMs?: number },
   ): Promise<CallToolResult>;
   disconnect(connectionId: string): Promise<void>;
   close(): Promise<void>;
@@ -198,17 +198,21 @@ export function createConnectionRuntime(options: {
       if (session === undefined) throw new McpNotConnectedError();
       if (isAborted(input.signal)) throw new CallCancelledError();
       const connection = options.resolveConnection(connectionId);
+      const { timeoutMs: requestedTimeoutMs, ...callInput } = input;
+      const timeoutMs = requestedTimeoutMs === undefined
+        ? connection.timeoutMs
+        : Math.min(connection.timeoutMs, requestedTimeoutMs);
       const timeoutController = new AbortController();
       const timeout = setTimeout(
         () => timeoutController.abort(new CallTimeoutError()),
-        connection.timeoutMs,
+        timeoutMs,
       );
       const timeoutSignal = timeoutController.signal;
       const signal = input.signal === undefined
         ? timeoutSignal
         : AbortSignal.any([input.signal, timeoutSignal]);
       try {
-        return await session.callTool({ ...input, signal });
+        return await session.callTool({ ...callInput, signal });
       } catch (error) {
         if (isAborted(input.signal)) throw new CallCancelledError();
         if (timeoutSignal.aborted) throw new CallTimeoutError();

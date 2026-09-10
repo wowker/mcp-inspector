@@ -187,13 +187,13 @@
 - Modify: `src/server/runs/run-service.ts`
 - Create: `src/server/authoring/__tests__/authoring-call-service.test.ts`
 
-- [ ] Add failing tests for all four policy modes, schema-hash mismatch, invalid arguments, call limits, concurrent limits, timeout, cancellation, idempotency replay/conflict, and uncertain non-idempotent outcomes.
-- [ ] Implement `STANDALONE` and `DRAFT` call contexts; require exact project, connection, Tool name, schema hash, purpose, arguments, and idempotency key.
-- [ ] Persist intent before invoking downstream, then terminal status and ordinary `runId`; map uncertain writes to `UNKNOWN` and prohibit automatic retry.
-- [ ] Reuse `ConnectionRuntime` and Run lifecycle rather than creating a second invocation engine.
-- [ ] Apply mandatory Authoring redaction and response truncation before returning or storing Authoring-visible material.
-- [ ] Run focused call/Run tests and `npm run typecheck`.
-- [ ] Commit with `feat(authoring): add audited standalone tool calls`.
+- [x] Add failing tests for all four policy modes, schema-hash mismatch, invalid arguments, call limits, concurrent limits, timeout, cancellation, idempotency replay/conflict, and uncertain non-idempotent outcomes.
+- [x] Implement `STANDALONE` and `DRAFT` call contexts; require exact project, connection, Tool name, schema hash, purpose, arguments, and idempotency key.
+- [x] Persist intent before invoking downstream, then terminal status and ordinary `runId`; map uncertain writes to `UNKNOWN` and prohibit automatic retry.
+- [x] Reuse `ConnectionRuntime` and Run lifecycle rather than creating a second invocation engine.
+- [x] Apply mandatory Authoring redaction and response truncation before returning or storing Authoring-visible material.
+- [x] Run focused call/Run tests and `npm run typecheck`.
+- [x] Commit with `feat(authoring): add audited standalone tool calls`.
 
 ### Task 10: Expose call history and Authoring Run origin
 

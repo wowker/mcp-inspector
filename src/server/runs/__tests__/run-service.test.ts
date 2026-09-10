@@ -220,6 +220,10 @@ describe("RunService", () => {
       expect(JSON.stringify(detail.request.http)).toContain("Bearer visible-secret");
       expect(JSON.stringify(detail.events)).toContain("session=returned");
       expect(JSON.stringify(detail.events)).not.toContain("[REDACTED]");
+      const authoringVisible = service.getRedacted(projectId, started.id);
+      expect(authoringVisible.redactSensitiveInfo).toBe(true);
+      expect(JSON.stringify(authoringVisible.request.http)).not.toContain("visible-secret");
+      expect(JSON.stringify(authoringVisible.events)).not.toContain("session=returned");
 
       await connections.update(projectId, connectionId, { redactSensitiveInfo: true });
       const hiddenAgain = service.get(projectId, started.id);

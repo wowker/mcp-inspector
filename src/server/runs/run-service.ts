@@ -97,7 +97,10 @@ export interface RunServiceWithEvents extends RunService {
     toolName: string;
     idempotencyKey: string;
     arguments: Record<string, unknown>;
+    timeoutMs?: number;
+    expectedToolSnapshotId?: string;
   }): RunSummary;
+  getRedacted(projectId: string, runId: string): RunDetail;
   startReplayInvocation(input: StartReplayInvocationInput): RunSummary;
   waitForTerminal(projectId: string, runId: string, signal?: AbortSignal): Promise<RunDetail>;
   close(): Promise<void>;
@@ -106,6 +109,7 @@ export interface RunServiceWithEvents extends RunService {
 interface ActiveRun {
   controller: AbortController;
   observationsClosed: boolean;
+  timeoutMs?: number;
 }
 
 export function createRunService(projects: ProjectService, connections: ConnectionService, tabs: TabService,
@@ -196,6 +200,7 @@ export function createRunService(projects: ProjectService, connections: Connecti
       appendStatus(projectId, runId, "running", runningAt);
       const result = await runtime.callTool(run.connectionId, {
         name: run.toolName, arguments: run.request.arguments, signal: controller.signal, observe,
+        timeoutMs: activeRun.timeoutMs,
       });
       activeRun.observationsClosed = true;
       const completedAt = timestamp();
@@ -249,12 +254,14 @@ export function createRunService(projects: ProjectService, connections: Connecti
     arguments: Record<string, unknown>;
     replayedFromRunId?: string | null;
     expectedToolSnapshotId?: string;
+    timeoutMs?: number;
   }): RunSummary {
     if (!uuid.safeParse(input.projectId).success ||
         (input.tabId !== null && !uuid.safeParse(input.tabId).success) ||
         !uuid.safeParse(input.connectionId).success ||
         typeof input.toolName !== "string" || input.toolName.trim() === "" || input.toolName.length > 512 ||
         typeof input.idempotencyKey !== "string" || input.idempotencyKey.length < 1 || input.idempotencyKey.length > 200 ||
+        (input.timeoutMs !== undefined && (!Number.isSafeInteger(input.timeoutMs) || input.timeoutMs < 100 || input.timeoutMs > 600_000)) ||
         typeof input.arguments !== "object" || input.arguments === null || Array.isArray(input.arguments)) {
       throw new InvalidRunError();
     }
@@ -302,7 +309,9 @@ export function createRunService(projects: ProjectService, connections: Connecti
       }
       return result.run;
     }
-    activeRuns.set(key(input.projectId, id), { controller: new AbortController(), observationsClosed: false });
+    activeRuns.set(key(input.projectId, id), {
+      controller: new AbortController(), observationsClosed: false, timeoutMs: input.timeoutMs,
+    });
     queueMicrotask(() => {
       const operation = execute(input.projectId, id).catch(() => undefined);
       executions.add(operation);
@@ -421,6 +430,12 @@ export function createRunService(projects: ProjectService, connections: Connecti
     },
     getSummary: requireSummary,
     get: requireRun,
+    getRedacted(projectId, runId) {
+      if (!uuid.safeParse(runId).success) throw new RunNotFoundError();
+      const run = repository(projectId).get(projectId, runId);
+      if (run === null) throw new RunNotFoundError();
+      return visibleRun(run, true);
+    },
     events(projectId, runId, after = 0, limit): RunEvent[] {
       const run = requireSummary(projectId, runId);
       if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1 || limit > 1_000)) throw new InvalidRunError();

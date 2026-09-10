@@ -22,7 +22,7 @@
 ## Slice C — Standalone Tool calls, audit, and Run lineage
 
 - [x] Task 8: Project migrations 022–023.
-- [ ] Task 9: Policy-enforced standalone calls.
+- [x] Task 9: Policy-enforced standalone calls.
 - [ ] Task 10: Call history and Authoring Run origin.
 - [ ] Checkpoint C: focused gates and `npm run verify` pass.
 

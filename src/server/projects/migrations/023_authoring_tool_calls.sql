@@ -2,6 +2,8 @@ CREATE TABLE authoring_tool_calls (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   context_kind TEXT NOT NULL CHECK (context_kind IN ('STANDALONE', 'DRAFT')),
+  context_label TEXT CHECK (context_label IS NULL OR
+    (context_label = trim(context_label) AND length(context_label) BETWEEN 1 AND 200)),
   draft_id TEXT,
   draft_revision INTEGER CHECK (draft_revision IS NULL OR draft_revision >= 1),
   connection_id TEXT NOT NULL,

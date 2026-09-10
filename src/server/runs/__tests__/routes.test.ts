@@ -22,6 +22,7 @@ function fake(overrides: Partial<RunServiceWithEvents> = {}): RunServiceWithEven
     list: () => ({ runs: [summary], nextCursor: null }), getSummary: () => summary, get: () => detail,
     assertExists: () => summary,
     startInvocation: () => summary,
+    getRedacted: () => detail,
     startReplayInvocation: () => summary,
     waitForTerminal: async () => detail, setPinned: () => summary,
     delete: () => undefined, clearHistory: () => ({ deleted: 0, retained: 0 }),

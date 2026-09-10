@@ -49,11 +49,11 @@ function discoverMigrations(migrationsUrl: URL): Migration[] {
     if (!Number.isSafeInteger(current.version) || current.version <= 0) {
       throw new Error("Migration versions must be positive integers");
     }
+    if (index > 0 && migrations[index - 1].version === current.version) {
+      throw new Error(`Duplicate migration version: ${current.version}`);
+    }
     if (current.version !== index + 1) {
       throw new Error(`Project migration versions must be contiguous; expected ${index + 1}`);
-    }
-    if (index > 0 && migrations[index - 1].version >= current.version) {
-      throw new Error(`Duplicate or out-of-order migration version: ${current.version}`);
     }
   }
   return migrations;
