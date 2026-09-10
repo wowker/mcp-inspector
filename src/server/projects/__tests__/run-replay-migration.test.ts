@@ -43,7 +43,7 @@ describe("run replay migration", () => {
     const { projects, store } = fixture();
     try {
       expect(store.database.prepare("SELECT version FROM schema_migrations ORDER BY version").all())
-        .toEqual(Array.from({ length: 21 }, (_, index) => ({ version: index + 1 })));
+        .toEqual(Array.from({ length: 23 }, (_, index) => ({ version: index + 1 })));
       const columns = store.database.prepare("PRAGMA table_info(runs)").all() as Array<{ name: string }>;
       expect(columns.map(({ name }) => name)).toEqual(expect.arrayContaining(["pinned", "replayed_from_run_id"]));
       const indexes = store.database.prepare("PRAGMA index_list(runs)").all() as Array<{ name: string }>;
@@ -124,7 +124,7 @@ describe("run replay migration", () => {
     const upgraded = createProjectService({ dataRoot });
     try {
       const store = upgraded.open(project.id);
-      expect(store.database.prepare("SELECT max(version) AS version FROM schema_migrations").get()).toEqual({ version: 21 });
+      expect(store.database.prepare("SELECT max(version) AS version FROM schema_migrations").get()).toEqual({ version: 23 });
       expect(store.database.prepare("SELECT count(*) AS count FROM runs WHERE pinned != 0 OR replayed_from_run_id IS NOT NULL").get())
         .toEqual({ count: 0 });
     } finally { upgraded.close(); }

@@ -170,12 +170,12 @@
 - Modify: `src/server/projects/project-store.ts`
 - Create: `src/server/projects/__tests__/authoring-migrations.test.ts`
 
-- [ ] Add tests upgrading a migration-020 fixture through 021–023 without changing any released migration bytes.
-- [ ] Define Draft bundle/revision, validation, execution, Apply/idempotency mapping, and Authoring call tables with project-local foreign keys and bounded JSON columns.
-- [ ] Add indexes for stable pagination and uniqueness for scoped idempotency keys.
-- [ ] Verify rollback on each injected migration failure and source/dist migration parity.
-- [ ] Run focused migration tests and `npm run typecheck`.
-- [ ] Commit with `feat(storage): add authoring draft and call schema`.
+- [x] Add tests upgrading a migration-020 fixture through 021–023 without changing any released migration bytes.
+- [x] Define Draft bundle/revision, validation, execution, Apply/idempotency mapping, and Authoring call tables with project-local foreign keys and bounded JSON columns.
+- [x] Add indexes for stable pagination and uniqueness for scoped idempotency keys.
+- [x] Verify rollback on each injected migration failure and source/dist migration parity.
+- [x] Run focused migration tests and `npm run typecheck`.
+- [x] Commit with `feat(storage): add authoring draft and call schema`.
 
 ### Task 9: Implement policy-enforced standalone calls
 
