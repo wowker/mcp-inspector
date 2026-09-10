@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import Database from "better-sqlite3";
 import { resolveRegistryPath } from "./project-paths.js";
+import { applyRegistryMigrations } from "../registry/registry-migrator.js";
 
 export interface ProjectSummary {
   id: string;
@@ -33,23 +34,19 @@ function toSummary(row: ProjectRegistryRow): ProjectSummary {
 export class ProjectRegistry {
   readonly database: Database.Database;
 
-  constructor(dataRoot: string) {
+  constructor(dataRoot: string, options: { migrationsUrl?: URL } = {}) {
     const registryPath = resolveRegistryPath(dataRoot);
     mkdirSync(dirname(registryPath), { recursive: true });
     this.database = new Database(registryPath);
     this.database.pragma("foreign_keys = ON");
     this.database.pragma("journal_mode = WAL");
     this.database.pragma("busy_timeout = 5000");
-    this.database.exec(`
-      CREATE TABLE IF NOT EXISTS project_registry (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        database_path TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        last_opened_at TEXT
-      )
-    `);
+    try {
+      applyRegistryMigrations(this.database, options.migrationsUrl);
+    } catch (error) {
+      this.database.close();
+      throw error;
+    }
   }
 
   create(record: ProjectSummary, databasePath: string): void {

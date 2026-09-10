@@ -23,19 +23,24 @@ const cssBytes = measureGzipBytes(css);
 assertWithinBudget("Initial JavaScript", javascriptBytes, RELEASE_BUDGETS.initialJavaScriptGzipBytes);
 assertWithinBudget("Initial CSS", cssBytes, RELEASE_BUDGETS.initialCssGzipBytes);
 
-const sourceMigrationRoot = join(root, "src", "server", "projects", "migrations");
-const bundledMigrationRoot = join(root, "dist", "server", "projects", "migrations");
-const migrationNames = (await readdir(sourceMigrationRoot)).filter((name) => name.endsWith(".sql")).sort();
-const bundledNames = (await readdir(bundledMigrationRoot)).filter((name) => name.endsWith(".sql")).sort();
-if (JSON.stringify(migrationNames) !== JSON.stringify(bundledNames)) {
-  throw new Error("Bundled migration filenames do not match source migrations");
-}
-for (const name of migrationNames) {
-  const [source, bundled] = await Promise.all([
-    readFile(join(sourceMigrationRoot, name)),
-    readFile(join(bundledMigrationRoot, name)),
-  ]);
-  if (!source.equals(bundled)) throw new Error(`Bundled migration differs from source: ${name}`);
+const migrationDirectories = ["projects/migrations", "registry/migrations"];
+let migrationCount = 0;
+for (const directory of migrationDirectories) {
+  const sourceMigrationRoot = join(root, "src", "server", directory);
+  const bundledMigrationRoot = join(root, "dist", "server", directory);
+  const migrationNames = (await readdir(sourceMigrationRoot)).filter((name) => name.endsWith(".sql")).sort();
+  const bundledNames = (await readdir(bundledMigrationRoot)).filter((name) => name.endsWith(".sql")).sort();
+  if (JSON.stringify(migrationNames) !== JSON.stringify(bundledNames)) {
+    throw new Error(`Bundled ${directory} filenames do not match source migrations`);
+  }
+  migrationCount += migrationNames.length;
+  for (const name of migrationNames) {
+    const [source, bundled] = await Promise.all([
+      readFile(join(sourceMigrationRoot, name)),
+      readFile(join(bundledMigrationRoot, name)),
+    ]);
+    if (!source.equals(bundled)) throw new Error(`Bundled migration differs from source: ${directory}/${name}`);
+  }
 }
 
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";

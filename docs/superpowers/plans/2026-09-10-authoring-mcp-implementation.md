@@ -58,7 +58,7 @@
 - [ ] Write migration tests for a fresh install and a legacy `registry.sqlite` containing `project_registry` but no migration history.
 - [ ] Assert project rows survive adoption and migration source/dist bytes are identical after packaging.
 - [ ] Implement a transactional registry migrator that records numbered migrations and fails closed on checksum/history conflicts.
-- [ ] Refactor `ProjectRegistry` to use the registry migrator instead of inline table creation and expose its database to installation settings without opening a second connection.
+- [ ] Refactor `ProjectRegistry` to use the registry migrator instead of inline table creation; installation settings must use the same `registry.sqlite` file.
 - [ ] Store only Authoring enabled state, Token digest/hint, creation/rotation timestamps, and non-secret installation settings.
 - [ ] Run the registry migration tests and `npm run typecheck`.
 - [ ] Commit with `feat(registry): add authoring installation settings`.
