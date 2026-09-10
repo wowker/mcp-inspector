@@ -6,7 +6,7 @@
 
 ## Slice A — Runtime, registry authentication, MCP transport
 
-- [ ] Task 1: Fixed port and CLI precedence.
+- [x] Task 1: Fixed port and CLI precedence.
 - [ ] Task 2: Registry migrations and installation settings.
 - [ ] Task 3: One-time Authoring Token management.
 - [ ] Task 4: Authenticated Streamable HTTP walking skeleton.

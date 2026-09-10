@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import { reportStartupFailure, runInspectorCli, startInspector } from "../main.js";
+import { createRuntimeConfig } from "../config/runtime-config.js";
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "mcp-inspector-main-"));
@@ -14,22 +15,9 @@ function fixture() {
 }
 
 describe("startInspector", () => {
-  test("asks the operating system for an available port by default", async () => {
-    const { dataRoot, staticRoot } = fixture();
-    let browserUrl = "";
-    const runtime = await startInspector({
-      dataRoot,
-      staticRoot,
-      installSignalHandlers: false,
-      openBrowser: async (url) => { browserUrl = url; },
-    });
-    try {
-      expect(runtime.address.port).toBeGreaterThan(0);
-      expect(runtime.address.origin).toBe(`http://127.0.0.1:${runtime.address.port}`);
-      expect(new URL(browserUrl).origin).toBe(runtime.address.origin);
-    } finally {
-      await runtime.close();
-    }
+  test("uses port 8500 by default while preserving explicit port zero for tests", () => {
+    expect(createRuntimeConfig().port).toBe(8500);
+    expect(createRuntimeConfig({ port: 0 }).port).toBe(0);
   });
 
   test("listens on IPv4 loopback, opens only after listening, and generates a strong token", async () => {
@@ -146,6 +134,35 @@ describe("startInspector", () => {
     await expect(fetch(`${origin}/`)).rejects.toThrow();
   });
 
+  test("reports an occupied configured port without silently falling back", async () => {
+    const ownerFixture = fixture();
+    const contenderFixture = fixture();
+    const owner = await startInspector({
+      host: "127.0.0.1", port: 0,
+      dataRoot: ownerFixture.dataRoot, staticRoot: ownerFixture.staticRoot,
+      installSignalHandlers: false, openBrowser: async () => undefined,
+    });
+    const openBrowser = vi.fn();
+    try {
+      let failure: unknown;
+      try {
+        await startInspector({
+          host: "127.0.0.1", port: owner.address.port,
+          dataRoot: contenderFixture.dataRoot, staticRoot: contenderFixture.staticRoot,
+          installSignalHandlers: false, openBrowser,
+        });
+      } catch (error) {
+        failure = error;
+      }
+      const errors: string[] = [];
+      reportStartupFailure(failure, (message) => { errors.push(message); });
+      expect(errors).toEqual([`Port ${owner.address.port} is already in use`]);
+      expect(openBrowser).not.toHaveBeenCalled();
+    } finally {
+      await owner.close();
+    }
+  });
+
   test("removes its process signal handlers during graceful close", async () => {
     const { dataRoot, staticRoot } = fixture();
     const before = { sigint: process.listenerCount("SIGINT"), sigterm: process.listenerCount("SIGTERM") };
@@ -193,6 +210,48 @@ describe("startInspector", () => {
 });
 
 describe("runInspectorCli", () => {
+  test.each([
+    { name: "CLI over environment", argv: ["--port", "8501"], envPort: "8502", want: 8501 },
+    { name: "equals-style CLI over environment", argv: ["--port=8503"], envPort: "8502", want: 8503 },
+    { name: "environment fallback", argv: [], envPort: "8502", want: 8502 },
+    { name: "default fallback", argv: [], envPort: undefined, want: 8500 },
+  ])("resolves $name port precedence", async ({ argv, envPort, want }) => {
+    let receivedPort: number | undefined;
+    const exitCode = await runInspectorCli({
+      argv,
+      env: envPort === undefined ? {} : { MCP_INSPECTOR_PORT: envPort },
+      start: async ({ port }) => {
+        receivedPort = port;
+        return {
+          address: { host: "127.0.0.1", port, origin: `http://127.0.0.1:${port}` },
+          close: async () => undefined,
+        };
+      },
+      writeInfo: () => undefined,
+    });
+    expect(exitCode).toBe(0);
+    expect(receivedPort).toBe(want);
+  });
+
+  test.each([
+    { argv: ["--port", "0"], env: {}, message: "--port must be an integer between 1 and 65535" },
+    { argv: ["--port", "70000"], env: {}, message: "--port must be an integer between 1 and 65535" },
+    { argv: ["--port"], env: {}, message: "--port requires a value" },
+    { argv: [], env: { MCP_INSPECTOR_PORT: "port" }, message: "MCP_INSPECTOR_PORT must be an integer between 1 and 65535" },
+  ])("rejects an invalid user-facing port before startup", async ({ argv, env, message }) => {
+    const start = vi.fn();
+    const errors: string[] = [];
+    const exitCode = await runInspectorCli({
+      argv,
+      env,
+      start,
+      writeError: (value) => { errors.push(value); },
+    });
+    expect(exitCode).toBe(1);
+    expect(start).not.toHaveBeenCalled();
+    expect(errors).toEqual([message]);
+  });
+
   test("routes an adversarial startup error through the shared fixed logger", async () => {
     const secretUrl = "http://127.0.0.1:3000/?session=top-secret";
     const errors: string[] = []; const infos: string[] = [];

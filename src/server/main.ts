@@ -40,18 +40,83 @@ export interface StartInspectorOptions {
   installSignalHandlers?: boolean;
 }
 
-export function reportStartupFailure(_error: unknown,
+interface InspectorCliStartOptions {
+  port: number;
+}
+
+type InspectorCliEnvironment = Readonly<Record<string, string | undefined>>;
+
+export class InspectorStartupError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InspectorStartupError";
+  }
+}
+
+function parseUserPort(value: string, source: "--port" | "MCP_INSPECTOR_PORT"): number {
+  if (!/^[1-9]\d*$/.test(value)) {
+    throw new InspectorStartupError(`${source} must be an integer between 1 and 65535`);
+  }
+  const port = Number(value);
+  if (!Number.isSafeInteger(port) || port > 65_535) {
+    throw new InspectorStartupError(`${source} must be an integer between 1 and 65535`);
+  }
+  return port;
+}
+
+export function resolveInspectorCliPort(
+  argv: readonly string[],
+  env: InspectorCliEnvironment,
+): number {
+  let cliValue: string | undefined;
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === "--port") {
+      const value = argv[index + 1];
+      if (value === undefined || value.startsWith("--")) {
+        throw new InspectorStartupError("--port requires a value");
+      }
+      if (cliValue !== undefined) {
+        throw new InspectorStartupError("--port may only be provided once");
+      }
+      cliValue = value;
+      index += 1;
+      continue;
+    }
+    if (argument?.startsWith("--port=")) {
+      if (cliValue !== undefined) {
+        throw new InspectorStartupError("--port may only be provided once");
+      }
+      cliValue = argument.slice("--port=".length);
+      continue;
+    }
+    throw new InspectorStartupError("Unsupported command-line argument");
+  }
+  if (cliValue !== undefined) return parseUserPort(cliValue, "--port");
+  const envValue = env.MCP_INSPECTOR_PORT;
+  return envValue === undefined ? 8500 : parseUserPort(envValue, "MCP_INSPECTOR_PORT");
+}
+
+export function reportStartupFailure(error: unknown,
   write: (message: string) => void = (message) => { console.error(message); }): void {
-  write("Unable to start MCP Inspector");
+  write(error instanceof InspectorStartupError
+    ? error.message
+    : "Unable to start MCP Inspector");
 }
 
 export async function runInspectorCli(options: {
-  start?: () => Promise<InspectorRuntime>;
+  start?: (options: InspectorCliStartOptions) => Promise<InspectorRuntime>;
+  argv?: readonly string[];
+  env?: InspectorCliEnvironment;
   writeInfo?: (message: string) => void;
   writeError?: (message: string) => void;
 } = {}): Promise<0 | 1> {
   try {
-    const runtime = await (options.start ?? (() => startInspector()))();
+    const port = resolveInspectorCliPort(
+      options.argv ?? process.argv.slice(2),
+      options.env ?? process.env,
+    );
+    const runtime = await (options.start ?? ((startOptions) => startInspector(startOptions)))({ port });
     (options.writeInfo ?? ((message) => { console.info(message); }))(
       `MCP Inspector listening on ${runtime.address.origin}`,
     );
@@ -201,16 +266,23 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
     };
   } catch (error) {
     await close().catch(() => undefined);
+    const nodeError = error as NodeJS.ErrnoException;
+    if (nodeError?.code === "EADDRINUSE") {
+      throw new InspectorStartupError(`Port ${config.port} is already in use`);
+    }
     throw error;
   }
 }
 
 const invokedPath = process.argv[1];
 if (invokedPath !== undefined && fileURLToPath(import.meta.url) === resolve(invokedPath)) {
-  const configuredPort = process.env.MCP_INSPECTOR_PORT;
-  void runInspectorCli({ start: () => startInspector({
+  void runInspectorCli({
+    argv: process.argv.slice(2),
+    env: process.env,
+    start: ({ port }) => startInspector({
     clientOrigin: "http://127.0.0.1:5173",
-    port: configuredPort === undefined ? undefined : Number(configuredPort),
-  }) })
+      port,
+    }),
+  })
     .then((exitCode) => { process.exitCode = exitCode; });
 }
