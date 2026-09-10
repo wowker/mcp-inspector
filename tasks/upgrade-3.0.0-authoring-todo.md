@@ -23,8 +23,8 @@
 
 - [x] Task 8: Project migrations 022–023.
 - [x] Task 9: Policy-enforced standalone calls.
-- [ ] Task 10: Call history and Authoring Run origin.
-- [ ] Checkpoint C: focused gates and `npm run verify` pass.
+- [x] Task 10: Call history and Authoring Run origin.
+- [x] Checkpoint C: focused gates and `npm run verify` pass.
 
 ## Slice D — Draft authoring and validation
 

@@ -22,6 +22,8 @@ import { createAuthoringAuthService } from "./authoring/authoring-auth-service.j
 import { createAuthoringMcpServer } from "./authoring/authoring-mcp-server.js";
 import { createAuthoringPolicyService } from "./authoring/authoring-policy-service.js";
 import { createAuthoringCatalogService } from "./authoring/authoring-catalog-service.js";
+import { createAuthoringCallService } from "./authoring/authoring-call-service.js";
+import { isSensitiveHeaderName } from "../shared/custom-headers.js";
 
 export interface InspectorAddress {
   host: "127.0.0.1";
@@ -157,6 +159,19 @@ function validateClientOrigin(raw: string): string {
   return value.origin;
 }
 
+function collectSecretStrings(value: unknown, result: string[], depth = 0): void {
+  if (depth > 20 || value === null || value === undefined) return;
+  if (typeof value === "string") { if (value.length > 0) result.push(value); return; }
+  if (typeof value === "number" || typeof value === "boolean") { result.push(String(value)); return; }
+  if (Array.isArray(value)) {
+    for (const item of value) collectSecretStrings(item, result, depth + 1);
+    return;
+  }
+  if (typeof value === "object") {
+    for (const item of Object.values(value as Record<string, unknown>)) collectSecretStrings(item, result, depth + 1);
+  }
+}
+
 export async function startInspector(options: StartInspectorOptions = {}): Promise<InspectorRuntime> {
   const config = createRuntimeConfig({
     host: (options.host ?? "127.0.0.1") as "127.0.0.1",
@@ -199,17 +214,38 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
     tools,
     policies: authoringPolicies,
   });
-  const authoringMcp = createAuthoringMcpServer({
-    appVersion: config.version,
-    endpoint: () => `${serverOrigin}/mcp/authoring`,
-    catalog: authoringCatalog,
-  });
   const tabs = createTabService(projects, connections, { tools });
   const runs = createRunService(projects, connections, tabs);
   const workflows = createWorkflowService(projects, tools);
   environment = createEnvironmentService(projects, connections);
   environmentProfiles = createEnvironmentProfileService(projects, connections, environment);
   const runtimeEnvironment = createProfileAwareEnvironmentService(environment, environmentProfiles);
+  const authoringCalls = createAuthoringCallService({
+    projects,
+    policies: authoringPolicies,
+    tools,
+    runs,
+    resolveSecrets(projectId, connectionId) {
+      const values: string[] = [];
+      const connection = connections.get(projectId, connectionId);
+      collectSecretStrings(connection.bearerToken, values);
+      for (const [name, value] of Object.entries(connection.headers)) {
+        if (isSensitiveHeaderName(name)) collectSecretStrings(value, values);
+      }
+      const resolved = runtimeEnvironment.resolve(projectId, connectionId);
+      for (const name of resolved.secretNames) {
+        collectSecretStrings(resolved.project[name], values);
+        collectSecretStrings(resolved.server[name], values);
+      }
+      return [...new Set(values)];
+    },
+  });
+  const authoringMcp = createAuthoringMcpServer({
+    appVersion: config.version,
+    endpoint: () => `${serverOrigin}/mcp/authoring`,
+    catalog: authoringCatalog,
+    calls: authoringCalls,
+  });
   const workflowExecutions = createWorkflowExecutionService({
     projects, connections, tabs, workflows, environment: runtimeEnvironment, runs,
   });

@@ -587,6 +587,29 @@ describe("RunService", () => {
     } finally { projects.close(); }
   });
 
+  it("filters Authoring-origin Runs independently from replay origin", () => {
+    const { projects, service, tabA } = fixture();
+    try {
+      const ordinary = service.start({ projectId, tabId: tabA.id, idempotencyKey: "ordinary-source", arguments: { a: 1 } });
+      service.cancel(projectId, ordinary.id);
+      const authoring = service.startInvocation({ projectId, connectionId, toolName: "sum",
+        idempotencyKey: "authoring-source", arguments: { a: 2 } });
+      service.cancel(projectId, authoring.id);
+      projects.open(projectId).database.prepare(`INSERT INTO authoring_tool_calls
+        (id, project_id, context_kind, connection_id, tool_name, tool_snapshot_id, tool_schema_hash,
+         purpose, idempotency_key, request_hash, arguments_json, status, may_have_side_effects,
+         run_id, created_at)
+        VALUES ('00000000-0000-4000-8000-000000000777', ?, 'STANDALONE', ?, 'sum', ?, ?,
+          'DIAGNOSTIC', 'authoring-source-record', ?, '{}', 'CANCELLED', 0, ?, ?)`)
+        .run(projectId, connectionId, authoring.toolSnapshotId, "a".repeat(64), "b".repeat(64), authoring.id, authoring.createdAt);
+
+      expect(service.list(projectId, undefined, { source: "AUTHORING" }).runs.map(({ id }) => id))
+        .toEqual([authoring.id]);
+      expect(service.list(projectId, undefined, { source: "OTHER" }).runs.map(({ id }) => id))
+        .toContain(ordinary.id);
+    } finally { projects.close(); }
+  });
+
   it("deletes terminal history and clears an exact Tab while retaining pinned records", () => {
     const { projects, service, tabs, tabA } = fixture();
     try {

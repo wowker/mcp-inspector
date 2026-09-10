@@ -5,6 +5,11 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { authoringListInputSchema } from "../../shared/authoring/catalog.js";
 import {
+  authoringCallToolInputSchema,
+  authoringGetToolCallInputSchema,
+  authoringListToolCallsInputSchema,
+} from "../../shared/authoring/calls.js";
+import {
   AUTHORING_ASSET_TYPES,
   AUTHORING_LIMITS,
   AUTHORING_PROTOCOL_VERSION,
@@ -22,6 +27,21 @@ import {
   type AuthoringCatalogService,
 } from "./authoring-catalog-service.js";
 import { AuthoringConnectionNotFoundError } from "./authoring-policy-service.js";
+import {
+  AuthoringCallConcurrencyError,
+  AuthoringCallGlobalLimitError,
+  AuthoringCallIdempotencyConflictError,
+  AuthoringCallNotFoundError,
+  AuthoringCallOutcomeUnknownError,
+  AuthoringCallRateLimitError,
+  AuthoringCleanupContextError,
+  AuthoringDraftContextError,
+  AuthoringPolicyDeniedError,
+  AuthoringToolArgumentsError,
+  AuthoringToolSchemaChangedError,
+  type AuthoringCallService,
+} from "./authoring-call-service.js";
+import { InvalidAuthoringCallCursorError } from "./authoring-call-repository.js";
 
 interface Session {
   server: McpServer;
@@ -47,6 +67,7 @@ function createProtocolServer(options: {
   endpoint: string | (() => string);
   maxSessions: number;
   catalog?: AuthoringCatalogService;
+  calls?: AuthoringCallService;
 }): McpServer {
   const server = new McpServer({ name: "mcp-inspector-authoring", version: options.appVersion });
   const meta = () => ({ requestId: randomUUID(), protocolVersion: AUTHORING_PROTOCOL_VERSION });
@@ -85,6 +106,50 @@ function createProtocolServer(options: {
         return failure("TOOL_NOT_FOUND", "NOT_FOUND", "Tool not found", false);
       }
       return failure("INTERNAL_ERROR", "INTERNAL", "Authoring catalog request failed", false);
+    }
+  };
+  const callAction = async <T>(action: () => T | Promise<T>) => {
+    try {
+      return success(await action());
+    } catch (error) {
+      if (error instanceof z.ZodError || error instanceof InvalidAuthoringCallCursorError) {
+        return failure("INVALID_INPUT", "VALIDATION", "Authoring call request is invalid", false);
+      }
+      if (error instanceof AuthoringPolicyDeniedError) {
+        return failure("AUTHORING_POLICY_DENIED", "AUTHORIZATION", error.message, false);
+      }
+      if (error instanceof AuthoringToolSchemaChangedError) {
+        return failure("TOOL_SCHEMA_CHANGED", "CONFLICT", error.message, false);
+      }
+      if (error instanceof AuthoringToolArgumentsError) {
+        return failure("INVALID_ARGUMENTS", "VALIDATION", error.message, false);
+      }
+      if (error instanceof AuthoringCallIdempotencyConflictError) {
+        return failure("IDEMPOTENCY_CONFLICT", "CONFLICT", error.message, false);
+      }
+      if (error instanceof AuthoringCallRateLimitError || error instanceof AuthoringCallConcurrencyError ||
+          error instanceof AuthoringCallGlobalLimitError) {
+        return failure("CALL_LIMIT_REACHED", "RATE_LIMIT", error.message, true);
+      }
+      if (error instanceof AuthoringCallOutcomeUnknownError) {
+        return failure("CALL_OUTCOME_UNKNOWN", "CONFLICT", error.message, false);
+      }
+      if (error instanceof AuthoringDraftContextError || error instanceof AuthoringCleanupContextError) {
+        return failure("INVALID_CONTEXT", "VALIDATION", error.message, false);
+      }
+      if (error instanceof AuthoringCallNotFoundError) {
+        return failure("CALL_NOT_FOUND", "NOT_FOUND", error.message, false);
+      }
+      if (error instanceof ProjectNotFoundError) {
+        return failure("PROJECT_NOT_FOUND", "NOT_FOUND", "Project not found", false);
+      }
+      if (error instanceof ConnectionNotFoundError || error instanceof AuthoringConnectionNotFoundError) {
+        return failure("CONNECTION_NOT_FOUND", "NOT_FOUND", "Connection not found", false);
+      }
+      if (error instanceof ToolNotFoundError) {
+        return failure("TOOL_NOT_FOUND", "NOT_FOUND", "Tool not found", false);
+      }
+      return failure("INTERNAL_ERROR", "INTERNAL", "Authoring call request failed", false);
     }
   };
   server.registerTool("inspector_get_capabilities", {
@@ -134,6 +199,26 @@ function createProtocolServer(options: {
     }, async ({ projectId, connectionId, toolName }) =>
       catalogCall(() => options.catalog!.describeTool(projectId, connectionId, toolName)));
   }
+  if (options.calls !== undefined) {
+    server.registerTool("inspector_call_tool", {
+      description: "Calls one authorized downstream Tool and records both Authoring call and Run identities.",
+      inputSchema: authoringCallToolInputSchema,
+    }, async (input, context) => callAction(async () => {
+      const { id, ...detail } = await options.calls!.call(input, context.signal);
+      return { callId: id, ...detail };
+    }));
+    server.registerTool("inspector_list_tool_calls", {
+      description: "Lists sanitized Authoring call summaries in one exact project.",
+      inputSchema: authoringListToolCallsInputSchema,
+    }, async ({ projectId, ...input }) => callAction(() => options.calls!.list(projectId, input)));
+    server.registerTool("inspector_get_tool_call", {
+      description: "Returns sanitized detail for one traceable Authoring call.",
+      inputSchema: authoringGetToolCallInputSchema,
+    }, async ({ projectId, callId }) => callAction(() => {
+      const { id, ...detail } = options.calls!.get(projectId, callId);
+      return { callId: id, ...detail };
+    }));
+  }
   return server;
 }
 
@@ -143,6 +228,7 @@ export function createAuthoringMcpServer(options: {
   maxSessions?: number;
   maxRequestBytes?: number;
   catalog?: AuthoringCatalogService;
+  calls?: AuthoringCallService;
 }): AuthoringMcpServer {
   const maxSessions = options.maxSessions ?? AUTHORING_LIMITS.maxSessions;
   const maxRequestBytes = options.maxRequestBytes ?? AUTHORING_LIMITS.maxRequestBytes;
@@ -184,6 +270,7 @@ export function createAuthoringMcpServer(options: {
         endpoint: options.endpoint,
         maxSessions,
         catalog: options.catalog,
+        calls: options.calls,
       });
       const transport = new WebStandardStreamableHTTPServerTransport({
         sessionIdGenerator: randomUUID,

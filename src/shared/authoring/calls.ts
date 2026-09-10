@@ -26,10 +26,47 @@ export const authoringCallToolInputSchema = z.object({
   cleanupForCallId: z.string().uuid().optional(),
 }).strict();
 
+export const authoringListToolCallsInputSchema = z.object({
+  projectId: z.string().uuid(),
+  cursor: z.string().min(1).max(4_096).regex(/^[A-Za-z0-9_-]+$/u).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+  connectionId: z.string().uuid().optional(),
+  toolName: z.string().trim().min(1).max(256).optional(),
+  status: authoringCallStatusSchema.optional(),
+  contextKind: z.enum(["STANDALONE", "DRAFT"]).optional(),
+}).strict();
+
+export const authoringGetToolCallInputSchema = z.object({
+  projectId: z.string().uuid(),
+  callId: z.string().uuid(),
+}).strict();
+
 export type AuthoringCallContext = z.output<typeof authoringCallContextSchema>;
 export type AuthoringCallPurpose = z.output<typeof authoringCallPurposeSchema>;
 export type AuthoringCallStatus = z.output<typeof authoringCallStatusSchema>;
 export type AuthoringCallToolInput = z.output<typeof authoringCallToolInputSchema>;
+export type AuthoringListToolCallsInput = z.output<typeof authoringListToolCallsInputSchema>;
+
+export interface AuthoringToolCallSummary {
+  callId: string;
+  projectId: string;
+  connectionId: string;
+  toolName: string;
+  context: AuthoringCallContext;
+  purpose: AuthoringCallPurpose;
+  status: AuthoringCallStatus;
+  runId: string | null;
+  mayHaveSideEffects: boolean;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  durationMs: number | null;
+}
+
+export interface AuthoringToolCallPage {
+  items: AuthoringToolCallSummary[];
+  nextCursor: string | null;
+}
 
 export interface AuthoringToolCallDetail {
   id: string;

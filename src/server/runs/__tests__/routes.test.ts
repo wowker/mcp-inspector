@@ -67,10 +67,10 @@ describe("run routes", () => {
   it("validates extended filters and exposes an idempotent project-fenced pin mutation", async () => {
     const list = vi.fn(() => ({ runs: [summary], nextCursor: null }));
     const response = await createRunRoutes(fake({ list })).request(
-      `/${projectId}/runs?status=failed&origin=REPLAY&pinned=true&createdFrom=2026-09-01T00%3A00%3A00.000Z&limit=25`);
+      `/${projectId}/runs?status=failed&origin=REPLAY&source=AUTHORING&pinned=true&createdFrom=2026-09-01T00%3A00%3A00.000Z&limit=25`);
     expect(response.status).toBe(200);
     expect(list).toHaveBeenCalledWith(projectId, undefined, {
-      status: "failed", origin: "REPLAY", pinned: true,
+      status: "failed", origin: "REPLAY", source: "AUTHORING", pinned: true,
       createdFrom: "2026-09-01T00:00:00.000Z", limit: 25,
     });
     expect((await createRunRoutes(fake()).request(`/${projectId}/runs?pinned=yes`)).status).toBe(400);

@@ -23,7 +23,7 @@ export function RunHistoryPage({ api, projectId, onOpenDebug, onCreateTest }: {
   const [openError, setOpenError] = useState<string | null>(null);
   const [replaySource, setReplaySource] = useState<RunDetail | null>(null);
   const [comparisonReplayId, setComparisonReplayId] = useState<string | null>(null);
-  const [draft, setDraft] = useState({ toolName: "", connectionId: "", status: "", origin: "", pinned: "", createdFrom: "", createdTo: "" });
+  const [draft, setDraft] = useState({ toolName: "", connectionId: "", status: "", origin: "", source: "", pinned: "", createdFrom: "", createdTo: "" });
   const [filter, setFilter] = useState<RunListFilter>({});
   const [filterError, setFilterError] = useState<string | null>(null);
   const observed = useRunEvents(api, projectId, selected?.id ?? null);
@@ -53,6 +53,7 @@ export function RunHistoryPage({ api, projectId, onOpenDebug, onCreateTest }: {
       ...(draft.connectionId === "" ? {} : { connectionId: draft.connectionId }),
       ...(draft.status === "" ? {} : { status: draft.status as NonNullable<RunListFilter["status"]> }),
       ...(draft.origin === "" ? {} : { origin: draft.origin as NonNullable<RunListFilter["origin"]> }),
+      ...(draft.source === "" ? {} : { source: draft.source as NonNullable<RunListFilter["source"]> }),
       ...(draft.pinned === "" ? {} : { pinned: draft.pinned === "true" }),
       ...(draft.createdFrom === "" ? {} : { createdFrom: new Date(draft.createdFrom).toISOString() }),
       ...(draft.createdTo === "" ? {} : { createdTo: new Date(draft.createdTo).toISOString() }),
@@ -60,7 +61,7 @@ export function RunHistoryPage({ api, projectId, onOpenDebug, onCreateTest }: {
   }
 
   function resetFilters(): void {
-    setDraft({ toolName: "", connectionId: "", status: "", origin: "", pinned: "", createdFrom: "", createdTo: "" });
+    setDraft({ toolName: "", connectionId: "", status: "", origin: "", source: "", pinned: "", createdFrom: "", createdTo: "" });
     setFilterError(null);
     setSelected(null);
     setFilter({});
@@ -81,7 +82,7 @@ export function RunHistoryPage({ api, projectId, onOpenDebug, onCreateTest }: {
             <h2 id="history-filters-title">{t("page.filters.title")}</h2>
             <ModuleHelpPopover moduleName={t("page.filterHelp.title")} triggerLabel={t("page.filterHelp.trigger")}
               closeLabel={t("page.filterHelp.close")} summary={t("page.filterHelp.summary")}
-              sections={(["toolName", "connectionId", "status", "origin", "pinned", "time"] as const).map((section) => ({
+              sections={(["toolName", "connectionId", "status", "origin", "source", "pinned", "time"] as const).map((section) => ({
                 id: section, title: t(`page.filterHelp.sections.${section}`), items: [t(`page.filterHelp.items.${section}`)],
               }))} /></div>
           <div className="history-filters__grid">
@@ -94,6 +95,9 @@ export function RunHistoryPage({ api, projectId, onOpenDebug, onCreateTest }: {
             <label>{t("page.filters.origin")}<Select value={draft.origin} onChange={(event) => setDraft({ ...draft, origin: event.target.value })}>
               <option value="">{t("page.filters.all")}</option><option value="ORIGINAL">{t("page.filters.original")}</option>
               <option value="REPLAY">{t("page.filters.replay")}</option></Select></label>
+            <label>{t("page.filters.source")}<Select value={draft.source} onChange={(event) => setDraft({ ...draft, source: event.target.value })}>
+              <option value="">{t("page.filters.all")}</option><option value="AUTHORING">{t("page.filters.authoring")}</option>
+              <option value="OTHER">{t("page.filters.other")}</option></Select></label>
             <label>{t("page.filters.pinned")}<Select value={draft.pinned} onChange={(event) => setDraft({ ...draft, pinned: event.target.value })}>
               <option value="">{t("page.filters.all")}</option><option value="true">{t("page.filters.pinnedOnly")}</option>
               <option value="false">{t("page.filters.unpinnedOnly")}</option></Select></label>

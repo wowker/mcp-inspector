@@ -223,4 +223,23 @@ describe("Authoring Tool calls", () => {
     }));
     expect(draftCall).toMatchObject({ context: { kind: "DRAFT", draftId, draftRevision: 1 } });
   });
+
+  it("lists project-bound call summaries with filter-bound opaque pagination", async () => {
+    const { policies, calls } = fixture();
+    setPolicy(policies, "FULL_ACCESS", { rate: 10 });
+    const first = await calls.call(input("history-1", { context: { kind: "STANDALONE", label: "First" } }));
+    const second = await calls.call(input("history-2", { context: { kind: "STANDALONE", label: "Second" } }));
+
+    const page = calls.list(projectId, { limit: 1 });
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]).toMatchObject({
+      callId: second.id, runId: second.runId, context: { kind: "STANDALONE", label: "Second" },
+    });
+    expect(page.items[0]).not.toHaveProperty("arguments");
+    expect(page.nextCursor).toEqual(expect.any(String));
+    expect(calls.list(projectId, { limit: 1, cursor: page.nextCursor! }).items[0]?.callId).toBe(first.id);
+    expect(() => calls.list(projectId, { limit: 1, status: "FAILED", cursor: page.nextCursor! }))
+      .toThrow(/cursor/i);
+    expect(() => calls.list("00000000-0000-4000-8000-000000004099", {})).toThrow();
+  });
 });

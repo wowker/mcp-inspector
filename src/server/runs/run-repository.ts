@@ -321,7 +321,7 @@ export class RunRepository {
   }
 
   list(projectId: string, cursor?: string, filter: RunListFilter = {}): RunPage {
-    const { tabId, connectionId, toolName, status, origin, pinned, createdFrom, createdTo } = filter;
+    const { tabId, connectionId, toolName, status, origin, source, pinned, createdFrom, createdTo } = filter;
     const limit = filter.limit ?? 50;
     const filterIdentity = {
       tabId: tabId ?? null,
@@ -329,6 +329,7 @@ export class RunRepository {
       toolName: toolName ?? null,
       status: status ?? null,
       origin: origin ?? null,
+      source: source ?? null,
       pinned: pinned ?? null,
       createdFrom: createdFrom ?? null,
       createdTo: createdTo ?? null,
@@ -356,6 +357,10 @@ export class RunRepository {
     if (status !== undefined) { clauses.push("status = ?"); parameters.push(status); }
     if (origin === "ORIGINAL") clauses.push("replayed_from_run_id IS NULL");
     if (origin === "REPLAY") clauses.push("replayed_from_run_id IS NOT NULL");
+    const authoringSource = `EXISTS (SELECT 1 FROM authoring_tool_calls authoring_call
+      WHERE authoring_call.project_id = runs.project_id AND authoring_call.run_id = runs.id)`;
+    if (source === "AUTHORING") clauses.push(authoringSource);
+    if (source === "OTHER") clauses.push(`NOT ${authoringSource}`);
     if (pinned !== undefined) { clauses.push("pinned = ?"); parameters.push(Number(pinned)); }
     if (createdFrom !== undefined) { clauses.push("created_at >= ?"); parameters.push(createdFrom); }
     if (createdTo !== undefined) { clauses.push("created_at <= ?"); parameters.push(createdTo); }

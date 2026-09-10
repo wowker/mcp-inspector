@@ -205,12 +205,12 @@
 - Modify: `src/client/api/api-client.ts`
 - Create: `src/server/authoring/__tests__/authoring-call-tools.test.ts`
 
-- [ ] Add failing tests for `inspector_call_tool`, `inspector_list_tool_calls`, `inspector_get_tool_call`, project-bound pagination, sanitized detail, and Run source filtering.
-- [ ] Register the three call tools and return both `callId` and `runId`.
-- [ ] Add an Authoring source filter without changing ordinary debug/test history behavior.
-- [ ] Ensure opening Authoring history never mutates an active Tool tab or Run.
-- [ ] Run focused server/client tests and `npm run verify` as Checkpoint C.
-- [ ] Commit with `feat(authoring): expose call history and run lineage`.
+- [x] Add failing tests for `inspector_call_tool`, `inspector_list_tool_calls`, `inspector_get_tool_call`, project-bound pagination, sanitized detail, and Run source filtering.
+- [x] Register the three call tools and return both `callId` and `runId`.
+- [x] Add an Authoring source filter without changing ordinary debug/test history behavior.
+- [x] Ensure opening Authoring history never mutates an active Tool tab or Run.
+- [x] Run focused server/client tests and `npm run verify` as Checkpoint C.
+- [x] Commit with `feat(authoring): expose call history and run lineage`.
 
 ---
 

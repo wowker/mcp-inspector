@@ -3,6 +3,7 @@ import type {
   AuthoringCallContext,
   AuthoringCallPurpose,
   AuthoringCallStatus,
+  AuthoringListToolCallsInput,
 } from "../../shared/authoring/calls.js";
 import type { ProjectStore } from "../projects/project-store.js";
 
@@ -63,6 +64,15 @@ export type ClaimAuthoringCallResult =
   | { kind: "rate-limited" }
   | { kind: "concurrency-limited" };
 
+export class InvalidAuthoringCallCursorError extends Error {
+  constructor() { super("Authoring call cursor is invalid"); this.name = "InvalidAuthoringCallCursorError"; }
+}
+
+export interface StoredAuthoringCallPage {
+  items: StoredAuthoringCall[];
+  nextCursor: string | null;
+}
+
 const columns = `id, project_id, context_kind, context_label, draft_id, draft_revision,
   connection_id, tool_name, tool_snapshot_id, tool_schema_hash, purpose, cleanup_for_call_id,
   run_id, idempotency_key, request_hash, arguments_json, status, may_have_side_effects,
@@ -122,6 +132,57 @@ export class AuthoringCallRepository {
       WHERE project_id = ? AND request_hash = ? AND status = 'UNKNOWN'
       ORDER BY created_at DESC, id DESC LIMIT 1`).get(projectId, requestHash) as CallRow | undefined;
     return row === undefined ? null : callFromRow(row);
+  }
+
+  list(projectId: string, input: Omit<AuthoringListToolCallsInput, "projectId"> = {}): StoredAuthoringCallPage {
+    const { cursor, connectionId, toolName, status, contextKind } = input;
+    const limit = input.limit ?? 50;
+    const filter = {
+      connectionId: connectionId ?? null,
+      toolName: toolName ?? null,
+      status: status ?? null,
+      contextKind: contextKind ?? null,
+      limit,
+      sort: "createdAtDesc",
+    } as const;
+    let boundary: { createdAt: string; id: string } | undefined;
+    if (cursor !== undefined) {
+      try {
+        const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as unknown;
+        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error();
+        const value = parsed as Record<string, unknown>;
+        if (value.projectId !== projectId || JSON.stringify(value.filter) !== JSON.stringify(filter) ||
+            typeof value.createdAt !== "string" || Number.isNaN(Date.parse(value.createdAt)) ||
+            new Date(value.createdAt).toISOString() !== value.createdAt ||
+            typeof value.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value.id)) {
+          throw new Error();
+        }
+        boundary = { createdAt: value.createdAt, id: value.id };
+      } catch {
+        throw new InvalidAuthoringCallCursorError();
+      }
+    }
+    const clauses = ["project_id = ?"];
+    const parameters: Array<string | number> = [projectId];
+    if (connectionId !== undefined) { clauses.push("connection_id = ?"); parameters.push(connectionId); }
+    if (toolName !== undefined) { clauses.push("tool_name = ?"); parameters.push(toolName); }
+    if (status !== undefined) { clauses.push("status = ?"); parameters.push(status); }
+    if (contextKind !== undefined) { clauses.push("context_kind = ?"); parameters.push(contextKind); }
+    if (boundary !== undefined) {
+      clauses.push("(created_at < ? OR (created_at = ? AND id < ?))");
+      parameters.push(boundary.createdAt, boundary.createdAt, boundary.id);
+    }
+    const rows = this.store.database.prepare(`SELECT ${columns} FROM authoring_tool_calls
+      WHERE ${clauses.join(" AND ")} ORDER BY created_at DESC, id DESC LIMIT ?`)
+      .all(...parameters, limit + 1) as CallRow[];
+    const items = rows.slice(0, limit).map(callFromRow);
+    const last = items.at(-1);
+    return {
+      items,
+      nextCursor: rows.length > limit && last !== undefined
+        ? Buffer.from(JSON.stringify({ projectId, filter, createdAt: last.createdAt, id: last.id })).toString("base64url")
+        : null,
+    };
   }
 
   claim(input: {

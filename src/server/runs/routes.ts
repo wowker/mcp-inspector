@@ -70,6 +70,7 @@ export function createRunRoutes(runs: RunServiceWithEvents): Hono {
       ...(requestedToolName === undefined ? {} : { toolName: requestedToolName }),
       ...(c.req.query("status") === undefined ? {} : { status: c.req.query("status") }),
       ...(c.req.query("origin") === undefined ? {} : { origin: c.req.query("origin") }),
+      ...(c.req.query("source") === undefined ? {} : { source: c.req.query("source") }),
       ...(rawPinned === undefined ? {} : { pinned: rawPinned === "true" ? true : rawPinned === "false" ? false : rawPinned }),
       ...(c.req.query("createdFrom") === undefined ? {} : { createdFrom: c.req.query("createdFrom") }),
       ...(c.req.query("createdTo") === undefined ? {} : { createdTo: c.req.query("createdTo") }),

@@ -21,10 +21,11 @@ describe("RunHistoryPage", () => {
     fireEvent.change(screen.getByLabelText("Tool 名称"), { target: { value: "sum" } });
     fireEvent.change(screen.getByLabelText("状态"), { target: { value: "failed" } });
     fireEvent.change(screen.getByLabelText("来源"), { target: { value: "REPLAY" } });
+    fireEvent.change(screen.getByLabelText("调用来源"), { target: { value: "AUTHORING" } });
     fireEvent.change(screen.getByLabelText("固定状态"), { target: { value: "true" } });
     fireEvent.click(screen.getByRole("button", { name: "应用" }));
     await waitFor(() => expect(listRuns).toHaveBeenLastCalledWith(projectId, undefined, {
-      toolName: "sum", status: "failed", origin: "REPLAY", pinned: true,
+      toolName: "sum", status: "failed", origin: "REPLAY", source: "AUTHORING", pinned: true,
     }));
     expect(onOpenDebug).not.toHaveBeenCalled();
 
@@ -55,6 +56,8 @@ describe("RunHistoryPage", () => {
     expect(help).toHaveTextContent("连接 ID");
     expect(help).toHaveTextContent("状态");
     expect(help).toHaveTextContent("来源");
+    expect(help).toHaveTextContent("调用来源");
+    expect(help).toHaveTextContent("Authoring MCP");
     expect(help).toHaveTextContent("固定状态");
     expect(help).toHaveTextContent("开始与结束时间");
   });

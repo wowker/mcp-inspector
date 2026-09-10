@@ -3,9 +3,12 @@ import { z } from "zod";
 import { validateArguments, type SchemaIssue } from "../../shared/json-schema.js";
 import {
   authoringCallToolInputSchema,
+  authoringListToolCallsInputSchema,
   isJsonValue,
   type AuthoringCallStatus,
   type AuthoringCallToolInput,
+  type AuthoringListToolCallsInput,
+  type AuthoringToolCallPage,
   type AuthoringToolCallDetail,
 } from "../../shared/authoring/calls.js";
 import { AUTHORING_LIMITS } from "../../shared/authoring/protocol.js";
@@ -60,10 +63,14 @@ export class AuthoringDraftContextError extends Error {
 export class AuthoringCleanupContextError extends Error {
   constructor() { super("Authoring cleanup context is invalid"); this.name = "AuthoringCleanupContextError"; }
 }
+export class AuthoringCallNotFoundError extends Error {
+  constructor() { super("Authoring call not found"); this.name = "AuthoringCallNotFoundError"; }
+}
 
 export interface AuthoringCallService {
   call(input: AuthoringCallToolInput, signal?: AbortSignal): Promise<AuthoringToolCallDetail>;
   get(projectId: string, callId: string): AuthoringToolCallDetail;
+  list(projectId: string, input?: Omit<AuthoringListToolCallsInput, "projectId">): AuthoringToolCallPage;
 }
 
 function redactText(value: string, secrets: readonly string[]): string {
@@ -309,8 +316,30 @@ export function createAuthoringCallService(options: {
     },
     get(projectId, callId) {
       const call = repository(projectId).get(projectId, callId);
-      if (call === null) throw new Error("Authoring call not found");
+      if (call === null) throw new AuthoringCallNotFoundError();
       return detail(call);
+    },
+    list(projectId, rawInput = {}) {
+      const { projectId: _projectId, ...input } = authoringListToolCallsInputSchema.parse({ projectId, ...rawInput });
+      const page = repository(projectId).list(projectId, input);
+      return {
+        items: page.items.map((call) => ({
+          callId: call.id,
+          projectId: call.projectId,
+          connectionId: call.connectionId,
+          toolName: call.toolName,
+          context: call.context,
+          purpose: call.purpose,
+          status: call.status,
+          runId: call.runId,
+          mayHaveSideEffects: call.mayHaveSideEffects,
+          createdAt: call.createdAt,
+          startedAt: call.startedAt,
+          completedAt: call.completedAt,
+          durationMs: call.durationMs,
+        })),
+        nextCursor: page.nextCursor,
+      };
     },
   };
 }

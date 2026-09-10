@@ -26,7 +26,7 @@ export function RunHistory({ api, projectId, tabId, connectionId, toolName, filt
     }).catch((cause: unknown) => { if (generation.current === current) { setError(cause instanceof Error ? cause.message : t("history.loadFailed")); setLoading(false); } });
     return () => { generation.current += 1; };
   }, [api, projectId, tabId, connectionId, toolName, requestedFilter?.connectionId, requestedFilter?.toolName,
-    requestedFilter?.status, requestedFilter?.origin,
+    requestedFilter?.status, requestedFilter?.origin, requestedFilter?.source,
     requestedFilter?.pinned, requestedFilter?.createdFrom, requestedFilter?.createdTo, requestedFilter?.limit, refreshKey]);
   async function more(): Promise<void> {
     if (cursor === null || cursor === undefined || loading) return; const current = generation.current; const requested = cursor; setLoading(true);

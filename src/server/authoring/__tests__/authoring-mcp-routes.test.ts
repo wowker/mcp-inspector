@@ -240,6 +240,9 @@ describe("Authoring MCP Streamable HTTP route", () => {
       "inspector_list_connections",
       "inspector_list_tools",
       "inspector_describe_tool",
+      "inspector_call_tool",
+      "inspector_list_tool_calls",
+      "inspector_get_tool_call",
     ]);
     const result = await client.callTool({ name: "inspector_get_capabilities", arguments: {} });
     expect(result.structuredContent).toMatchObject({

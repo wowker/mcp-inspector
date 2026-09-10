@@ -66,6 +66,7 @@ export const runDetailSchema = runSummarySchema.safeExtend({
 }).strict();
 
 export const runOriginSchema = z.enum(["ORIGINAL", "REPLAY"]);
+export const runSourceSchema = z.enum(["AUTHORING", "OTHER"]);
 
 export const runHistoryFilterSchema = z.object({
   tabId: uuid.optional(),
@@ -73,6 +74,7 @@ export const runHistoryFilterSchema = z.object({
   toolName: toolName.optional(),
   status: runStatusSchema.optional(),
   origin: runOriginSchema.optional(),
+  source: runSourceSchema.optional(),
   pinned: z.boolean().optional(),
   createdFrom: timestamp.optional(),
   createdTo: timestamp.optional(),
