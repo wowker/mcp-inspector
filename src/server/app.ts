@@ -80,6 +80,8 @@ import type { AuthoringAuthService } from "./authoring/authoring-auth-service.js
 import { createAuthoringSettingsRoutes } from "./authoring/authoring-settings-routes.js";
 import type { AuthoringMcpServer } from "./authoring/authoring-mcp-server.js";
 import { createAuthoringMcpRoutes } from "./authoring/authoring-mcp-routes.js";
+import { createAuthoringPolicyRoutes } from "./authoring/authoring-policy-routes.js";
+import { createAuthoringPolicyService, type AuthoringPolicyService } from "./authoring/authoring-policy-service.js";
 
 export interface AppDependencies {
   sessionToken: string;
@@ -113,6 +115,7 @@ export interface AppDependencies {
   authoringAuth?: AuthoringAuthService;
   authoringMcp?: AuthoringMcpServer;
   authoringOrigin?: string | (() => string);
+  authoringPolicies?: AuthoringPolicyService;
   staticRoot?: string;
 }
 
@@ -349,6 +352,8 @@ export function createApp(deps: AppDependencies): Hono {
       },
     });
     app.route("/api/projects", createProjectRoutes(deps.projects));
+    const authoringPolicies = deps.authoringPolicies ?? createAuthoringPolicyService({ projects: deps.projects });
+    app.route("/api/projects", createAuthoringPolicyRoutes(authoringPolicies));
     app.route("/api/projects", createConnectionRoutes(connections));
     const tools = deps.tools ?? createToolService(deps.projects, connections);
     app.route("/api/projects", createToolRoutes(tools));

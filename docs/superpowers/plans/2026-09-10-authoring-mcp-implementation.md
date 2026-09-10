@@ -113,12 +113,12 @@
 - Create: `src/server/authoring/authoring-policy-service.ts`
 - Create: `src/server/authoring/__tests__/authoring-policy-service.test.ts`
 
-- [ ] Add migration and service tests covering missing=`DISABLED`, `READ_ONLY`, `CUSTOM`, deny-wins behavior, `FULL_ACCESS`, optimistic revision conflicts, deletion of a connection, and same-URL/different-connection isolation.
-- [ ] Implement policy rows keyed by exact project ID and connection ID with cleanup, rate, concurrency, and duration limits.
-- [ ] Make `FULL_ACCESS` allow all current/future downstream Tools while preserving all non-permission safety boundaries.
-- [ ] Expose policy mutation only through browser-authorized service calls; MCP tools receive read-only summaries.
-- [ ] Run the focused migration/policy tests and `npm run typecheck`.
-- [ ] Commit with `feat(authoring): add connection access policies`.
+- [x] Add migration and service tests covering missing=`DISABLED`, `READ_ONLY`, `CUSTOM`, deny-wins behavior, `FULL_ACCESS`, optimistic revision conflicts, deletion of a connection, and same-URL/different-connection isolation.
+- [x] Implement policy rows keyed by exact project ID and connection ID with cleanup, rate, concurrency, and duration limits.
+- [x] Make `FULL_ACCESS` allow all current/future downstream Tools while preserving all non-permission safety boundaries.
+- [x] Expose policy mutation only through browser-authorized service calls; MCP tools receive read-only summaries.
+- [x] Run the focused migration/policy tests and `npm run typecheck`.
+- [x] Commit with `feat(authoring): add connection access policies`.
 
 ### Task 6: Expose project, connection, and Tool discovery tools
 

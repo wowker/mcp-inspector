@@ -23,7 +23,7 @@ describe("workflow migration", () => {
     expect(store.database.prepare(
       "SELECT version FROM schema_migrations ORDER BY version",
     ).all()).toEqual(
-      Array.from({ length: 20 }, (_, index) => ({ version: index + 1 })),
+      Array.from({ length: 21 }, (_, index) => ({ version: index + 1 })),
     );
     expect(store.database.prepare(`
       SELECT name FROM sqlite_master

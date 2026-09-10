@@ -25,7 +25,7 @@ describe("comparison ignore rules migration", () => {
     `);
     try {
       expect(store.database.prepare("SELECT max(version) AS version FROM schema_migrations").get())
-        .toEqual({ version: 20 });
+        .toEqual({ version: 21 });
       insert.run("00000000-0000-4000-8000-000000001501", project.id, '$["requestId"]', 0);
       expect(() => insert.run(
         "00000000-0000-4000-8000-000000001502", project.id, '$["requestId"]', 1,
@@ -60,7 +60,7 @@ describe("comparison ignore rules migration", () => {
     try {
       const store = upgraded.open(project.id);
       expect(store.database.prepare("SELECT max(version) AS version FROM schema_migrations").get())
-        .toEqual({ version: 20 });
+        .toEqual({ version: 21 });
       expect(store.database.prepare("SELECT count(*) AS count FROM comparison_ignore_rules").get())
         .toEqual({ count: 0 });
     } finally { upgraded.close(); }

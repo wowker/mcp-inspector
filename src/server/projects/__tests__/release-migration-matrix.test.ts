@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createProjectService } from "../project-service.js";
 import { resolveDefaultMigrationsUrl } from "../project-store.js";
 
-describe("2.0 release migration matrix", () => {
+describe("release migration matrix", () => {
   const roots: string[] = [];
 
   afterEach(() => {
@@ -95,7 +95,7 @@ describe("2.0 release migration matrix", () => {
     const upgraded = createProjectService({ dataRoot });
     try {
       const current = upgraded.open(project.id).database;
-      expect(current.prepare("SELECT max(version) AS version FROM schema_migrations").get()).toEqual({ version: 20 });
+      expect(current.prepare("SELECT max(version) AS version FROM schema_migrations").get()).toEqual({ version: 21 });
       expect(selectFixture(current)).toEqual(before);
     } finally { upgraded.close(); }
   });
@@ -215,7 +215,7 @@ describe("2.0 release migration matrix", () => {
     const upgraded = createProjectService({ dataRoot });
     try {
       const current = upgraded.open(project.id).database;
-      expect(current.prepare("SELECT max(version) AS version FROM schema_migrations").get()).toEqual({ version: 20 });
+      expect(current.prepare("SELECT max(version) AS version FROM schema_migrations").get()).toEqual({ version: 21 });
       expect({
         connection: current.prepare("SELECT id, name, url, auth_mode, headers_json, redact_sensitive_info, bearer_token FROM connections WHERE id = ?").get(connectionId),
         tool: current.prepare("SELECT connection_id, name, current_snapshot_id, status FROM tools WHERE connection_id = ? AND name = 'lookup'").get(connectionId),

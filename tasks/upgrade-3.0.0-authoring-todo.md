@@ -14,7 +14,7 @@
 
 ## Slice B — Discovery and connection policy
 
-- [ ] Task 5: Policy persistence and authorization semantics.
+- [x] Task 5: Policy persistence and authorization semantics.
 - [ ] Task 6: Project, connection, and Tool discovery.
 - [ ] Task 7: Server Authoring permission UI.
 - [ ] Checkpoint B: focused gates and `npm run verify` pass.

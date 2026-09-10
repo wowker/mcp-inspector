@@ -20,6 +20,7 @@ import { createWorkflowDebugService } from "./workflows/workflow-debug-service.j
 import { InstallationSettingsRepository } from "./registry/installation-settings-repository.js";
 import { createAuthoringAuthService } from "./authoring/authoring-auth-service.js";
 import { createAuthoringMcpServer } from "./authoring/authoring-mcp-server.js";
+import { createAuthoringPolicyService } from "./authoring/authoring-policy-service.js";
 
 export interface InspectorAddress {
   host: "127.0.0.1";
@@ -180,6 +181,7 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
     appVersion: config.version,
     endpoint: () => `${serverOrigin}/mcp/authoring`,
   });
+  const authoringPolicies = createAuthoringPolicyService({ projects });
   let environment: ReturnType<typeof createEnvironmentService> | undefined;
   let environmentProfiles: ReturnType<typeof createEnvironmentProfileService> | undefined;
   const connections = createConnectionService(projects, {
@@ -223,6 +225,7 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
     authoringAuth,
     authoringMcp,
     authoringOrigin: () => serverOrigin,
+    authoringPolicies,
     staticRoot,
   });
   let server: ServerType | undefined;
