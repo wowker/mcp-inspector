@@ -17,8 +17,10 @@ export const enUSServers = {
     actions: {
       connect: "Connect", connecting: "Connecting…", authorizing: "Authorizing…", disconnect: "Disconnect", reauthorize: "Reauthorize", reauthorizing: "Authorizing…", edit: "Edit",
       export: "Export", exporting: "Exporting…", delete: "Delete",
+      authoring: "Permissions",
       connectAria: "Connect {{name}}", disconnectAria: "Disconnect {{name}}", reauthorizeAria: "Reauthorize {{name}}", editAria: "Edit {{name}}",
       exportAria: "Export {{name}}", deleteAria: "Delete {{name}}",
+      authoringAria: "Configure Authoring MCP permissions for {{name}}",
     },
     exported: "{{name}} exported",
     defaultExportName: "server",
@@ -54,6 +56,35 @@ export const enUSServers = {
   delete: {
     title: "Delete connection", description: "Delete {{name}}? Saved Tool snapshots will also be removed from this project.",
     cancel: "Cancel", confirm: "Delete connection", deleting: "Deleting…", confirmAria: "Confirm deletion of {{name}}",
+  },
+  authoring: {
+    title: "Authoring MCP permissions",
+    description: "Control which Tools an external AI can inspect and call on {{name}} through Authoring MCP.",
+    close: "Close Authoring MCP permissions dialog",
+    loading: "Loading permissions and Tool catalog…",
+    mode: { label: "Access mode", DISABLED: "Disabled", READ_ONLY: "Read only", CUSTOM: "Custom", FULL_ACCESS: "Full access" },
+    modeDescription: {
+      DISABLED: "External AI cannot see or call this Server's Tools.",
+      READ_ONLY: "Only explicitly selected read-only Tools are allowed. Tool annotations never grant access automatically.",
+      CUSTOM: "Only allowlisted Tools are available; denylist wins and new Tools default to denied.",
+      FULL_ACCESS: "Allows every current and future Tool while retaining audit, rate, timeout, and redaction controls.",
+    },
+    allowed: { title: "Allowed Tools", add: "Add allowed Tool", remove: "Remove allowed Tool {{name}}" },
+    denied: { title: "Denied Tools", add: "Add denied Tool", remove: "Remove denied Tool {{name}}" },
+    search: "Search Tools",
+    noTools: "No Tools available",
+    remove: "Remove",
+    fullAccess: {
+      title: "Highest permission",
+      warning: "{{name}} will allow external AI to call current, future, and destructive Tools.",
+      confirm: "I confirm full access for this Server",
+    },
+    limits: {
+      title: "Safety limits", callsPerMinute: "Maximum calls per minute", concurrentCalls: "Maximum concurrent calls",
+      duration: "Maximum call duration (ms)", requireCleanup: "Require cleanup steps for mutating Drafts",
+    },
+    cancel: "Cancel", save: "Save permissions", saving: "Saving…",
+    errors: { load: "Unable to load Authoring MCP permissions", save: "Unable to save Authoring MCP permissions" },
   },
   errors: {
     manage: "Unable to manage connection configurations", headerNameRequired: "Header name is required",

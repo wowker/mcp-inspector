@@ -16,8 +16,8 @@
 
 - [x] Task 5: Policy persistence and authorization semantics.
 - [x] Task 6: Project, connection, and Tool discovery.
-- [ ] Task 7: Server Authoring permission UI.
-- [ ] Checkpoint B: focused gates and `npm run verify` pass.
+- [x] Task 7: Server Authoring permission UI.
+- [x] Checkpoint B: focused gates and `npm run verify` pass.
 
 ## Slice C — Standalone Tool calls, audit, and Run lineage
 

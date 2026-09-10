@@ -717,6 +717,14 @@ textarea::placeholder { color: var(--ui-text-subtle); opacity: 1; }
 .connection-fixed-options dd { color: var(--ui-text); }
 .dialog-actions { border-top-color: var(--ui-border); }
 .connection-dialog-form .dialog-actions { background: var(--ui-surface-muted); }
+.authoring-policy-form .dialog-actions { background: var(--ui-surface-muted); }
+.authoring-policy-mode small,
+.authoring-policy-loading,
+.authoring-policy-limits label { color: var(--ui-text-muted); }
+.authoring-policy-form .ui-disclosure,
+.authoring-policy-limits input,
+.authoring-policy-mode select { border-color: var(--ui-border); color: var(--ui-text); background: var(--ui-surface); }
+.authoring-tool-list code { color: var(--ui-text); }
 
 .project-picker,
 .active-project {

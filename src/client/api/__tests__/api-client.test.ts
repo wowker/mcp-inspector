@@ -242,4 +242,53 @@ describe("connection API response decoding", () => {
     await expect(createApiClient("session").listConnections(projectId))
       .rejects.toThrow("Request failed (503)");
   });
+
+  it("loads and replaces an Authoring policy for the exact project and connection", async () => {
+    const connectionId = "00000000-0000-4000-8000-000000000602";
+    const policy = {
+      projectId, connectionId, mode: "CUSTOM", allowedTools: ["catalog/read"], deniedTools: ["catalog/delete"],
+      requireCleanupForDraftMutations: true, maxCallsPerMinute: 30, maxConcurrentCalls: 1,
+      maxCallDurationMs: 20_000, revision: 4,
+      createdAt: "2026-09-10T00:00:00.000Z", updatedAt: "2026-09-10T00:01:00.000Z",
+    };
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ policy }), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    }));
+
+    await expect(createApiClient("session").getAuthoringPolicy(projectId, connectionId)).resolves.toEqual(policy);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      `/api/projects/${projectId}/connections/${connectionId}/authoring-policy`,
+      expect.objectContaining({ headers: expect.objectContaining({ "Content-Type": "application/json" }) }),
+    );
+
+    const input = {
+      expectedRevision: 4, mode: "FULL_ACCESS" as const, allowedTools: [], deniedTools: [],
+      requireCleanupForDraftMutations: true, maxCallsPerMinute: 30, maxConcurrentCalls: 1,
+      maxCallDurationMs: 20_000,
+    };
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ policy: {
+      ...policy, mode: input.mode, allowedTools: input.allowedTools, deniedTools: input.deniedTools,
+      revision: 5,
+    } }), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    }));
+    await createApiClient("session").replaceAuthoringPolicy(projectId, connectionId, input);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      `/api/projects/${projectId}/connections/${connectionId}/authoring-policy`,
+      expect.objectContaining({ method: "PUT", body: JSON.stringify(input) }),
+    );
+  });
+
+  it("rejects an Authoring policy returned for a different identity", async () => {
+    const connectionId = "00000000-0000-4000-8000-000000000602";
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ policy: {
+      projectId, connectionId: "00000000-0000-4000-8000-000000000699", mode: "DISABLED",
+      allowedTools: [], deniedTools: [], requireCleanupForDraftMutations: true,
+      maxCallsPerMinute: 60, maxConcurrentCalls: 1, maxCallDurationMs: 30_000,
+      revision: 0, createdAt: null, updatedAt: null,
+    } }), { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    await expect(createApiClient("session").getAuthoringPolicy(projectId, connectionId))
+      .rejects.toThrow("Invalid Authoring policy response");
+  });
 });

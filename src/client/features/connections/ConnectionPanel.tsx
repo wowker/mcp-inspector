@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Plus } from "@phosphor-icons/react";
+import { Plus, ShieldCheck } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import type {
@@ -10,6 +10,7 @@ import type {
 } from "../../api/api-client.js";
 import { ToolTree } from "../tools/ToolTree.js";
 import { ConnectionFormDialog, DeleteConnectionDialog } from "./ConnectionDialogs.js";
+import { AuthoringPolicyDialog } from "./AuthoringPolicyDialog.js";
 import type { ConnectionAuthMode } from "../../../shared/connection-auth.js";
 
 interface ConnectionPanelProps {
@@ -83,6 +84,7 @@ function ProjectScopedConnectionPanel({
   const [editingConnectionId, setEditingConnectionId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [authoringConnectionId, setAuthoringConnectionId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
@@ -723,6 +725,13 @@ function ProjectScopedConnectionPanel({
                       >{exportingConnectionIds.has(connection.id) ? t("panel.actions.exporting") : t("panel.actions.export")}</button>
                       <button
                         type="button"
+                        className="button-secondary"
+                        disabled={pendingConnectionIds.has(connection.id) || deleting}
+                        aria-label={t("panel.actions.authoringAria", { name: connection.name })}
+                        onClick={() => setAuthoringConnectionId(connection.id)}
+                      ><ShieldCheck size={15} aria-hidden="true" />{t("panel.actions.authoring")}</button>
+                      <button
+                        type="button"
                         className="button-quiet-danger"
                         aria-label={t("panel.actions.deleteAria", { name: connection.name })}
                         onClick={(event) => {
@@ -803,6 +812,17 @@ function ProjectScopedConnectionPanel({
             }}
           />
         );
+      })()}
+
+      {authoringConnectionId !== null && connections !== null && (() => {
+        const connection = connections.find(({ id }) => id === authoringConnectionId);
+        return connection === undefined ? null : <AuthoringPolicyDialog
+          key={`${projectId}:${connection.id}`}
+          api={api}
+          projectId={projectId}
+          connection={connection}
+          onClose={() => setAuthoringConnectionId(null)}
+        />;
       })()}
     </section>
   );

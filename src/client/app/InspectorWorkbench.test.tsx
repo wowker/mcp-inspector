@@ -72,6 +72,7 @@ function api(): InspectorApiClient {
     connectConnection: vi.fn().mockResolvedValue({ ...connection, status: "connected" }),
     disconnectConnection: vi.fn().mockResolvedValue(connection),
     reauthorizeConnection: vi.fn().mockResolvedValue(connection),
+    getAuthoringPolicy: vi.fn(), replaceAuthoringPolicy: vi.fn(),
     listTools: vi.fn().mockResolvedValue([]), refreshTools: vi.fn().mockResolvedValue([]), getTool: vi.fn(), deleteTool: vi.fn(),
     listToolFolders: vi.fn().mockResolvedValue([]), createToolFolder: vi.fn(), renameToolFolder: vi.fn(),
     deleteToolFolder: vi.fn(), moveToolToFolder: vi.fn(), setToolFavorite: vi.fn(), markToolUsed: vi.fn(),

@@ -17,8 +17,10 @@ export const zhCNServers = {
     actions: {
       connect: "连接", connecting: "连接中…", authorizing: "授权中…", disconnect: "断开", reauthorize: "重新授权", reauthorizing: "授权中…", edit: "编辑",
       export: "导出", exporting: "导出中…", delete: "删除",
+      authoring: "权限",
       connectAria: "连接 {{name}}", disconnectAria: "断开 {{name}}", reauthorizeAria: "重新授权 {{name}}", editAria: "编辑 {{name}}",
       exportAria: "导出 {{name}}", deleteAria: "删除 {{name}}",
+      authoringAria: "配置 {{name}} 的 Authoring MCP 权限",
     },
     exported: "{{name}} 已导出",
     defaultExportName: "server",
@@ -54,6 +56,35 @@ export const zhCNServers = {
   delete: {
     title: "删除连接", description: "确认删除 {{name}}？已保存的 Tool 快照也将从当前项目移除。",
     cancel: "取消", confirm: "确认删除", deleting: "正在删除…", confirmAria: "确认删除 {{name}}",
+  },
+  authoring: {
+    title: "Authoring MCP 权限",
+    description: "控制外部 AI 通过 Authoring MCP 查看和调用 {{name}} 的哪些 Tool。",
+    close: "关闭 Authoring MCP 权限弹窗",
+    loading: "正在加载权限与 Tool 目录…",
+    mode: { label: "权限模式", DISABLED: "禁用", READ_ONLY: "只读", CUSTOM: "自定义", FULL_ACCESS: "完全访问" },
+    modeDescription: {
+      DISABLED: "外部 AI 看不到此 Server 的 Tool，也不能调用。",
+      READ_ONLY: "只允许显式选择并确认过的只读 Tool。Tool 注解不会自动授予权限。",
+      CUSTOM: "只允许名单内的 Tool；拒绝名单优先，新增 Tool 默认拒绝。",
+      FULL_ACCESS: "允许当前及未来的全部 Tool，但仍受审计、限流、超时和脱敏约束。",
+    },
+    allowed: { title: "允许的 Tool", add: "添加允许的 Tool", remove: "移除允许的 Tool {{name}}" },
+    denied: { title: "拒绝的 Tool", add: "添加拒绝的 Tool", remove: "移除拒绝的 Tool {{name}}" },
+    search: "搜索 Tool",
+    noTools: "没有可选择的 Tool",
+    remove: "移除",
+    fullAccess: {
+      title: "最高权限",
+      warning: "{{name}} 将允许外部 AI 调用当前、未来新增以及破坏性 Tool。",
+      confirm: "我确认授予此 Server 完全访问权限",
+    },
+    limits: {
+      title: "安全限制", callsPerMinute: "每分钟最大调用数", concurrentCalls: "最大并发调用数",
+      duration: "单次调用最长时间（毫秒）", requireCleanup: "Draft 中的变更操作必须配置清理步骤",
+    },
+    cancel: "取消", save: "保存权限", saving: "正在保存…",
+    errors: { load: "无法加载 Authoring MCP 权限", save: "无法保存 Authoring MCP 权限" },
   },
   errors: {
     manage: "无法管理连接配置", headerNameRequired: "Header 名称不能为空",

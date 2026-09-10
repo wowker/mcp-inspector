@@ -149,13 +149,13 @@
 - Modify: `src/shared/i18n/locales/zh-CN/app.ts`
 - Modify: `src/shared/i18n/locales/en-US/app.ts`
 
-- [ ] Add failing UI tests for loading policy by project+connection, saving each mode, explicit FULL_ACCESS confirmation, keyboard operation, stale-response fencing, and project switch clearing.
-- [ ] Add an `Authoring MCP 权限` Disclosure using existing Button, Select/SearchableSelect, Dialog, FormField, and Phosphor primitives.
-- [ ] Explain that FULL_ACCESS includes future and destructive Tools; do not infer permission from annotations.
-- [ ] Preserve the current connection and Tool-tab state while editing policy.
-- [ ] Add zh-CN/en-US strings in the existing locale resources touched by the feature.
-- [ ] Run focused client tests and `npm run verify` as Checkpoint B.
-- [ ] Commit with `feat(ui): add connection authoring permissions`.
+- [x] Add failing UI tests for loading policy by project+connection, saving each mode, explicit FULL_ACCESS confirmation, keyboard operation, stale-response fencing, and project switch clearing.
+- [x] Add an `Authoring MCP 权限` Disclosure using existing Button, Select/SearchableSelect, Dialog, FormField, and Phosphor primitives.
+- [x] Explain that FULL_ACCESS includes future and destructive Tools; do not infer permission from annotations.
+- [x] Preserve the current connection and Tool-tab state while editing policy.
+- [x] Add zh-CN/en-US strings in the existing locale resources touched by the feature.
+- [x] Run focused client tests and `npm run verify` as Checkpoint B.
+- [x] Commit with `feat(ui): add connection authoring permissions`.
 
 ---
 

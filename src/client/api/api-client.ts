@@ -110,6 +110,11 @@ import {
 } from "../../shared/environment-profile.js";
 import { parseServerExportEnvironment } from "../../shared/server-export.js";
 import { decodeLargeRunDetail } from "./run-detail-decoder.js";
+import {
+  connectionAuthoringPolicySchema,
+  type ConnectionAuthoringPolicy,
+  type ReplaceAuthoringPolicyInput,
+} from "../../shared/authoring/policy.js";
 
 export type {
   EnvironmentVariable,
@@ -168,6 +173,8 @@ export interface CreateConnectionRequest {
 
 export type UpdateConnectionRequest = Partial<Pick<CreateConnectionRequest,
   "name" | "url" | "authMode" | "bearerToken" | "headers" | "redactSensitiveInfo" | "timeoutMs">>;
+
+export type { ConnectionAuthoringPolicy, ReplaceAuthoringPolicyInput } from "../../shared/authoring/policy.js";
 
 export interface ToolSnapshotSummary {
   id: string;
@@ -269,6 +276,9 @@ export interface InspectorApiClient {
   connectConnection(projectId: string, connectionId: string): Promise<ConnectionSummary>;
   reauthorizeConnection(projectId: string, connectionId: string): Promise<ConnectionSummary>;
   disconnectConnection(projectId: string, connectionId: string): Promise<ConnectionSummary>;
+  getAuthoringPolicy(projectId: string, connectionId: string): Promise<ConnectionAuthoringPolicy>;
+  replaceAuthoringPolicy(projectId: string, connectionId: string,
+    input: ReplaceAuthoringPolicyInput): Promise<ConnectionAuthoringPolicy>;
   listTools(projectId: string, connectionId: string): Promise<CatalogToolSummary[]>;
   refreshTools(projectId: string, connectionId: string): Promise<CatalogToolSummary[]>;
   getTool(projectId: string, connectionId: string, toolName: string): Promise<ToolDetailSummary>;
@@ -529,6 +539,15 @@ function decodeConnectionList(value: unknown, projectId: string): ConnectionSumm
     throw new Error("Invalid connection response");
   }
   return value.connections.map((connection) => decodeConnection(connection, projectId));
+}
+
+function decodeAuthoringPolicy(value: unknown, projectId: string, connectionId: string): ConnectionAuthoringPolicy {
+  if (!isObject(value) || !("policy" in value)) throw new Error("Invalid Authoring policy response");
+  const parsed = connectionAuthoringPolicySchema.safeParse(value.policy);
+  if (!parsed.success || parsed.data.projectId !== projectId || parsed.data.connectionId !== connectionId) {
+    throw new Error("Invalid Authoring policy response");
+  }
+  return parsed.data;
 }
 
 function decodeCreatedConnection(value: unknown, projectId: string): ConnectionSummary {
@@ -1065,6 +1084,20 @@ export function createApiClient(_legacySessionToken?: string): InspectorApiClien
         { method: "POST", headers },
       );
       return decodeCreatedConnection(await decodeConnectionResponse(response), projectId);
+    },
+    async getAuthoringPolicy(projectId, connectionId) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/connections/${encodeURIComponent(connectionId)}/authoring-policy`,
+        { headers },
+      );
+      return decodeAuthoringPolicy(await decodeResponse<unknown>(response), projectId, connectionId);
+    },
+    async replaceAuthoringPolicy(projectId, connectionId, input) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/connections/${encodeURIComponent(connectionId)}/authoring-policy`,
+        { method: "PUT", headers, body: JSON.stringify(input) },
+      );
+      return decodeAuthoringPolicy(await decodeResponse<unknown>(response), projectId, connectionId);
     },
     async listTools(projectId, connectionId) {
       const response = await fetch(

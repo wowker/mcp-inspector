@@ -51,6 +51,12 @@ function api(overrides: Partial<InspectorApiClient> = {}): InspectorApiClient {
     connectConnection: vi.fn().mockResolvedValue({ ...connection, status: "connected" }),
     disconnectConnection: vi.fn().mockResolvedValue(connection),
     reauthorizeConnection: vi.fn().mockResolvedValue(connection),
+    getAuthoringPolicy: vi.fn().mockResolvedValue({
+      projectId, connectionId: connection.id, mode: "DISABLED", allowedTools: [], deniedTools: [],
+      requireCleanupForDraftMutations: true, maxCallsPerMinute: 60, maxConcurrentCalls: 1,
+      maxCallDurationMs: 30000, revision: 0, createdAt: null, updatedAt: null,
+    }),
+    replaceAuthoringPolicy: vi.fn(),
     listTools: vi.fn().mockResolvedValue([]),
     refreshTools: vi.fn().mockResolvedValue([]),
     getTool: vi.fn(),
@@ -91,6 +97,95 @@ function api(overrides: Partial<InspectorApiClient> = {}): InspectorApiClient {
 afterEach(cleanup);
 
 describe("ConnectionPanel", () => {
+  it("loads and saves FULL_ACCESS only after an explicit Server-named confirmation", async () => {
+    const savedPolicy = {
+      projectId, connectionId: connection.id, mode: "FULL_ACCESS" as const,
+      allowedTools: [], deniedTools: [], requireCleanupForDraftMutations: true,
+      maxCallsPerMinute: 60, maxConcurrentCalls: 1, maxCallDurationMs: 30000,
+      revision: 1, createdAt: "2026-09-10T00:00:00.000Z", updatedAt: "2026-09-10T00:00:00.000Z",
+    };
+    const replaceAuthoringPolicy = vi.fn().mockResolvedValue(savedPolicy);
+    const user = userEvent.setup();
+    render(<ConnectionPanel api={api({ replaceAuthoringPolicy })} projectId={projectId} mode="servers" />);
+
+    await user.click(await screen.findByRole("button", { name: "配置 Catalog MCP 的 Authoring MCP 权限" }));
+    expect(await screen.findByRole("dialog", { name: "Authoring MCP 权限" })).toBeVisible();
+    await user.selectOptions(screen.getByLabelText("权限模式"), "FULL_ACCESS");
+    const save = screen.getByRole("button", { name: "保存权限" });
+    expect(save).toBeDisabled();
+    expect(screen.getByText(/Catalog MCP.*未来新增.*破坏性 Tool/u)).toBeVisible();
+    await user.click(screen.getByRole("checkbox", { name: /我确认/u }));
+    await user.click(save);
+
+    expect(replaceAuthoringPolicy).toHaveBeenCalledWith(projectId, connection.id, expect.objectContaining({
+      expectedRevision: 0,
+      mode: "FULL_ACCESS",
+    }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Authoring MCP 权限" })).not.toBeInTheDocument());
+  });
+
+  it.each(["DISABLED", "READ_ONLY", "CUSTOM"] as const)(
+    "loads the exact connection policy and saves %s mode",
+    async (mode) => {
+      const getAuthoringPolicy = vi.fn().mockResolvedValue({
+        projectId, connectionId: connection.id, mode: "DISABLED", allowedTools: [], deniedTools: [],
+        requireCleanupForDraftMutations: true, maxCallsPerMinute: 60, maxConcurrentCalls: 1,
+        maxCallDurationMs: 30000, revision: 7, createdAt: null, updatedAt: null,
+      });
+      const replaceAuthoringPolicy = vi.fn().mockResolvedValue({});
+      const user = userEvent.setup();
+      render(<ConnectionPanel api={api({ getAuthoringPolicy, replaceAuthoringPolicy })}
+        projectId={projectId} mode="servers" />);
+
+      await user.click(await screen.findByRole("button", { name: "配置 Catalog MCP 的 Authoring MCP 权限" }));
+      await screen.findByLabelText("权限模式");
+      expect(getAuthoringPolicy).toHaveBeenCalledWith(projectId, connection.id);
+      await user.selectOptions(screen.getByLabelText("权限模式"), mode);
+      await user.click(screen.getByRole("button", { name: "保存权限" }));
+
+      expect(replaceAuthoringPolicy).toHaveBeenCalledWith(projectId, connection.id, expect.objectContaining({
+        expectedRevision: 7, mode,
+      }));
+    },
+  );
+
+  it("closes the permission dialog by keyboard and clears it when the project changes", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<ConnectionPanel api={api()} projectId={projectId} mode="servers" />);
+    const trigger = await screen.findByRole("button", { name: "配置 Catalog MCP 的 Authoring MCP 权限" });
+    await user.click(trigger);
+    await screen.findByRole("dialog", { name: "Authoring MCP 权限" });
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Authoring MCP 权限" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+
+    await user.click(trigger);
+    await screen.findByRole("dialog", { name: "Authoring MCP 权限" });
+    rerender(<ConnectionPanel api={api({ listConnections: vi.fn().mockResolvedValue([]) })}
+      projectId={secondProjectId} mode="servers" />);
+    expect(screen.queryByRole("dialog", { name: "Authoring MCP 权限" })).not.toBeInTheDocument();
+  });
+
+  it("fences a delayed permission response after switching projects", async () => {
+    const pendingPolicy = deferred<Awaited<ReturnType<InspectorApiClient["getAuthoringPolicy"]>>>();
+    const oldApi = api({ getAuthoringPolicy: vi.fn().mockReturnValue(pendingPolicy.promise) });
+    const user = userEvent.setup();
+    const { rerender } = render(<ConnectionPanel api={oldApi} projectId={projectId} mode="servers" />);
+
+    await user.click(await screen.findByRole("button", { name: "配置 Catalog MCP 的 Authoring MCP 权限" }));
+    expect(await screen.findByText("正在加载权限与 Tool 目录…")).toBeVisible();
+    rerender(<ConnectionPanel api={api({ listConnections: vi.fn().mockResolvedValue([]) })}
+      projectId={secondProjectId} mode="servers" />);
+    await act(async () => pendingPolicy.resolve({
+      projectId, connectionId: connection.id, mode: "FULL_ACCESS", allowedTools: [], deniedTools: [],
+      requireCleanupForDraftMutations: false, maxCallsPerMinute: 600, maxConcurrentCalls: 2,
+      maxCallDurationMs: 600000, revision: 99, createdAt: null, updatedAt: null,
+    }));
+
+    expect(screen.queryByRole("dialog", { name: "Authoring MCP 权限" })).not.toBeInTheDocument();
+    expect(screen.queryByText("最高权限")).not.toBeInTheDocument();
+  });
+
   it("persists Tool favorites and recent use without blocking Tool selection", async () => {
     const connected = { ...connection, status: "connected" as const };
     const savedTool: CatalogToolSummary = {

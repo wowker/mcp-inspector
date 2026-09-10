@@ -1377,6 +1377,34 @@ h1 {
   background: #fafbfc;
 }
 
+.authoring-policy-dialog { width: min(680px, calc(100vw - 32px)); }
+.authoring-policy-form { display: grid; gap: 16px; padding: 20px 24px 24px; }
+.authoring-policy-form .dialog-actions { margin: 0 -24px -24px; padding-top: 18px; border-top: 1px solid var(--ui-border); }
+.authoring-policy-loading { margin: 0; color: var(--ui-text-muted); }
+.authoring-policy-mode { display: grid; gap: 6px; color: var(--ui-text-muted); font-size: 0.82rem; font-weight: 650; }
+.authoring-policy-mode select { width: 100%; min-height: 36px; }
+.authoring-policy-mode small { font-weight: 400; line-height: 1.5; }
+.authoring-policy-form .ui-disclosure { border: 1px solid var(--ui-border); border-radius: var(--ui-panel-radius); }
+.authoring-policy-form .ui-disclosure__content { display: grid; gap: 12px; padding: 12px; }
+.authoring-tool-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.authoring-tool-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.authoring-tool-list code { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.authoring-full-access-warning { display: flex; align-items: flex-start; gap: 10px; padding: 12px; border: 1px solid var(--ui-danger); border-radius: var(--ui-panel-radius); background: var(--ui-danger-muted); color: var(--ui-danger); }
+.authoring-full-access-warning > span { display: grid; gap: 6px; }
+.authoring-full-access-warning small { line-height: 1.5; }
+.authoring-full-access-warning span span { display: flex; align-items: center; gap: 8px; color: var(--ui-text); }
+.authoring-policy-limits { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.authoring-policy-limits label { display: grid; gap: 6px; color: var(--ui-text-muted); font-size: 0.76rem; }
+.authoring-policy-limits input { width: 100%; min-height: 36px; }
+.authoring-cleanup-option { display: flex; align-items: flex-start; gap: 8px; font-size: 0.82rem; }
+.dialog-kicker { display: flex; align-items: center; gap: 6px; }
+
+@media (max-width: 640px) {
+  .authoring-policy-limits { grid-template-columns: 1fr; }
+  .authoring-policy-form { padding-inline: 16px; }
+  .authoring-policy-form .dialog-actions { margin-inline: -16px; }
+}
+
 .dialog-error {
   margin: 0;
   padding: 10px 12px;
