@@ -38,6 +38,7 @@ export const draftTestSuiteMemberSchema = z.object({
   localId,
   testCaseLocalId: localId,
   position: z.number().int().nonnegative(),
+  isEnabled: z.boolean().default(true),
 }).strict();
 
 export const draftTestSuiteSchema = z.object({

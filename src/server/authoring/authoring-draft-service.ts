@@ -143,6 +143,7 @@ export function createAuthoringDraftService(options: {
         localId: `member-${member.id}`,
         testCaseLocalId: byFormalId.get(member.testCaseId)!,
         position: member.position,
+        isEnabled: member.isEnabled,
       })),
       executionPolicy: formalSuite.executionPolicy,
     };

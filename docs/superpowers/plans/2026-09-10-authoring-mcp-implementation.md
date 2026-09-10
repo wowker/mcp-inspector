@@ -323,13 +323,13 @@
 - Modify: `src/server/testing/test-suite-repository.ts`
 - Create: `src/server/authoring/__tests__/authoring-apply-service.test.ts`
 
-- [ ] Add failing tests for stale revision, invalid digest, Tool/policy/source drift, idempotency replay/conflict, transaction rollback at every write stage, and concurrent Apply.
-- [ ] In one project SQLite transaction create/revise all test cases, test revisions, suites, members, and Draft-to-formal mappings.
-- [ ] Force newly created formal tests disabled; preserve enablement only when editing an existing exact source revision.
-- [ ] Never expose enable, delete, schedule, pressure-test, secret-management, or shared-workflow mutation through Apply.
-- [ ] Mark the Draft `APPLIED` only after commit and return stable formal asset IDs/revisions.
-- [ ] Run focused Apply/repository tests and `npm run typecheck`.
-- [ ] Commit with `feat(authoring): atomically apply validated drafts`.
+- [x] Add failing tests for stale revision, invalid digest, Tool/policy/source drift, idempotency replay/conflict, transaction rollback at every write stage, and concurrent Apply.
+- [x] In one project SQLite transaction create/revise all test cases, test revisions, suites, members, and Draft-to-formal mappings.
+- [x] Force newly created formal tests disabled; preserve enablement only when editing an existing exact source revision.
+- [x] Never expose enable, delete, schedule, pressure-test, secret-management, or shared-workflow mutation through Apply.
+- [x] Mark the Draft `APPLIED` only after commit and return stable formal asset IDs/revisions.
+- [x] Run focused Apply/repository tests and `npm run typecheck`.
+- [x] Commit with `feat(authoring): atomically apply validated drafts`.
 
 ### Task 17: Complete MCP save and UI handoff
 

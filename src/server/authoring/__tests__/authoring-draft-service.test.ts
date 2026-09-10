@@ -6,6 +6,7 @@ import { createConnectionService } from "../../connections/connection-service.js
 import { createProjectService } from "../../projects/project-service.js";
 import { createTestCaseService } from "../../testing/test-case-service.js";
 import { createTestSuiteService } from "../../testing/test-suite-service.js";
+import type { AutomationDraftDefinition } from "../../../shared/authoring/draft.js";
 import type { AuthoringCallService } from "../authoring-call-service.js";
 import {
   AuthoringDraftIdempotencyConflictError,
@@ -56,14 +57,14 @@ describe("AuthoringDraftService", () => {
     return { projects, testCases, testSuites, drafts };
   }
 
-  function validDefinition(connection = connectionId) {
+  function validDefinition(connection = connectionId): AutomationDraftDefinition {
     return {
       version: 1 as const,
       testCases: [{ localId: "case-1", kind: "tool" as const, name: "Create order", description: "",
         tags: [], target: { connectionId: connection, toolName: "create_order" }, arguments: { sku: "A" },
         assertions: [], timeoutMs: 30_000 }],
       suites: [{ localId: "suite-1", name: "Order flow", description: "", tags: [],
-        members: [{ localId: "member-1", testCaseLocalId: "case-1", position: 0 }],
+        members: [{ localId: "member-1", testCaseLocalId: "case-1", position: 0, isEnabled: true }],
         executionPolicy: { concurrency: 1, stopOnFailure: true } }],
       sourceAssets: [], evidence: [],
     };
@@ -102,6 +103,16 @@ describe("AuthoringDraftService", () => {
     expect(() => drafts.replace({ projectId, draftId: created.draftId, expectedRevision: 3,
       goal: "Broken", definition: broken, idempotencyKey: "replace-broken" }))
       .toThrow(AuthoringDraftInvalidError);
+  });
+
+  it("defaults legacy Draft suite members to enabled", () => {
+    const { drafts } = fixture();
+    const created = drafts.create({ projectId, goal: "", idempotencyKey: "create-legacy" });
+    const legacy = validDefinition() as unknown as { suites: Array<{ members: Array<Record<string, unknown>> }> };
+    delete legacy.suites[0]!.members[0]!.isEnabled;
+    drafts.replace({ projectId, draftId: created.draftId, expectedRevision: 1,
+      goal: "Legacy", definition: legacy as never, idempotencyKey: "replace-legacy" });
+    expect(drafts.get(projectId, created.draftId).definition.suites[0]!.members[0]!.isEnabled).toBe(true);
   });
 
   it("rejects server-owned controls, management capabilities, unknown fields, and oversized Bundles", () => {
@@ -150,7 +161,7 @@ describe("AuthoringDraftService", () => {
       assertions: [], timeoutMs: 30_000 });
     const suite = testSuites.create(projectId, { name: "Existing suite", description: "", tags: [],
       members: [{ id: "00000000-0000-4000-8000-000000006090", testCaseId: testCase.id,
-        position: 0, isEnabled: true }], executionPolicy: { concurrency: 1, stopOnFailure: true } });
+        position: 0, isEnabled: false }], executionPolicy: { concurrency: 1, stopOnFailure: true } });
     const fromCase = drafts.create({ projectId, goal: "Edit case", idempotencyKey: "from-case",
       source: { kind: "TEST_CASE", assetId: testCase.id, revision: 1 } });
     expect(drafts.get(projectId, fromCase.draftId).definition.sourceAssets).toEqual([
@@ -166,7 +177,8 @@ describe("AuthoringDraftService", () => {
       source: { kind: "TEST_SUITE", assetId: suite.id, revision: 1 } });
     expect(drafts.get(projectId, fromSuite.draftId).definition).toMatchObject({
       testCases: [{ localId: `test-${testCase.id}` }],
-      suites: [{ localId: `suite-${suite.id}`, members: [{ testCaseLocalId: `test-${testCase.id}` }] }],
+      suites: [{ localId: `suite-${suite.id}`,
+        members: [{ testCaseLocalId: `test-${testCase.id}`, isEnabled: false }] }],
     });
     expect(() => drafts.create({ projectId, goal: "Stale", idempotencyKey: "stale",
       source: { kind: "TEST_CASE", assetId: testCase.id, revision: 1 } }))
