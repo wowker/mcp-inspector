@@ -9,11 +9,13 @@ import { InstallationSettingsRepository } from "../../registry/installation-sett
 import { createAuthoringAuthService } from "../authoring-auth-service.js";
 import type { AuthoringCallService } from "../authoring-call-service.js";
 import { createAuthoringMcpServer } from "../authoring-mcp-server.js";
+import type { AuthoringDraftService } from "../authoring-draft-service.js";
 
 const projectId = "00000000-0000-4000-8000-000000005001";
 const connectionId = "00000000-0000-4000-8000-000000005002";
 const callId = "00000000-0000-4000-8000-000000005003";
 const runId = "00000000-0000-4000-8000-000000005004";
+const draftId = "00000000-0000-4000-8000-000000005005";
 const endpoint = new URL("http://127.0.0.1:8500/mcp/authoring");
 
 const detail = {
@@ -47,8 +49,19 @@ describe("Authoring call MCP tools", () => {
         durationMs: detail.durationMs,
       }], nextCursor: null })),
     };
+    const draftResult = { draftId, revision: 1, definitionDigest: "b".repeat(64) };
+    const drafts: AuthoringDraftService = {
+      create: vi.fn(() => draftResult),
+      createFromCall: vi.fn(() => draftResult),
+      list: vi.fn(() => ({ items: [], nextCursor: null })),
+      get: vi.fn(() => ({ version: 1 as const, id: draftId, projectId, revision: 1, state: "ACTIVE" as const,
+        goal: "Diagnosis", definitionDigest: "b".repeat(64),
+        definition: { version: 1 as const, testCases: [], suites: [], sourceAssets: [], evidence: [] },
+        createdAt: detail.createdAt, updatedAt: detail.createdAt })),
+      replace: vi.fn(() => ({ ...draftResult, revision: 2 })),
+    };
     const server = createAuthoringMcpServer({
-      appVersion: "3.0.0-test", endpoint: endpoint.toString(), calls,
+      appVersion: "3.0.0-test", endpoint: endpoint.toString(), calls, drafts,
     });
     const app = createApp({
       sessionToken: "browser-session", allowedOrigin: endpoint.origin, version: "3.0.0-test",
@@ -66,13 +79,15 @@ describe("Authoring call MCP tools", () => {
       repository.close();
       rmSync(dataRoot, { recursive: true, force: true });
     });
-    return { client, calls };
+    return { client, calls, drafts };
   }
 
   it("calls a downstream Tool and returns traceable call and Run identities", async () => {
     const { client, calls } = await fixture();
     expect((await client.listTools()).tools.map(({ name }) => name)).toEqual([
       "inspector_get_capabilities", "inspector_call_tool", "inspector_list_tool_calls", "inspector_get_tool_call",
+      "inspector_create_draft", "inspector_create_draft_from_call", "inspector_list_drafts",
+      "inspector_get_draft", "inspector_replace_draft",
     ]);
     const result = await client.callTool({ name: "inspector_call_tool", arguments: {
       projectId, connectionId, toolName: "sum", toolSchemaHash: "a".repeat(64), arguments: { a: 2 },
@@ -82,6 +97,27 @@ describe("Authoring call MCP tools", () => {
       callId, runId, status: "SUCCEEDED", arguments: { authorization: "[REDACTED]" },
     } });
     expect(calls.call).toHaveBeenCalledOnce();
+  });
+
+  it("creates, reads, lists, and fully replaces revisioned Draft Bundles", async () => {
+    const { client, drafts } = await fixture();
+    const created = await client.callTool({ name: "inspector_create_draft", arguments: {
+      projectId, goal: "Diagnosis", idempotencyKey: "draft-create",
+    } });
+    expect(created.structuredContent).toMatchObject({ ok: true, data: { draftId, revision: 1 } });
+    await client.callTool({ name: "inspector_create_draft_from_call", arguments: {
+      projectId, callId, goal: "From call", idempotencyKey: "draft-call",
+    } });
+    await client.callTool({ name: "inspector_list_drafts", arguments: { projectId } });
+    const fetched = await client.callTool({ name: "inspector_get_draft", arguments: { projectId, draftId } });
+    expect(fetched.structuredContent).toMatchObject({ ok: true, data: { id: draftId, state: "ACTIVE" } });
+    const replaced = await client.callTool({ name: "inspector_replace_draft", arguments: {
+      projectId, draftId, expectedRevision: 1, goal: "Updated", idempotencyKey: "draft-replace",
+      definition: { version: 1, testCases: [], suites: [], sourceAssets: [], evidence: [] },
+    } });
+    expect(replaced.structuredContent).toMatchObject({ ok: true, data: { draftId, revision: 2 } });
+    expect(drafts.createFromCall).toHaveBeenCalledWith(expect.objectContaining({ callId }));
+    expect(drafts.replace).toHaveBeenCalledWith(expect.objectContaining({ expectedRevision: 1 }));
   });
 
   it("lists summaries and gets sanitized detail without project identity substitution", async () => {

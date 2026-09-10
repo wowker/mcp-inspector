@@ -10,6 +10,13 @@ import {
   authoringListToolCallsInputSchema,
 } from "../../shared/authoring/calls.js";
 import {
+  createDraftFromCallInputSchema,
+  createDraftInputSchema,
+  getDraftInputSchema,
+  listDraftsInputSchema,
+  replaceDraftInputSchema,
+} from "../../shared/authoring/draft.js";
+import {
   AUTHORING_ASSET_TYPES,
   AUTHORING_LIMITS,
   AUTHORING_PROTOCOL_VERSION,
@@ -42,6 +49,18 @@ import {
   type AuthoringCallService,
 } from "./authoring-call-service.js";
 import { InvalidAuthoringCallCursorError } from "./authoring-call-repository.js";
+import {
+  AuthoringDraftIdempotencyConflictError,
+  AuthoringDraftInvalidError,
+  AuthoringDraftNotFoundError,
+  AuthoringDraftRevisionConflictError,
+  AuthoringDraftSourceRevisionConflictError,
+  AuthoringDraftTooLargeError,
+  type AuthoringDraftService,
+} from "./authoring-draft-service.js";
+import { InvalidAuthoringDraftCursorError } from "./authoring-draft-repository.js";
+import { TestCaseNotFoundError } from "../testing/test-case-service.js";
+import { TestSuiteNotFoundError } from "../testing/test-suite-service.js";
 
 interface Session {
   server: McpServer;
@@ -68,6 +87,7 @@ function createProtocolServer(options: {
   maxSessions: number;
   catalog?: AuthoringCatalogService;
   calls?: AuthoringCallService;
+  drafts?: AuthoringDraftService;
 }): McpServer {
   const server = new McpServer({ name: "mcp-inspector-authoring", version: options.appVersion });
   const meta = () => ({ requestId: randomUUID(), protocolVersion: AUTHORING_PROTOCOL_VERSION });
@@ -152,6 +172,38 @@ function createProtocolServer(options: {
       return failure("INTERNAL_ERROR", "INTERNAL", "Authoring call request failed", false);
     }
   };
+  const draftAction = async <T>(action: () => T | Promise<T>) => {
+    try {
+      return success(await action());
+    } catch (error) {
+      if (error instanceof AuthoringDraftTooLargeError) {
+        return failure("DRAFT_TOO_LARGE", "VALIDATION", error.message, false);
+      }
+      if (error instanceof z.ZodError || error instanceof AuthoringDraftInvalidError ||
+          error instanceof InvalidAuthoringDraftCursorError) {
+        return failure("DRAFT_INVALID", "VALIDATION", error instanceof AuthoringDraftInvalidError
+          ? error.message : "Authoring Draft request is invalid", false);
+      }
+      if (error instanceof AuthoringDraftNotFoundError) {
+        return failure("DRAFT_NOT_FOUND", "NOT_FOUND", error.message, false);
+      }
+      if (error instanceof AuthoringDraftRevisionConflictError ||
+          error instanceof AuthoringDraftSourceRevisionConflictError) {
+        return failure("DRAFT_REVISION_CONFLICT", "CONFLICT", error.message, false);
+      }
+      if (error instanceof AuthoringDraftIdempotencyConflictError) {
+        return failure("IDEMPOTENCY_CONFLICT", "CONFLICT", error.message, false);
+      }
+      if (error instanceof ProjectNotFoundError) {
+        return failure("PROJECT_NOT_FOUND", "NOT_FOUND", "Project not found", false);
+      }
+      if (error instanceof TestCaseNotFoundError || error instanceof TestSuiteNotFoundError ||
+          error instanceof AuthoringCallNotFoundError) {
+        return failure("SOURCE_NOT_FOUND", "NOT_FOUND", "Draft source not found", false);
+      }
+      return failure("INTERNAL_ERROR", "INTERNAL", "Authoring Draft request failed", false);
+    }
+  };
   server.registerTool("inspector_get_capabilities", {
     title: "Get Inspector authoring capabilities",
     description: "Returns the stable Authoring MCP protocol version, feature flags, and resource limits.",
@@ -219,6 +271,28 @@ function createProtocolServer(options: {
       return { callId: id, ...detail };
     }));
   }
+  if (options.drafts !== undefined) {
+    server.registerTool("inspector_create_draft", {
+      description: "Creates an empty Draft or copies one exact current test asset revision.",
+      inputSchema: createDraftInputSchema,
+    }, async (input) => draftAction(() => options.drafts!.create(input)));
+    server.registerTool("inspector_create_draft_from_call", {
+      description: "Creates a Draft from one sanitized Authoring call and its response evidence.",
+      inputSchema: createDraftFromCallInputSchema,
+    }, async (input) => draftAction(() => options.drafts!.createFromCall(input)));
+    server.registerTool("inspector_list_drafts", {
+      description: "Lists bounded Draft summaries in one exact project.",
+      inputSchema: listDraftsInputSchema,
+    }, async ({ projectId, ...input }) => draftAction(() => options.drafts!.list(projectId, input)));
+    server.registerTool("inspector_get_draft", {
+      description: "Returns one complete immutable Draft revision view.",
+      inputSchema: getDraftInputSchema,
+    }, async ({ projectId, draftId }) => draftAction(() => options.drafts!.get(projectId, draftId)));
+    server.registerTool("inspector_replace_draft", {
+      description: "Atomically replaces a complete Draft Bundle using expected revision and idempotency guards.",
+      inputSchema: replaceDraftInputSchema,
+    }, async (input) => draftAction(() => options.drafts!.replace(input)));
+  }
   return server;
 }
 
@@ -229,6 +303,7 @@ export function createAuthoringMcpServer(options: {
   maxRequestBytes?: number;
   catalog?: AuthoringCatalogService;
   calls?: AuthoringCallService;
+  drafts?: AuthoringDraftService;
 }): AuthoringMcpServer {
   const maxSessions = options.maxSessions ?? AUTHORING_LIMITS.maxSessions;
   const maxRequestBytes = options.maxRequestBytes ?? AUTHORING_LIMITS.maxRequestBytes;
@@ -271,6 +346,7 @@ export function createAuthoringMcpServer(options: {
         maxSessions,
         catalog: options.catalog,
         calls: options.calls,
+        drafts: options.drafts,
       });
       const transport = new WebStandardStreamableHTTPServerTransport({
         sessionIdGenerator: randomUUID,

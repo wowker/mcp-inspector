@@ -24,6 +24,9 @@ import { createAuthoringPolicyService } from "./authoring/authoring-policy-servi
 import { createAuthoringCatalogService } from "./authoring/authoring-catalog-service.js";
 import { createAuthoringCallService } from "./authoring/authoring-call-service.js";
 import { isSensitiveHeaderName } from "../shared/custom-headers.js";
+import { createAuthoringDraftService } from "./authoring/authoring-draft-service.js";
+import { createTestCaseService } from "./testing/test-case-service.js";
+import { createTestSuiteService } from "./testing/test-suite-service.js";
 
 export interface InspectorAddress {
   host: "127.0.0.1";
@@ -220,6 +223,8 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
   environment = createEnvironmentService(projects, connections);
   environmentProfiles = createEnvironmentProfileService(projects, connections, environment);
   const runtimeEnvironment = createProfileAwareEnvironmentService(environment, environmentProfiles);
+  const testCases = createTestCaseService(projects);
+  const testSuites = createTestSuiteService(projects);
   const authoringCalls = createAuthoringCallService({
     projects,
     policies: authoringPolicies,
@@ -240,11 +245,15 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
       return [...new Set(values)];
     },
   });
+  const authoringDrafts = createAuthoringDraftService({
+    projects, calls: authoringCalls, testCases, testSuites,
+  });
   const authoringMcp = createAuthoringMcpServer({
     appVersion: config.version,
     endpoint: () => `${serverOrigin}/mcp/authoring`,
     catalog: authoringCatalog,
     calls: authoringCalls,
+    drafts: authoringDrafts,
   });
   const workflowExecutions = createWorkflowExecutionService({
     projects, connections, tabs, workflows, environment: runtimeEnvironment, runs,
@@ -270,6 +279,8 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
     authoringMcp,
     authoringOrigin: () => serverOrigin,
     authoringPolicies,
+    testCases,
+    testSuites,
     staticRoot,
   });
   let server: ServerType | undefined;

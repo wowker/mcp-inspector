@@ -28,7 +28,7 @@
 
 ## Slice D — Draft authoring and validation
 
-- [ ] Task 11: Draft Bundle contract and revision service.
+- [x] Task 11: Draft Bundle contract and revision service.
 - [ ] Task 12: Draft validation and existing asset discovery.
 - [ ] Task 13: Authoring MCP workspace shell.
 - [ ] Checkpoint D: focused gates and `npm run verify` pass.

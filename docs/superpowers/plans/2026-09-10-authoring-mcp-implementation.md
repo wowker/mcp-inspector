@@ -226,12 +226,12 @@
 - Create: `src/server/authoring/__tests__/authoring-draft-service.test.ts`
 - Modify: `src/server/authoring/authoring-mcp-server.ts`
 
-- [ ] Add contract tests rejecting server-owned IDs, enablement, scheduling, deletes, pressure tests, shared script mutation, oversized/unknown fields, broken Draft-local references, and stale revisions.
-- [ ] Reuse existing Tool test, scenario, assertion, mapping, extractor, polling, cleanup, and suite schemas via explicit Draft adapters.
-- [ ] Implement create-empty, create-from-call, create-from-current-asset-revision, list, get, and full replace with `expectedRevision` and idempotency.
-- [ ] Register `inspector_create_draft`, `inspector_create_draft_from_call`, `inspector_list_drafts`, `inspector_get_draft`, and `inspector_replace_draft`.
-- [ ] Run focused shared/service/MCP tests and `npm run typecheck`.
-- [ ] Commit with `feat(authoring): add revisioned draft bundles`.
+- [x] Add contract tests rejecting server-owned IDs, enablement, scheduling, deletes, pressure tests, shared script mutation, oversized/unknown fields, broken Draft-local references, and stale revisions.
+- [x] Reuse existing Tool test, scenario, assertion, mapping, extractor, polling, cleanup, and suite schemas via explicit Draft adapters.
+- [x] Implement create-empty, create-from-call, create-from-current-asset-revision, list, get, and full replace with `expectedRevision` and idempotency.
+- [x] Register `inspector_create_draft`, `inspector_create_draft_from_call`, `inspector_list_drafts`, `inspector_get_draft`, and `inspector_replace_draft`.
+- [x] Run focused shared/service/MCP tests and `npm run typecheck`.
+- [x] Commit with `feat(authoring): add revisioned draft bundles`.
 
 ### Task 12: Add deterministic Draft validation and asset discovery
 
