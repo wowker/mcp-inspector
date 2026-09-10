@@ -4,12 +4,13 @@
 
 | 项目 | 内容 |
 |---|---|
-| 状态 | Design approved；详细实施计划待编写 |
+| 状态 | Design approved；实施计划已就绪 |
 | 目标版本 | `3.0.0` |
 | 当前代码版本 | `2.7.0` |
 | 当前项目数据库基线 | migrations `001`–`020` |
-| 更新日期 | 2026-09-09 |
+| 更新日期 | 2026-09-10 |
 | 正式设计规格 | [`superpowers/specs/2026-09-09-authoring-mcp-design.md`](./superpowers/specs/2026-09-09-authoring-mcp-design.md) |
+| 实施计划 | [`superpowers/plans/2026-09-10-authoring-mcp-implementation.md`](./superpowers/plans/2026-09-10-authoring-mcp-implementation.md) |
 
 > 本规划替换此前“Inspector 内置模型、Provider Adapter 和自治 Agent Loop”的方向。
 > 3.0.0 不接入模型。Codex、Claude、Cursor 等外部 AI Host 通过本机

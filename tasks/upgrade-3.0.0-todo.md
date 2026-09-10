@@ -1,5 +1,9 @@
 # MCP Inspector 3.0.0 Autonomous Test Design Agent Checklist
 
+> **Historical / superseded:** Do not execute this checklist. Track the approved external
+> AI Host + Authoring MCP work in
+> [`upgrade-3.0.0-authoring-todo.md`](./upgrade-3.0.0-authoring-todo.md).
+
 > Authoritative spec: [`docs/UPGRADE-3.0.0.md`](../docs/UPGRADE-3.0.0.md)
 >
 > Detailed tasks: [`tasks/upgrade-3.0.0-plan.md`](./upgrade-3.0.0-plan.md)

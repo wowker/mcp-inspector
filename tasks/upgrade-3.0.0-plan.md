@@ -1,5 +1,9 @@
 # Development Plan: MCP Inspector 3.0.0 Autonomous Test Design Agent
 
+> **Historical / superseded:** This embedded-model and Provider-adapter proposal is not
+> the approved 3.0.0 direction. Do not execute it. Use the current
+> [Authoring MCP implementation plan](../docs/superpowers/plans/2026-09-10-authoring-mcp-implementation.md).
+
 ## Overview
 
 Deliver a built-in autonomous Agent that receives a business goal, discovers and invokes Tools on one explicitly authorized MCP connection through an in-process Authoring MCP Server, records response provenance, compiles the exploration trace into the existing deterministic Scenario/Test Suite model, performs bounded replay and repair, and atomically saves disabled test definitions.

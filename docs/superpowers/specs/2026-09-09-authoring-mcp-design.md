@@ -4,7 +4,7 @@
 
 | Field | Value |
 |---|---|
-| Status | Conversation-approved; awaiting document review |
+| Status | Approved; implementation plan ready |
 | Target release | `3.0.0` |
 | Current application version | `2.7.0` |
 | Current project migration baseline | `001`–`020` |
