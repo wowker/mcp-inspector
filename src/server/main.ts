@@ -28,6 +28,7 @@ import { createAuthoringDraftService } from "./authoring/authoring-draft-service
 import { createTestCaseService } from "./testing/test-case-service.js";
 import { createTestSuiteService } from "./testing/test-suite-service.js";
 import { createAuthoringDraftValidator } from "./authoring/authoring-draft-validator.js";
+import { createAuthoringDraftExecutionService } from "./authoring/authoring-draft-execution-service.js";
 import { createAuthoringAssetService } from "./authoring/authoring-asset-service.js";
 
 export interface InspectorAddress {
@@ -253,6 +254,13 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
   const authoringDraftValidator = createAuthoringDraftValidator({
     projects, drafts: authoringDrafts, tools, policies: authoringPolicies, testCases, testSuites,
   });
+  const authoringDraftExecutions = createAuthoringDraftExecutionService({
+    projects, drafts: authoringDrafts, validator: authoringDraftValidator, calls: authoringCalls,
+    resolveEnvironment: async (projectId, scope, connectionId, name) => {
+      const resolved = runtimeEnvironment.resolve(projectId, connectionId);
+      return scope === "PROJECT" ? resolved.project[name] : resolved.server[name];
+    },
+  });
   const authoringAssets = createAuthoringAssetService({ projects, testCases, testSuites });
   const authoringMcp = createAuthoringMcpServer({
     appVersion: config.version,
@@ -261,6 +269,7 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
     calls: authoringCalls,
     drafts: authoringDrafts,
     validator: authoringDraftValidator,
+    executions: authoringDraftExecutions,
     assets: authoringAssets,
   });
   const workflowExecutions = createWorkflowExecutionService({
@@ -308,6 +317,7 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
       removeSignalHandlers();
       const listenerClose = server === undefined ? Promise.resolve() : closeServer(server);
       await authoringMcp.close();
+      await authoringDraftExecutions.close();
       await workflowExecutions.close();
       await workflowDebug.close();
       await runs.close();

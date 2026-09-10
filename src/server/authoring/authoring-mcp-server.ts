@@ -22,6 +22,11 @@ import {
   validateDraftInputSchema,
 } from "../../shared/authoring/validation.js";
 import {
+  cancelAuthoringDraftExecutionInputSchema,
+  getAuthoringDraftExecutionInputSchema,
+  startAuthoringDraftExecutionInputSchema,
+} from "../../shared/authoring/execution.js";
+import {
   AUTHORING_ASSET_TYPES,
   AUTHORING_LIMITS,
   AUTHORING_PROTOCOL_VERSION,
@@ -76,6 +81,13 @@ import {
   AuthoringDraftValidationStaleError,
   type AuthoringDraftValidator,
 } from "./authoring-draft-validator.js";
+import {
+  AuthoringDraftExecutionActiveError,
+  AuthoringDraftExecutionConflictError,
+  AuthoringDraftExecutionNotFoundError,
+  AuthoringDraftExecutionValidationError,
+  type AuthoringDraftExecutionService,
+} from "./authoring-draft-execution-service.js";
 
 interface Session {
   server: McpServer;
@@ -104,6 +116,7 @@ function createProtocolServer(options: {
   calls?: AuthoringCallService;
   drafts?: AuthoringDraftService;
   validator?: AuthoringDraftValidator;
+  executions?: AuthoringDraftExecutionService;
   assets?: AuthoringAssetService;
 }): McpServer {
   const server = new McpServer({ name: "mcp-inspector-authoring", version: options.appVersion });
@@ -209,6 +222,18 @@ function createProtocolServer(options: {
         return failure("DRAFT_REVISION_CONFLICT", "CONFLICT", error.message, false);
       }
       if (error instanceof AuthoringDraftValidationStaleError) {
+        return failure("DRAFT_VALIDATION_STALE", "CONFLICT", error.message, false);
+      }
+      if (error instanceof AuthoringDraftExecutionNotFoundError) {
+        return failure("DRAFT_EXECUTION_NOT_FOUND", "NOT_FOUND", error.message, false);
+      }
+      if (error instanceof AuthoringDraftExecutionActiveError) {
+        return failure("DRAFT_EXECUTION_ACTIVE", "CONFLICT", error.message, true);
+      }
+      if (error instanceof AuthoringDraftExecutionConflictError) {
+        return failure("IDEMPOTENCY_CONFLICT", "CONFLICT", error.message, false);
+      }
+      if (error instanceof AuthoringDraftExecutionValidationError) {
         return failure("DRAFT_VALIDATION_STALE", "CONFLICT", error.message, false);
       }
       if (error instanceof AuthoringAssetRevisionConflictError) {
@@ -328,6 +353,22 @@ function createProtocolServer(options: {
       inputSchema: validateDraftInputSchema,
     }, async (input) => draftAction(() => options.validator!.validate(input)));
   }
+  if (options.executions !== undefined) {
+    server.registerTool("inspector_execute_draft", {
+      description: "Starts an asynchronous trial of one exact validated Draft revision and returns its execution ID.",
+      inputSchema: startAuthoringDraftExecutionInputSchema,
+    }, async (input) => draftAction(() => options.executions!.start(input)));
+    server.registerTool("inspector_get_draft_execution", {
+      description: "Returns status and bounded results for one Draft trial execution.",
+      inputSchema: getAuthoringDraftExecutionInputSchema,
+    }, async ({ projectId, executionId }) => draftAction(() => options.executions!.get(projectId, executionId)));
+    server.registerTool("inspector_cancel_draft_execution", {
+      description: "Cancels pending business work for one Draft trial while allowing cleanup to finish.",
+      inputSchema: cancelAuthoringDraftExecutionInputSchema,
+    }, async ({ projectId, executionId }) => draftAction(() => ({
+      executionId, cancelled: options.executions!.cancel(projectId, executionId),
+    })));
+  }
   if (options.assets !== undefined) {
     server.registerTool("inspector_list_test_assets", {
       description: "Lists bounded existing Tool tests, scenarios, and suites for Draft seeding.",
@@ -351,6 +392,7 @@ export function createAuthoringMcpServer(options: {
   calls?: AuthoringCallService;
   drafts?: AuthoringDraftService;
   validator?: AuthoringDraftValidator;
+  executions?: AuthoringDraftExecutionService;
   assets?: AuthoringAssetService;
 }): AuthoringMcpServer {
   const maxSessions = options.maxSessions ?? AUTHORING_LIMITS.maxSessions;
@@ -396,6 +438,7 @@ export function createAuthoringMcpServer(options: {
         calls: options.calls,
         drafts: options.drafts,
         validator: options.validator,
+        executions: options.executions,
         assets: options.assets,
       });
       const transport = new WebStandardStreamableHTTPServerTransport({

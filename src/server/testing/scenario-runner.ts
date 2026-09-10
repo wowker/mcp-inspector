@@ -41,7 +41,8 @@ export interface ScenarioInvocationInput {
 export interface ScenarioInvocationResult {
   sources: AssertionContext["sources"];
   redactedSources?: ReadonlySet<AssertionDefinition["source"]>;
-  runId: string;
+  sanitizedArguments?: JsonObject;
+  runId: string | null;
   workflowExecutionId: string | null;
   succeeded?: boolean;
   error?: ScenarioError;
@@ -407,7 +408,7 @@ async function runStep(
       const terminalAttempt = passed || explicitlyFailed || step.polling === null || pollingExhausted;
       let current: ScenarioRunStepResult = {
         stepId: step.id, position, attempt, status: passed ? "PASSED" : "FAILED",
-        argumentsValue: cloneJson(argumentsValue), runId: invocation.runId,
+        argumentsValue: cloneJson(invocation.sanitizedArguments ?? argumentsValue), runId: invocation.runId,
         workflowExecutionId: invocation.workflowExecutionId, assertions: allAssertions,
         error: !passed && invocation.succeeded === false
           ? invocation.error ?? { code: "TOOL_EXECUTION_FAILED", message: "Tool execution failed" }
@@ -489,7 +490,8 @@ export async function runScenario(
     for (const [index, step] of input.definition.cleanupSteps.entries()) {
       try {
         const cleanupResults = await runStep(
-          step, cleanupOffset + index, "cleanup", input, inputs, variables, stepResponses, dependencies,
+          step, cleanupOffset + index, "cleanup", { ...input, signal: undefined }, inputs, variables,
+          stepResponses, dependencies,
         );
         steps.push(...cleanupResults);
         if (lastStatus(cleanupResults) === "ERROR" && status === "PASSED") {

@@ -88,6 +88,13 @@ describe("Authoring Draft validation and asset discovery", () => {
       validation_digest: result.validationDigest, status: "VALID" });
   });
 
+  it("replays the stored result when the exact Draft revision validates to the same digest", () => {
+    const { validator, draftId, revision } = storedDraft(validToolDefinition(), "repeat-validation");
+    const first = validator.validate({ projectId, draftId, revision });
+    const second = validator.validate({ projectId, draftId, revision });
+    expect(second).toEqual(first);
+  });
+
   it.each([
     ["TOOL_ARGUMENTS_INVALID", () => { const value = validToolDefinition(); value.testCases[0]!.arguments = { a: "wrong" } as never; return value; }],
     ["INVALID_JSON_PATH", () => { const value = validToolDefinition(); value.testCases[0]!.assertions[0]!.path = "$.__proto__.x"; return value; }],

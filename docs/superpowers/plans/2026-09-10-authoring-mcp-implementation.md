@@ -301,13 +301,13 @@
 - Modify: `src/server/authoring/authoring-mcp-server.ts`
 - Create: `src/server/authoring/__tests__/authoring-draft-execution-service.test.ts`
 
-- [ ] Add failing tests for start/get/cancel, one active execution per Draft, captured revision/digest, per-step ordinary Runs, expected/actual assertion output, cleanup on success/failure/cancel, and restart interruption.
-- [ ] Return execution ID immediately; execute the exact validated revision with current environment resolution and existing runners.
-- [ ] Store Draft-level results separately instead of manufacturing formal test IDs.
-- [ ] Fence late completions after cancellation and map active executions on restart to `INTERRUPTED`; map unresolved calls according to idempotency certainty.
-- [ ] Register execute/get/cancel tools and stable execution errors.
-- [ ] Run focused execution tests and `npm run verify` as Checkpoint E.
-- [ ] Commit with `feat(authoring): add asynchronous draft trials`.
+- [x] Add failing tests for start/get/cancel, one active execution per Draft, captured revision/digest, per-step ordinary Runs, expected/actual assertion output, cleanup on success/failure/cancel, and restart interruption.
+- [x] Return execution ID immediately; execute the exact validated revision with current environment resolution and existing runners.
+- [x] Store Draft-level results separately instead of manufacturing formal test IDs.
+- [x] Fence late completions after cancellation and map active executions on restart to `INTERRUPTED`; map unresolved calls according to idempotency certainty.
+- [x] Register execute/get/cancel tools and stable execution errors.
+- [x] Run focused execution tests and `npm run verify` as Checkpoint E.
+- [x] Commit with `feat(authoring): add asynchronous draft trials`.
 
 ---
 

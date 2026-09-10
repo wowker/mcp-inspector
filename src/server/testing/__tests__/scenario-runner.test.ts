@@ -157,6 +157,22 @@ describe("runScenario", () => {
     });
   });
 
+  it("persists the invocation boundary's sanitized arguments instead of resolved secrets", async () => {
+    const scenario = definition();
+    scenario.steps = [scenario.steps[0]!];
+    scenario.steps[0]!.mappings = [{ targetPath: "$.token",
+      source: { kind: "ENVIRONMENT", scope: "SERVER", name: "TOKEN" }, isRequired: true }];
+    scenario.steps[0]!.extractors = [];
+    scenario.cleanupSteps = [];
+    const result = await runScenario({ definition: scenario, inputs: { storeId: "s-1" } }, {
+      invoke: async () => ({ sources: { MCP_RESULT: {} }, runId: "run", workflowExecutionId: null,
+        sanitizedArguments: { token: "[REDACTED]" } }),
+      wait: async () => undefined, resolveEnvironment: async () => "raw-secret",
+    });
+    expect(result.steps[0]?.argumentsValue).toEqual({ token: "[REDACTED]" });
+    expect(JSON.stringify(result)).not.toContain("raw-secret");
+  });
+
   it("evaluates scenario assertions from execution-scoped variables", async () => {
     const scenario = definition();
     scenario.steps = [scenario.steps[0]!];

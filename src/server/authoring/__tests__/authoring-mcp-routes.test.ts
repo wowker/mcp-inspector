@@ -249,6 +249,9 @@ describe("Authoring MCP Streamable HTTP route", () => {
       "inspector_get_draft",
       "inspector_replace_draft",
       "inspector_validate_draft",
+      "inspector_execute_draft",
+      "inspector_get_draft_execution",
+      "inspector_cancel_draft_execution",
       "inspector_list_test_assets",
       "inspector_get_test_asset",
     ]);
