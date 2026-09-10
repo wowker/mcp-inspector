@@ -76,6 +76,8 @@ import {
   createRunComparisonService,
   type RunComparisonService,
 } from "./comparison/run-comparison-service.js";
+import type { AuthoringAuthService } from "./authoring/authoring-auth-service.js";
+import { createAuthoringSettingsRoutes } from "./authoring/authoring-settings-routes.js";
 
 export interface AppDependencies {
   sessionToken: string;
@@ -106,6 +108,7 @@ export interface AppDependencies {
   savedTestSuiteReports?: SavedTestSuiteReportService;
   comparisonRules?: ComparisonRuleService;
   runComparisons?: RunComparisonService;
+  authoringAuth?: AuthoringAuthService;
   staticRoot?: string;
 }
 
@@ -316,6 +319,10 @@ export function createApp(deps: AppDependencies): Hono {
   app.get("/api/health", (context) =>
     context.json({ ok: true, version: deps.version }),
   );
+
+  if (deps.authoringAuth !== undefined) {
+    app.route("/api/authoring/settings", createAuthoringSettingsRoutes(deps.authoringAuth));
+  }
 
   if (deps.projects !== undefined) {
     let environment = deps.environment;

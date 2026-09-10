@@ -17,6 +17,8 @@ import { createEnvironmentService } from "./environment/environment-service.js";
 import { createEnvironmentProfileService, createProfileAwareEnvironmentService } from "./environment/environment-profile-service.js";
 import { createWorkflowExecutionService } from "./workflows/workflow-execution-service.js";
 import { createWorkflowDebugService } from "./workflows/workflow-debug-service.js";
+import { InstallationSettingsRepository } from "./registry/installation-settings-repository.js";
+import { createAuthoringAuthService } from "./authoring/authoring-auth-service.js";
 
 export interface InspectorAddress {
   host: "127.0.0.1";
@@ -161,6 +163,16 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
   const clientOrigin = options.clientOrigin === undefined ? undefined : validateClientOrigin(options.clientOrigin);
   const staticRoot = options.staticRoot ?? (clientOrigin === undefined ? resolveStaticRoot() : undefined);
   const projects = createProjectService({ dataRoot: options.dataRoot ?? resolveDefaultDataRoot() });
+  let installationSettings: InstallationSettingsRepository;
+  try {
+    installationSettings = new InstallationSettingsRepository({
+      dataRoot: options.dataRoot ?? resolveDefaultDataRoot(),
+    });
+  } catch (error) {
+    projects.close();
+    throw error;
+  }
+  const authoringAuth = createAuthoringAuthService({ repository: installationSettings });
   let allowedOrigin = clientOrigin ?? "";
   let environment: ReturnType<typeof createEnvironmentService> | undefined;
   let environmentProfiles: ReturnType<typeof createEnvironmentProfileService> | undefined;
@@ -202,6 +214,7 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
     environmentProfiles,
     workflowExecutions,
     workflowDebug,
+    authoringAuth,
     staticRoot,
   });
   let server: ServerType | undefined;
@@ -224,7 +237,11 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
       const closable = server as (ServerType & { closeAllConnections?: () => void }) | undefined;
       closable?.closeAllConnections?.();
       await listenerClose;
-      projects.close();
+      try {
+        projects.close();
+      } finally {
+        installationSettings.close();
+      }
     })();
     return closePromise;
   };

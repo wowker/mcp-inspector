@@ -8,7 +8,7 @@
 
 - [x] Task 1: Fixed port and CLI precedence.
 - [x] Task 2: Registry migrations and installation settings.
-- [ ] Task 3: One-time Authoring Token management.
+- [x] Task 3: One-time Authoring Token management.
 - [ ] Task 4: Authenticated Streamable HTTP walking skeleton.
 - [ ] Checkpoint A: focused gates and `npm run verify` pass.
 
