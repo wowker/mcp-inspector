@@ -48,15 +48,15 @@
 ## Slice G — Hardening and release
 
 - [x] Task 18: Security, limits, restart, and observability.
-- [ ] Task 19: E2E, documentation, packaging, and release gates.
-- [ ] Final: `npm run verify` passes.
-- [ ] Final: `npm run verify:release-artifacts` passes.
-- [ ] Final: `npm pack --dry-run --json` passes.
-- [ ] Final: `git diff --check` passes.
-- [ ] Final: independent reviews have no Critical/Required findings.
+- [x] Task 19: E2E, documentation, packaging, and release gates.
+- [x] Final: `npm run verify` passes.
+- [x] Final: `npm run verify:release-artifacts` passes.
+- [x] Final: `npm pack --dry-run --json` passes.
+- [x] Final: `git diff --check` passes.
+- [x] Final: independent reviews have no Critical/Required findings.
 
 ## Explicit non-goals
 
-- [ ] No embedded model, Provider adapter, Agent loop, or chat UI added.
-- [ ] No stdio, LAN/remote listener, multi-user, or multiple Token support added.
-- [ ] No AI-managed secrets, authentication, environment values, enablement, scheduling, deletion, pressure tests, or shared workflow edits added.
+- [x] No embedded model, Provider adapter, Agent loop, or chat UI added.
+- [x] No stdio, LAN/remote listener, multi-user, or multiple Token support added.
+- [x] No AI-managed secrets, authentication, environment values, enablement, scheduling, deletion, pressure tests, or shared workflow edits added.

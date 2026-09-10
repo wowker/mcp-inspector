@@ -7,6 +7,7 @@ import {
 } from "../../shared/authoring/policy.js";
 import type { ProjectService } from "../projects/project-service.js";
 import { AuthoringPolicyRepository } from "./authoring-policy-repository.js";
+import { authoringControlAudit, type AuthoringAuditWriter } from "./authoring-audit.js";
 
 export class AuthoringConnectionNotFoundError extends Error {
   constructor() {
@@ -35,6 +36,7 @@ function uniqueSorted(values: string[]): string[] {
 export function createAuthoringPolicyService(options: {
   projects: ProjectService;
   now?: () => Date;
+  audit?: AuthoringAuditWriter;
 }): AuthoringPolicyService {
   const now = options.now ?? (() => new Date());
 
@@ -74,6 +76,8 @@ export function createAuthoringPolicyService(options: {
         },
       });
       if (saved === null) throw new AuthoringPolicyRevisionConflictError();
+      options.audit?.(authoringControlAudit("POLICY_CHANGED", "SUCCEEDED", { projectId, connectionId,
+        policyDecision: saved.mode }));
       return saved;
     },
     isToolAllowed(projectId, connectionId, toolName) {

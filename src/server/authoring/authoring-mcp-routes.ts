@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { AuthoringAuthService } from "./authoring-auth-service.js";
 import type { AuthoringMcpServer } from "./authoring-mcp-server.js";
+import { authoringControlAudit, type AuthoringAuditWriter } from "./authoring-audit.js";
 
 function jsonError(status: 400 | 401 | 403 | 413 | 415 | 503, code: string, message: string): Response {
   const headers = new Headers({
@@ -26,6 +27,7 @@ export function createAuthoringMcpRoutes(options: {
   auth: AuthoringAuthService;
   server: AuthoringMcpServer;
   allowedOrigins: ReadonlyArray<string | (() => string)>;
+  audit?: AuthoringAuditWriter;
 }): Hono {
   const routes = new Hono();
 
@@ -36,10 +38,14 @@ export function createAuthoringMcpRoutes(options: {
     }
     const token = bearerToken(context.req.header("Authorization"));
     if (token === null || !await options.auth.verify(token)) {
+      options.audit?.(authoringControlAudit("AUTHENTICATION_REJECTED", "REJECTED",
+        { errorCode: "AUTHORING_UNAUTHORIZED" }));
       return jsonError(401, "AUTHORING_UNAUTHORIZED", "Authoring Token is invalid");
     }
     const origin = context.req.header("Origin");
     if (origin !== undefined && !options.allowedOrigins.some((allowed) => origin === configuredOrigin(allowed))) {
+      options.audit?.(authoringControlAudit("ORIGIN_REJECTED", "REJECTED",
+        { errorCode: "AUTHORING_ORIGIN_REJECTED" }));
       return jsonError(403, "AUTHORING_ORIGIN_REJECTED", "Request origin is not allowed");
     }
     if (options.server.isClosed()) {

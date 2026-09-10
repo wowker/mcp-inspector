@@ -23,6 +23,7 @@ import type { ToolService } from "../tools/tool-service.js";
 import { canonicalJson } from "../tools/tool-service.js";
 import { AuthoringCallRepository, type StoredAuthoringCall } from "./authoring-call-repository.js";
 import type { AuthoringPolicyService } from "./authoring-policy-service.js";
+import type { AuthoringAuditWriter } from "./authoring-audit.js";
 import { authoringBoundedLimit } from "./authoring-limits.js";
 import {
   boundAuthoringValue,
@@ -73,21 +74,6 @@ export class AuthoringCallNotFoundError extends Error {
 }
 export class AuthoringCallShuttingDownError extends Error {
   constructor() { super("Authoring calls are shutting down"); this.name = "AuthoringCallShuttingDownError"; }
-}
-
-export interface AuthoringAuditEvent {
-  requestId: string;
-  callId: string | null;
-  runId: string | null;
-  projectId: string;
-  connectionId: string;
-  toolName: string;
-  policyDecision: "ALLOWED" | "DENIED";
-  status: AuthoringCallStatus;
-  durationMs: number | null;
-  errorCode: string | null;
-  redactionCount: number;
-  truncated: boolean;
 }
 
 export interface AuthoringCallService {
@@ -149,7 +135,7 @@ export function createAuthoringCallService(options: {
   now?: () => Date;
   resolveSecrets?: (projectId: string, connectionId: string) => string[];
   maxGlobalCalls?: number;
-  audit?: (event: AuthoringAuditEvent) => void;
+  audit?: AuthoringAuditWriter;
 }): AuthoringCallService {
   const createId = options.createId ?? randomUUID;
   const now = options.now ?? (() => new Date());
@@ -163,6 +149,14 @@ export function createAuthoringCallService(options: {
 
   function secrets(projectId: string, connectionId: string): string[] {
     return options.resolveSecrets?.(projectId, connectionId) ?? [];
+  }
+
+  function auditBlocked(input: AuthoringCallToolInput, errorCode: string,
+    sanitization: { redactionCount: number; truncated: boolean } = { redactionCount: 0, truncated: false }): void {
+    options.audit?.({ eventType: "CALL", requestId: randomUUID(), callId: null, runId: null,
+      projectId: input.projectId, connectionId: input.connectionId, toolName: input.toolName,
+      policyDecision: "ALLOWED", status: "BLOCKED", durationMs: 0, errorCode,
+      redactionCount: sanitization.redactionCount, truncated: sanitization.truncated });
   }
 
   function responseFor(call: StoredAuthoringCall): JsonValue | null {
@@ -230,7 +224,7 @@ export function createAuthoringCallService(options: {
       }
       const policy = options.policies.get(input.projectId, input.connectionId);
       if (!options.policies.isToolAllowed(input.projectId, input.connectionId, input.toolName)) {
-        options.audit?.({ requestId: randomUUID(), callId: null,
+        options.audit?.({ eventType: "CALL", requestId: randomUUID(), callId: null,
           runId: null, projectId: input.projectId, connectionId: input.connectionId, toolName: input.toolName,
           policyDecision: "DENIED", status: "BLOCKED", durationMs: 0, errorCode: "AUTHORING_POLICY_DENIED",
           redactionCount: 0, truncated: false });
@@ -252,7 +246,10 @@ export function createAuthoringCallService(options: {
       if (issues.length > 0) throw new AuthoringToolArgumentsError(issues);
       assertDraftContext(input);
       assertCleanupContext(input);
-      if (activeCalls >= maxGlobalCalls) throw new AuthoringCallGlobalLimitError();
+      if (activeCalls >= maxGlobalCalls) {
+        auditBlocked(input, "AUTHORING_GLOBAL_LIMIT_REACHED");
+        throw new AuthoringCallGlobalLimitError();
+      }
 
       const createdAtDate = now();
       const secretValues = secrets(input.projectId, input.connectionId);
@@ -276,8 +273,14 @@ export function createAuthoringCallService(options: {
         maxCallsPerMinute: policy.maxCallsPerMinute,
         maxConcurrentCalls: policy.maxConcurrentCalls,
       });
-      if (claimed.kind === "rate-limited") throw new AuthoringCallRateLimitError();
-      if (claimed.kind === "concurrency-limited") throw new AuthoringCallConcurrencyError();
+      if (claimed.kind === "rate-limited") {
+        auditBlocked(input, "AUTHORING_RATE_LIMIT_REACHED", argumentSanitization);
+        throw new AuthoringCallRateLimitError();
+      }
+      if (claimed.kind === "concurrency-limited") {
+        auditBlocked(input, "AUTHORING_CONCURRENCY_LIMIT_REACHED", argumentSanitization);
+        throw new AuthoringCallConcurrencyError();
+      }
       if (claimed.kind === "existing") {
         if (claimed.call.requestHash !== requestHash) throw new AuthoringCallIdempotencyConflictError();
         return waitForExisting(claimed.call, signal);
@@ -307,7 +310,7 @@ export function createAuthoringCallService(options: {
               message: error instanceof RunToolSnapshotChangedError ? "Tool Schema changed" : "Tool call could not start" },
             completedAt: now().toISOString(), durationMs: 0,
           });
-          options.audit?.({ requestId: call.id, callId: call.id, runId: null, projectId: call.projectId,
+          options.audit?.({ eventType: "CALL", requestId: call.id, callId: call.id, runId: null, projectId: call.projectId,
             connectionId: call.connectionId, toolName: call.toolName, policyDecision: "ALLOWED",
             status: blocked.status, durationMs: 0, errorCode: blocked.error?.code ?? null,
             redactionCount: argumentSanitization.redactionCount, truncated: argumentSanitization.truncated });
@@ -331,7 +334,7 @@ export function createAuthoringCallService(options: {
         const argumentOutputTruncated = boundAuthoringValue(sanitizedArguments, 256 * 1024).truncated;
         const responseOutputTruncated = terminalRun.response?.result === undefined ? false
           : boundAuthoringValue(responseSanitization.value, 512 * 1024).truncated;
-        options.audit?.({ requestId: call.id, callId: call.id, runId: run.id, projectId: call.projectId,
+        options.audit?.({ eventType: "CALL", requestId: call.id, callId: call.id, runId: run.id, projectId: call.projectId,
           connectionId: call.connectionId, toolName: call.toolName, policyDecision: "ALLOWED",
           status: finished.status, durationMs: finished.durationMs, errorCode: finished.error?.code ?? null,
           redactionCount: argumentSanitization.redactionCount + responseSanitization.redactionCount,

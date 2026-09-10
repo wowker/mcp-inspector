@@ -1,13 +1,13 @@
-# MCP Inspector 3.0.0 升级规划：Authoring MCP
+# MCP Inspector 3.0.0 升级说明：Authoring MCP
 
 ## 文档状态
 
 | 项目 | 内容 |
 |---|---|
-| 状态 | Design approved；实施计划已就绪 |
+| 状态 | Implemented；发布门禁已通过 |
 | 目标版本 | `3.0.0` |
-| 当前代码版本 | `2.7.0` |
-| 当前项目数据库基线 | migrations `001`–`020` |
+| 当前代码版本 | `3.0.0` |
+| 当前项目数据库基线 | migrations `001`–`023` |
 | 更新日期 | 2026-09-10 |
 | 正式设计规格 | [`superpowers/specs/2026-09-09-authoring-mcp-design.md`](./superpowers/specs/2026-09-09-authoring-mcp-design.md) |
 | 实施计划 | [`superpowers/plans/2026-09-10-authoring-mcp-implementation.md`](./superpowers/plans/2026-09-10-authoring-mcp-implementation.md) |
@@ -194,7 +194,7 @@ project migrations
 - 非幂等写调用结局不确定时标记 `UNKNOWN`，禁止自动重试。
 - 所有错误使用稳定错误码，不返回 stack、SQL、文件路径或凭证。
 
-## 11. 分阶段交付
+## 11. 已完成的分阶段交付
 
 1. 固定端口、registry migration、Token 与 MCP transport。
 2. 项目/连接/Tool 发现、四级权限与 Server 权限 UI。
@@ -216,3 +216,49 @@ project migrations
 - AI 删除资产、启用测试或创建定时任务。
 
 完整接口、数据模型、错误语义、安全控制和验收矩阵以正式设计规格为准。
+
+## 13. 外部 AI Host 配置
+
+1. 启动 Inspector；默认地址为 `http://127.0.0.1:8500`，也可以使用
+   `--port <1-65535>` 或 `MCP_INSPECTOR_PORT` 覆盖端口。
+2. 在 Authoring MCP 页面启用服务并立即保存一次性显示的 Token。
+3. 在 Server 管理页为每个需要开放的 connection 单独配置 Authoring 权限。
+4. 在外部 AI Host 中配置 Streamable HTTP endpoint，并通过
+   `Authorization: Bearer <YOUR_TOKEN>` Header 传递 Token。
+
+```json
+{
+  "mcpServers": {
+    "mcp-inspector-authoring": {
+      "type": "streamable-http",
+      "url": "http://127.0.0.1:8500/mcp/authoring",
+      "headers": { "Authorization": "Bearer <YOUR_TOKEN>" }
+    }
+  }
+}
+```
+
+不要把 Token 写入 URL、项目文件、普通日志或导出包。轮换 Token 后，旧 Token 在下一次
+请求时立即失效；外部 Host 需要用新 Token 重新连接。关闭 Inspector 时会先拒绝新请求，
+取消并落库正在执行的 Draft，收敛真实 Tool 调用，再关闭 MCP session 和现有运行时。
+
+## 14. 兼容性与升级结果
+
+- `registry.sqlite` 使用独立的 `001`–`002` migration 保存安装级 Authoring 设置，
+  只持久化 Token 摘要和非敏感提示。
+- 每个项目数据库通过新增 `021`–`023` migration 保存 connection 权限、Draft、
+  validation、execution、Apply mapping 和 Authoring call lineage。
+- 既有 migration 未改写；2.x 项目、连接、Tabs、Runs、自动化资产、报告和压力测试
+  保持可读。
+- `@modelcontextprotocol/sdk` 是固定版本的生产依赖；npm 包包含生产入口、客户端资源、
+  QuickJS worker 以及 registry/project 全部 migrations。
+- 真实浏览器 E2E 覆盖同 URL 不同凭证、最高权限确认、Token 轮换、跨项目隔离、独立调用、
+  Draft 校验/执行/取消/Apply、正式资产打开和强制脱敏。
+
+## 15. 发布验证结果
+
+- `npm run verify`：通过，146 个测试文件共 1046 个测试，以及 8 个生产构建 E2E 全部通过。
+- `npm run verify:release-artifacts`：通过，npm 包包含 39 个文件和 25 个 registry/project migrations。
+- `npm pack --dry-run --json`：通过；使用独立临时 npm cache 验证，未修改用户级 npm cache。
+- `git diff --check`：通过。
+- 正确性、安全与隐私、迁移兼容、无障碍四项发布审查均无 Critical/Required 问题。

@@ -1,6 +1,6 @@
 {
   "name": "@wuwei0215/mcp-inspector",
-  "version": "2.7.0",
+  "version": "3.0.0",
   "type": "module",
   "bin": {
     "mcp-inspector": "bin/mcp-inspector.mjs"

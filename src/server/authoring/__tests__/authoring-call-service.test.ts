@@ -20,8 +20,8 @@ import {
   AuthoringToolArgumentsError,
   AuthoringToolSchemaChangedError,
   createAuthoringCallService,
-  type AuthoringAuditEvent,
 } from "../authoring-call-service.js";
+import type { AuthoringAuditEvent } from "../authoring-audit.js";
 import { createAuthoringPolicyService } from "../authoring-policy-service.js";
 
 const projectId = "00000000-0000-4000-8000-000000004001";
@@ -130,7 +130,8 @@ describe("Authoring Tool calls", () => {
 
   it("enforces persistent rate limits and active connection concurrency", async () => {
     const pending = deferred<{ content: Array<{ type: "text"; text: string }> }>();
-    const firstFixture = fixture(async () => pending.promise);
+    const events: AuthoringAuditEvent[] = [];
+    const firstFixture = fixture(async () => pending.promise, undefined, (event) => events.push(event));
     setPolicy(firstFixture.policies, "FULL_ACCESS", { concurrent: 1 });
     const first = firstFixture.calls.call(input("active-1"));
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -138,19 +139,28 @@ describe("Authoring Tool calls", () => {
     pending.resolve({ content: [{ type: "text", text: "done" }] });
     await expect(first).resolves.toMatchObject({ status: "SUCCEEDED" });
 
-    const rateFixture = fixture();
+    const rateFixture = fixture(undefined, undefined, (event) => events.push(event));
     setPolicy(rateFixture.policies, "FULL_ACCESS", { rate: 1 });
     await rateFixture.calls.call(input("rate-1"));
     await expect(rateFixture.calls.call(input("rate-2"))).rejects.toBeInstanceOf(AuthoringCallRateLimitError);
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ eventType: "CALL", status: "BLOCKED",
+        errorCode: "AUTHORING_CONCURRENCY_LIMIT_REACHED" }),
+      expect.objectContaining({ eventType: "CALL", status: "BLOCKED",
+        errorCode: "AUTHORING_RATE_LIMIT_REACHED" }),
+    ]));
   });
 
   it("enforces the installation-wide active call limit", async () => {
     const pending = deferred<{ content: Array<{ type: "text"; text: string }> }>();
-    const { policies, calls } = fixture(async () => pending.promise, 1);
+    const events: AuthoringAuditEvent[] = [];
+    const { policies, calls } = fixture(async () => pending.promise, 1, (event) => events.push(event));
     setPolicy(policies, "FULL_ACCESS", { concurrent: 2 });
     const first = calls.call(input("global-1"));
     await new Promise((resolve) => setTimeout(resolve, 0));
     await expect(calls.call(input("global-2"))).rejects.toBeInstanceOf(AuthoringCallGlobalLimitError);
+    expect(events).toContainEqual(expect.objectContaining({ eventType: "CALL", status: "BLOCKED",
+      errorCode: "AUTHORING_GLOBAL_LIMIT_REACHED" }));
     pending.resolve({ content: [{ type: "text", text: "done" }] });
     await first;
   });

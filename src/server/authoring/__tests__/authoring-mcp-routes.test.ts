@@ -10,6 +10,7 @@ import { InstallationSettingsRepository } from "../../registry/installation-sett
 import { createAuthoringAuthService } from "../authoring-auth-service.js";
 import type { AuthoringCatalogService } from "../authoring-catalog-service.js";
 import { createAuthoringMcpServer } from "../authoring-mcp-server.js";
+import type { AuthoringAuditEvent } from "../authoring-audit.js";
 
 const endpoint = new URL("http://127.0.0.1:8500/mcp/authoring");
 
@@ -32,12 +33,14 @@ describe("Authoring MCP Streamable HTTP route", () => {
       maxSessions: options.maxSessions,
       catalog: options.catalog,
     });
+    const audits: AuthoringAuditEvent[] = [];
     const app = createApp({
       sessionToken: "browser-session",
       allowedOrigin: endpoint.origin,
       version: "3.0.0-test",
       authoringAuth,
       authoringMcp,
+      authoringAudit: (event) => audits.push(event),
     });
     cleanups.push(async () => {
       await authoringMcp.close();
@@ -57,7 +60,7 @@ describe("Authoring MCP Streamable HTTP route", () => {
       cleanups.push(() => instance.close().catch(() => undefined));
       return { instance, transport };
     };
-    return { app, authoringAuth, authoringMcp, token: enabled.token, client };
+    return { app, authoringAuth, authoringMcp, token: enabled.token, client, audits };
   }
 
   test("initializes a bounded stateful session and exposes stable capabilities", async () => {
@@ -83,7 +86,7 @@ describe("Authoring MCP Streamable HTTP route", () => {
   });
 
   test("authenticates every request and distinguishes disabled from invalid credentials", async () => {
-    const { app, authoringAuth, token } = await fixture();
+    const { app, authoringAuth, token, audits } = await fixture();
     const request = () => app.request("/mcp/authoring", {
       method: "POST",
       headers: {
@@ -112,6 +115,10 @@ describe("Authoring MCP Streamable HTTP route", () => {
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
     });
     expect(invalid.status).toBe(401);
+    expect(audits.map(({ eventType }) => eventType)).toEqual([
+      "AUTHENTICATION_REJECTED", "AUTHENTICATION_REJECTED",
+    ]);
+    expect(JSON.stringify(audits)).not.toContain("definitely-not-the-token");
 
     authoringAuth.disable();
     const disabled = await app.request("/mcp/authoring", {
@@ -153,7 +160,7 @@ describe("Authoring MCP Streamable HTTP route", () => {
   });
 
   test("rejects hostile origins, unsupported media, oversized bodies, and excess sessions", async () => {
-    const { app, client, token } = await fixture({ maxSessions: 1 });
+    const { app, client, token, audits } = await fixture({ maxSessions: 1 });
     const baseHeaders = {
       Authorization: `Bearer ${token}`,
       Accept: "application/json, text/event-stream",
@@ -172,6 +179,8 @@ describe("Authoring MCP Streamable HTTP route", () => {
       body: "{}",
     });
     expect(rebound.status).toBe(403);
+    expect(audits.filter(({ eventType }) => eventType === "ORIGIN_REJECTED")).toHaveLength(2);
+    expect(JSON.stringify(audits)).not.toContain("attacker.example");
 
     const unsupported = await app.request("/mcp/authoring", {
       method: "POST", headers: { ...baseHeaders, "Content-Type": "text/plain" }, body: "{}",

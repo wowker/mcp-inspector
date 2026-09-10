@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { createApp } from "../../app.js";
 import { InstallationSettingsRepository } from "../../registry/installation-settings-repository.js";
 import { createAuthoringAuthService } from "../authoring-auth-service.js";
+import type { AuthoringAuditEvent } from "../authoring-audit.js";
 
 describe("AuthoringAuthService", () => {
   const roots: string[] = [];
@@ -17,15 +18,17 @@ describe("AuthoringAuthService", () => {
     const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-authoring-auth-"));
     roots.push(dataRoot);
     const repository = new InstallationSettingsRepository({ dataRoot });
+    const audits: AuthoringAuditEvent[] = [];
     const service = createAuthoringAuthService({
       repository,
       now: () => new Date("2026-09-10T01:02:03.000Z"),
+      audit: (event) => audits.push(event),
     });
-    return { repository, service };
+    return { repository, service, audits };
   }
 
   test("issues plaintext once and persists only its digest and non-sensitive hint", async () => {
-    const { repository, service } = fixture();
+    const { repository, service, audits } = fixture();
     try {
       expect(service.getStatus()).toEqual({
         enabled: false,
@@ -59,13 +62,15 @@ describe("AuthoringAuthService", () => {
       const enabledAgain = await service.enable();
       expect(enabledAgain.token).toBeNull();
       expect(repository.getAuthoring().tokenDigest).toBe(stored.tokenDigest);
+      expect(audits.map(({ eventType }) => eventType)).toEqual(["SERVICE_ENABLED", "SERVICE_ENABLED"]);
+      expect(JSON.stringify(audits)).not.toContain(token);
     } finally {
       repository.close();
     }
   });
 
   test("rotation invalidates the previous token and disablement rejects the current token", async () => {
-    const { repository, service } = fixture();
+    const { repository, service, audits } = fixture();
     try {
       const first = await service.enable();
       const second = await service.rotate();
@@ -80,6 +85,11 @@ describe("AuthoringAuthService", () => {
       expect(disabled.configured).toBe(true);
       expect(await service.verify(second.token)).toBe(false);
       expect(repository.getAuthoring().tokenDigest).not.toBeNull();
+      expect(audits.map(({ eventType }) => eventType)).toEqual([
+        "SERVICE_ENABLED", "TOKEN_ROTATED", "SERVICE_DISABLED",
+      ]);
+      expect(JSON.stringify(audits)).not.toContain(first.token);
+      expect(JSON.stringify(audits)).not.toContain(second.token);
     } finally {
       repository.close();
     }

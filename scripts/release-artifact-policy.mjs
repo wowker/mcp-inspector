@@ -23,7 +23,7 @@ export function assertWithinBudget(label, actualBytes, maximumBytes) {
   }
 }
 
-export function validatePublishedFiles(files) {
+export function validatePublishedFiles(files, options = {}) {
   const names = files.map((file) => typeof file === "string" ? file : file.path);
   const exact = new Set([
     "package.json",
@@ -45,7 +45,7 @@ export function validatePublishedFiles(files) {
   }
 
   const required = ["package.json", "README.md", "bin/mcp-inspector.mjs", "dist/server/main.js",
-    "dist/server/workflows/script-worker.js", "dist/client/index.html"];
+    "dist/server/workflows/script-worker.js", "dist/client/index.html", ...(options.requiredFiles ?? [])];
   const missing = required.filter((name) => !names.includes(name));
   if (missing.length > 0) {
     throw new Error(`npm package is missing runtime files: ${missing.join(", ")}`);
@@ -69,4 +69,31 @@ export function validatePublishedFiles(files) {
   }
 
   return { fileCount: names.length, migrationCount };
+}
+
+export function validateReleaseManifest(manifest) {
+  if (typeof manifest?.version !== "string" || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(manifest.version)) {
+    throw new Error("package version must be valid SemVer");
+  }
+  if (manifest.engines?.node !== ">=22") throw new Error("package must require Node.js >=22");
+  if (manifest.bin?.["mcp-inspector"] !== "bin/mcp-inspector.mjs") {
+    throw new Error("package must expose the production mcp-inspector entry");
+  }
+  for (const path of ["bin", "dist", "README.md"]) {
+    if (!manifest.files?.includes(path)) throw new Error(`package files must include ${path}`);
+  }
+  const sdk = manifest.dependencies?.["@modelcontextprotocol/sdk"];
+  if (typeof sdk !== "string") throw new Error("@modelcontextprotocol/sdk must be a runtime dependency");
+  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(sdk)) {
+    throw new Error("@modelcontextprotocol/sdk runtime dependency must be pinned");
+  }
+  return { version: manifest.version, mcpSdkVersion: sdk };
+}
+
+export function validateProductionEntry(source) {
+  if (!source.includes("/mcp/authoring") || !source.includes("inspector_get_capabilities")) {
+    throw new Error("Production entry is missing the Authoring MCP runtime");
+  }
+  if (!source.includes("runInspectorCli")) throw new Error("Production entry is missing the CLI runtime");
+  return true;
 }

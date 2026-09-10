@@ -9,6 +9,7 @@ import {
   AuthoringPolicyRevisionConflictError,
   createAuthoringPolicyService,
 } from "../authoring-policy-service.js";
+import type { AuthoringAuditEvent } from "../authoring-audit.js";
 
 describe("Authoring connection policy", () => {
   const cleanups: Array<() => void> = [];
@@ -35,9 +36,11 @@ describe("Authoring connection policy", () => {
     };
     insertConnection(firstProject.id, firstConnectionId, firstStore);
     insertConnection(secondProject.id, secondConnectionId, secondStore);
+    const audits: AuthoringAuditEvent[] = [];
     const service = createAuthoringPolicyService({
       projects,
       now: () => new Date("2026-09-10T01:02:03.000Z"),
+      audit: (event) => audits.push(event),
     });
     cleanups.push(() => {
       projects.close();
@@ -52,6 +55,7 @@ describe("Authoring connection policy", () => {
       secondStore,
       firstConnectionId,
       secondConnectionId,
+      audits,
     };
   }
 
@@ -82,7 +86,7 @@ describe("Authoring connection policy", () => {
   });
 
   test("enforces every mode, deny-wins custom access, and future Tools under FULL_ACCESS", () => {
-    const { service, firstProject, firstConnectionId } = fixture();
+    const { service, firstProject, firstConnectionId, audits } = fixture();
     const replace = (expectedRevision: number, mode: "DISABLED" | "READ_ONLY" | "CUSTOM" | "FULL_ACCESS",
       allowedTools: string[] = [], deniedTools: string[] = []) => service.replace(firstProject.id, firstConnectionId, {
       expectedRevision,
@@ -106,6 +110,8 @@ describe("Authoring connection policy", () => {
     replace(3, "FULL_ACCESS", [], ["future_tool"]);
     expect(service.isToolAllowed(firstProject.id, firstConnectionId, "future_tool")).toBe(true);
     expect(service.isToolAllowed(firstProject.id, firstConnectionId, "another_future_tool")).toBe(true);
+    expect(audits.at(-1)).toMatchObject({ eventType: "POLICY_CHANGED", projectId: firstProject.id,
+      connectionId: firstConnectionId, policyDecision: "FULL_ACCESS", status: "SUCCEEDED" });
   });
 
   test("rejects stale revisions and cascades policy deletion with its exact connection", () => {

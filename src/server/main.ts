@@ -22,7 +22,8 @@ import { createAuthoringAuthService } from "./authoring/authoring-auth-service.j
 import { createAuthoringMcpServer } from "./authoring/authoring-mcp-server.js";
 import { createAuthoringPolicyService } from "./authoring/authoring-policy-service.js";
 import { createAuthoringCatalogService } from "./authoring/authoring-catalog-service.js";
-import { createAuthoringCallService, type AuthoringAuditEvent } from "./authoring/authoring-call-service.js";
+import { createAuthoringCallService } from "./authoring/authoring-call-service.js";
+import type { AuthoringAuditEvent } from "./authoring/authoring-audit.js";
 import { isSensitiveHeaderName } from "../shared/custom-headers.js";
 import { createAuthoringDraftService } from "./authoring/authoring-draft-service.js";
 import { createTestCaseService } from "./testing/test-case-service.js";
@@ -198,10 +199,13 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
     projects.close();
     throw error;
   }
-  const authoringAuth = createAuthoringAuthService({ repository: installationSettings });
+  const writeAudit = options.writeAudit ?? ((event: AuthoringAuditEvent) => {
+    console.info(JSON.stringify({ event: "authoring", ...event }));
+  });
+  const authoringAuth = createAuthoringAuthService({ repository: installationSettings, audit: writeAudit });
   let allowedOrigin = clientOrigin ?? "";
   let serverOrigin = "";
-  const authoringPolicies = createAuthoringPolicyService({ projects });
+  const authoringPolicies = createAuthoringPolicyService({ projects, audit: writeAudit });
   let environment: ReturnType<typeof createEnvironmentService> | undefined;
   let environmentProfiles: ReturnType<typeof createEnvironmentProfileService> | undefined;
   const connections = createConnectionService(projects, {
@@ -235,7 +239,7 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
     policies: authoringPolicies,
     tools,
     runs,
-    audit: options.writeAudit ?? ((event) => { console.info(JSON.stringify({ event: "authoring_call", ...event })); }),
+    audit: writeAudit,
     resolveSecrets(projectId, connectionId) {
       const values: string[] = [];
       const connection = connections.get(projectId, connectionId);
@@ -308,6 +312,7 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
     authoringDraftValidator,
     authoringDraftExecutions,
     authoringApply,
+    authoringAudit: writeAudit,
     testCases,
     testSuites,
     staticRoot,

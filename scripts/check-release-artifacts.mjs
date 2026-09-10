@@ -9,12 +9,16 @@ import {
   assertWithinBudget,
   initialAssetPaths,
   measureGzipBytes,
+  validateProductionEntry,
   validatePublishedFiles,
+  validateReleaseManifest,
 } from "./release-artifact-policy.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const clientRoot = join(root, "dist", "client");
 const indexHtml = await readFile(join(clientRoot, "index.html"), "utf8");
+const requiredClientFiles = ["dist/client/index.html",
+  ...(await readdir(join(clientRoot, "assets"))).map((name) => `dist/client/assets/${name}`)];
 const initial = initialAssetPaths(indexHtml);
 const readAssets = async (paths) => Promise.all(paths.map((path) => readFile(join(clientRoot, path.replace(/^\//u, "")))));
 const [javascript, css] = await Promise.all([readAssets(initial.javascript), readAssets(initial.css)]);
@@ -25,6 +29,7 @@ assertWithinBudget("Initial CSS", cssBytes, RELEASE_BUDGETS.initialCssGzipBytes)
 
 const migrationDirectories = ["projects/migrations", "registry/migrations"];
 let migrationCount = 0;
+const requiredMigrationFiles = [];
 for (const directory of migrationDirectories) {
   const sourceMigrationRoot = join(root, "src", "server", directory);
   const bundledMigrationRoot = join(root, "dist", "server", directory);
@@ -34,6 +39,7 @@ for (const directory of migrationDirectories) {
     throw new Error(`Bundled ${directory} filenames do not match source migrations`);
   }
   migrationCount += migrationNames.length;
+  requiredMigrationFiles.push(...migrationNames.map((name) => `dist/server/${directory}/${name}`));
   for (const name of migrationNames) {
     const [source, bundled] = await Promise.all([
       readFile(join(sourceMigrationRoot, name)),
@@ -44,6 +50,9 @@ for (const directory of migrationDirectories) {
 }
 
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+const manifestResult = validateReleaseManifest(manifest);
+validateProductionEntry(await readFile(join(root, "dist", "server", "main.js"), "utf8"));
 const npmCache = await mkdtemp(join(tmpdir(), "mcp-inspector-release-cache-"));
 const releaseRoot = join(root, ".release");
 const releaseArtifact = join(releaseRoot, "package.tgz");
@@ -58,7 +67,10 @@ try {
   });
   if (pack.status !== 0) throw new Error(`npm pack failed:\n${pack.stderr || pack.stdout}`);
   const packageReport = JSON.parse(pack.stdout);
-  packageResult = validatePublishedFiles(packageReport[0]?.files ?? []);
+  packageResult = validatePublishedFiles(packageReport[0]?.files ?? [], { requiredFiles: [
+    ...requiredClientFiles,
+    ...requiredMigrationFiles,
+  ] });
   const packedName = packageReport[0]?.filename;
   if (typeof packedName !== "string" || packedName.length === 0) throw new Error("npm pack did not report an artifact");
   await rename(join(releaseRoot, packedName), releaseArtifact);
@@ -72,6 +84,7 @@ console.log(JSON.stringify({
   initialJavaScriptGzipKiB: Number((javascriptBytes / 1024).toFixed(2)),
   initialCssGzipKiB: Number((cssBytes / 1024).toFixed(2)),
   ...packageResult,
+  ...manifestResult,
   artifact: ".release/package.tgz",
   artifactSha256,
 }, null, 2));

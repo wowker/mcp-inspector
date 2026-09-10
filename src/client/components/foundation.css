@@ -15,6 +15,10 @@
 .ui-button[data-variant="secondary"] { color: var(--ui-text); border-color: var(--ui-border); background: var(--ui-surface); }
 .ui-button[data-variant="quiet"] { color: var(--ui-text-muted); background: transparent; }
 .ui-button[data-variant="danger"] { color: var(--ui-danger); border-color: var(--ui-danger); background: var(--ui-surface); }
+.ui-button[data-variant="primary"]:hover:not(:disabled) { background: var(--ui-action-hover); }
+.ui-button[data-variant="secondary"]:hover:not(:disabled),
+.ui-button[data-variant="quiet"]:hover:not(:disabled) { background: var(--ui-surface-muted); }
+.ui-button[data-variant="danger"]:hover:not(:disabled) { background: var(--ui-danger-muted); }
 .ui-button:hover:not(:disabled) { filter: brightness(.97); }
 .ui-button:active:not(:disabled) { transform: translateY(1px); }
 .ui-button:focus-visible,

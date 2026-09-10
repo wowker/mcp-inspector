@@ -20,6 +20,17 @@ npm run build
 npm start
 ```
 
+默认端口为 `8500`。端口被占用或需要同时运行多个实例时，可以在启动时覆盖：
+
+```bash
+mcp-inspector --port 8501
+# 或
+MCP_INSPECTOR_PORT=8501 mcp-inspector
+```
+
+优先级为 `--port`、`MCP_INSPECTOR_PORT`、默认值 `8500`；服务始终只绑定
+`127.0.0.1`，不会静默改用其他端口。
+
 也可以使用 Makefile 一键安装缺失依赖、重新编译并后台重启：
 
 ```bash
@@ -59,6 +70,39 @@ make stop     # 优雅停止当前项目启动的 Inspector
 当前版本支持无认证、Bearer Token、自定义 Header 和 OAuth 自动授权的 Streamable HTTP MCP 连接。OAuth 使用浏览器授权、PKCE、受保护资源发现和动态客户端注册；访问令牌仅保存在 Inspector 服务进程内，重启后需要重新授权，不会写入 SQLite、导出数据或浏览器存储。
 
 回放不会自动重试，也不会跨 Server 执行。Schema 漂移和未知或破坏性副作用必须分别确认；缺失、运行中、失败、截断、损坏或非 JSON 的结果不会进入结构化比较。首个比较版本仅支持回放 Run 与其直接来源 Run，暂不支持任意两个 Run 之间比较。
+
+## Authoring MCP（3.0.0）
+
+Inspector 可以直接作为本机 Streamable HTTP MCP Server，让 Codex、Claude、Cursor
+等外部 AI Host 使用已配置的下游 Tools，并创建可追踪的自动化测试。Inspector
+本身不接入模型，也不启动第二个业务进程。
+
+在左侧打开“Authoring MCP”并启用服务，再到每个 Server 的“权限”中选择
+`READ_ONLY`、`CUSTOM` 或 `FULL_ACCESS`。`FULL_ACCESS` 是最高权限，会覆盖当前和
+未来新增的全部下游 Tools，但仍受项目/连接隔离、Schema 校验、幂等、限流、超时、
+审计和强制脱敏约束。新建的正式测试默认停用，AI 无权启用、删除、定时或管理 Secret。
+
+默认 endpoint 为 `http://127.0.0.1:8500/mcp/authoring`。Token 只在首次启用或轮换时
+显示一次，请把它放在请求 Header 中，不要放进 URL：
+
+```json
+{
+  "mcpServers": {
+    "mcp-inspector-authoring": {
+      "type": "streamable-http",
+      "url": "http://127.0.0.1:8500/mcp/authoring",
+      "headers": {
+        "Authorization": "Bearer <YOUR_TOKEN>"
+      }
+    }
+  }
+}
+```
+
+固定工具集支持项目/Server/Tool 发现、独立 Tool 排障调用、Draft 创建与修订、确定性
+校验、异步试运行/取消，以及把准确验证过的 Draft 原子保存为测试用例、场景测试和套件。
+所有真实调用都会进入普通 Run 历史和 Authoring 调用记录。完整边界和错误语义见
+[MCP Inspector 3.0.0 升级说明](docs/UPGRADE-3.0.0.md)。
 
 ## Tool 前置与后置脚本
 
@@ -111,6 +155,7 @@ export default async function before(ctx) {
 - [MCP Inspector 2.0.5 更新计划](docs/UPGRADE-2.0.5.md)
 - [MCP Inspector 2.5.0 测试套件执行报告规范](docs/UPGRADE-2.5.0.md)
 - [MCP Inspector 2.5.1 压力测试规范](docs/UPGRADE-2.5.1.md)
+- [MCP Inspector 3.0.0 Authoring MCP 升级说明](docs/UPGRADE-3.0.0.md)
 - [前端 UI 与交互开发规范](docs/FRONTEND-DEVELOPMENT-STANDARDS.md)
 - [ADR-001：采用项目内部 UI Foundation](docs/decisions/001-internal-ui-foundation.md)
 - [Tool 前置与后置脚本规范](docs/SPEC-tool-script-workflows.md)

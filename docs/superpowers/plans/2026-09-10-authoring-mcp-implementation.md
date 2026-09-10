@@ -379,14 +379,14 @@
 - Modify: `scripts/check-release-artifacts.mjs`
 - Modify: `package.json`
 
-- [ ] Add an E2E fixture AI client and downstream MCP server covering enable/token/configure/discover/standalone call/Draft/validate/execute/Apply/open asset.
-- [ ] Add E2E isolation cases for same URL with different connection auth, project switching, cancellation, Token rotation, FULL_ACCESS confirmation, and mandatory redaction.
-- [ ] Verify keyboard, focus, Disclosure/SplitPane semantics, light/dark themes, zh-CN/en-US, 1024px desktop, and narrow layout behavior.
-- [ ] Document endpoint configuration for external AI Hosts without exposing a real Token or suggesting query-string credentials.
-- [ ] Update release artifact checks so registry migrations, project migrations, MCP server SDK, client assets, and production entry are packaged.
-- [ ] Run `npm run verify`, `npm run verify:release-artifacts`, `npm pack --dry-run --json`, and `git diff --check`.
-- [ ] Perform independent correctness, security/privacy, migration, and accessibility review; resolve every Critical/Required finding.
-- [ ] Commit with `chore(release): complete authoring mcp 3.0 gates`.
+- [x] Add an E2E fixture AI client and downstream MCP server covering enable/token/configure/discover/standalone call/Draft/validate/execute/Apply/open asset.
+- [x] Add E2E isolation cases for same URL with different connection auth, project switching, cancellation, Token rotation, FULL_ACCESS confirmation, and mandatory redaction.
+- [x] Verify keyboard, focus, Disclosure/SplitPane semantics, light/dark themes, zh-CN/en-US, 1024px desktop, and narrow layout behavior.
+- [x] Document endpoint configuration for external AI Hosts without exposing a real Token or suggesting query-string credentials.
+- [x] Update release artifact checks so registry migrations, project migrations, MCP server SDK, client assets, and production entry are packaged.
+- [x] Run `npm run verify`, `npm run verify:release-artifacts`, `npm pack --dry-run --json`, and `git diff --check`.
+- [x] Perform independent correctness, security/privacy, migration, and accessibility review; resolve every Critical/Required finding.
+- [x] Commit with `chore(release): complete authoring mcp 3.0 gates`.
 
 ## Execution Order and Stop Conditions
 

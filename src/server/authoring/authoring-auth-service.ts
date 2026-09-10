@@ -4,6 +4,7 @@ import type {
   InstallationAuthoringSettings,
   InstallationSettingsRepository,
 } from "../registry/installation-settings-repository.js";
+import { authoringControlAudit, type AuthoringAuditWriter } from "./authoring-audit.js";
 
 const DIGEST_PREFIX = "scrypt:v1";
 const SALT_BYTES = 16;
@@ -64,6 +65,7 @@ export function createAuthoringAuthService(options: {
   repository: InstallationSettingsRepository;
   now?: () => Date;
   generateToken?: () => string;
+  audit?: AuthoringAuditWriter;
 }): AuthoringAuthService {
   const now = options.now ?? (() => new Date());
   const generateToken = options.generateToken ?? (() => randomBytes(32).toString("base64url"));
@@ -82,6 +84,7 @@ export function createAuthoringAuthService(options: {
       updatedAt: timestamp,
     };
     options.repository.replaceAuthoring(next);
+    options.audit?.(authoringControlAudit(rotation ? "TOKEN_ROTATED" : "SERVICE_ENABLED", "SUCCEEDED"));
     return { status: status(next), token };
   }
 
@@ -94,6 +97,7 @@ export function createAuthoringAuthService(options: {
       if (current.tokenDigest === null) return issue(false);
       const next = { ...current, enabled: true, updatedAt: now().toISOString() };
       options.repository.replaceAuthoring(next);
+      options.audit?.(authoringControlAudit("SERVICE_ENABLED", "SUCCEEDED"));
       return { status: status(next), token: null };
     },
     rotate() {
@@ -103,6 +107,7 @@ export function createAuthoringAuthService(options: {
       const current = options.repository.getAuthoring();
       const next = { ...current, enabled: false, updatedAt: now().toISOString() };
       options.repository.replaceAuthoring(next);
+      options.audit?.(authoringControlAudit("SERVICE_DISABLED", "SUCCEEDED"));
       return status(next);
     },
     async verify(token) {

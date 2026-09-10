@@ -1,6 +1,9 @@
 // @ts-expect-error JavaScript release policy intentionally runs directly under Node during packaging.
-import { assertWithinBudget, initialAssetPaths, measureGzipBytes, validatePublishedFiles } from "../../../scripts/release-artifact-policy.mjs";
+import * as releaseArtifactPolicy from "../../../scripts/release-artifact-policy.mjs";
 import { describe, expect, it } from "vitest";
+
+const { assertWithinBudget, initialAssetPaths, measureGzipBytes, validateProductionEntry,
+  validatePublishedFiles, validateReleaseManifest } = releaseArtifactPolicy;
 
 describe("release artifact policy", () => {
   it("measures only assets loaded by the initial HTML", () => {
@@ -27,6 +30,27 @@ describe("release artifact policy", () => {
       "dist/server/registry/migrations/001_registry.sql",
       "dist/server/registry/migrations/002_authoring.sql",
     ])).toEqual({ fileCount: 11, migrationCount: 4 });
+  });
+
+  it("requires the Authoring runtime, MCP SDK dependency, and generated client assets", () => {
+    expect(validateReleaseManifest({ version: "3.0.0", engines: { node: ">=22" },
+      bin: { "mcp-inspector": "bin/mcp-inspector.mjs" }, files: ["bin", "dist", "README.md"],
+      dependencies: { "@modelcontextprotocol/sdk": "1.29.0" }, devDependencies: {} })).toEqual({
+        version: "3.0.0", mcpSdkVersion: "1.29.0",
+      });
+    expect(() => validateReleaseManifest({ version: "3.0.0", engines: { node: ">=22" },
+      bin: { "mcp-inspector": "bin/mcp-inspector.mjs" }, files: ["bin", "dist", "README.md"],
+      dependencies: {}, devDependencies: { "@modelcontextprotocol/sdk": "1.29.0" } })).toThrow(/runtime dependency/u);
+    expect(() => validateReleaseManifest({ version: "3.0.0", engines: { node: ">=22" },
+      bin: { "mcp-inspector": "bin/mcp-inspector.mjs" }, files: ["bin", "dist", "README.md"],
+      dependencies: { "@modelcontextprotocol/sdk": "^1.29.0" } })).toThrow(/pinned/u);
+    expect(validateProductionEntry("/mcp/authoring inspector_get_capabilities runInspectorCli")).toBe(true);
+    expect(() => validateProductionEntry("runInspectorCli")).toThrow(/Authoring MCP/u);
+    expect(() => validatePublishedFiles([
+      "package.json", "README.md", "bin/mcp-inspector.mjs", "dist/client/index.html",
+      "dist/server/main.js", "dist/server/workflows/script-worker.js",
+      "dist/server/projects/migrations/001_a.sql", "dist/server/registry/migrations/001_registry.sql",
+    ], { requiredFiles: ["dist/client/assets/index-AbCdEf12.js"] })).toThrow(/missing runtime files/u);
   });
 
   it("rejects source files, missing runtime files, and migration gaps", () => {

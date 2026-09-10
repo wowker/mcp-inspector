@@ -87,6 +87,7 @@ import type { AuthoringDraftService } from "./authoring/authoring-draft-service.
 import type { AuthoringDraftValidator } from "./authoring/authoring-draft-validator.js";
 import type { AuthoringDraftExecutionService } from "./authoring/authoring-draft-execution-service.js";
 import type { AuthoringApplyService } from "./authoring/authoring-apply-service.js";
+import type { AuthoringAuditWriter } from "./authoring/authoring-audit.js";
 import { createAuthoringWorkspaceRoutes } from "./authoring/authoring-workspace-routes.js";
 
 export interface AppDependencies {
@@ -127,6 +128,7 @@ export interface AppDependencies {
   authoringDraftValidator?: AuthoringDraftValidator;
   authoringDraftExecutions?: AuthoringDraftExecutionService;
   authoringApply?: AuthoringApplyService;
+  authoringAudit?: AuthoringAuditWriter;
   staticRoot?: string;
 }
 
@@ -251,6 +253,7 @@ export function createApp(deps: AppDependencies): Hono {
       auth: deps.authoringAuth,
       server: deps.authoringMcp,
       allowedOrigins: [deps.allowedOrigin, deps.authoringOrigin ?? deps.allowedOrigin],
+      audit: deps.authoringAudit,
     }));
   }
 

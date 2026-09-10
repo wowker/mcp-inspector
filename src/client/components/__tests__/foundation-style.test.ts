@@ -16,6 +16,13 @@ describe("UI Foundation theme contract", () => {
     expect(stylesheet).not.toMatch(/#[0-9a-f]{3,8}\b|\brgba?\(/i);
   });
 
+  it("keeps every shared button variant on a semantic hover surface", () => {
+    for (const [variant, token] of [["primary", "--ui-action-hover"], ["secondary", "--ui-surface-muted"],
+      ["quiet", "--ui-surface-muted"], ["danger", "--ui-danger-muted"]]) {
+      expect(stylesheet).toMatch(new RegExp(`\\.ui-button\\[data-variant="${variant}"\\]:hover[^}]*background: var\\(${token}\\)`));
+    }
+  });
+
   it("bounds module help to the viewport so only its body scrolls", () => {
     expect(stylesheet).toMatch(/\.module-help__popover\s*\{[^}]*max-height:\s*min\(560px, calc\(100dvh - 24px\)\)/s);
     expect(stylesheet).toMatch(/\.module-help__body\s*\{[^}]*overflow-y:\s*auto/s);
