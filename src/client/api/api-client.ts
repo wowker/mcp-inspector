@@ -115,6 +115,28 @@ import {
   type ConnectionAuthoringPolicy,
   type ReplaceAuthoringPolicyInput,
 } from "../../shared/authoring/policy.js";
+import {
+  authoringSettingsResponseSchema,
+  authoringTokenIssueResponseSchema,
+  type AuthoringSettingsStatus,
+  type AuthoringTokenIssue,
+} from "../../shared/authoring/auth.js";
+import {
+  automationDraftMutationResultSchema,
+  automationDraftPageSchema,
+  automationDraftSchema,
+  type AutomationDraft,
+  type AutomationDraftDefinition,
+  type AutomationDraftMutationResult,
+  type AutomationDraftPage,
+} from "../../shared/authoring/draft.js";
+import { draftValidationResultSchema, type DraftValidationResult } from "../../shared/authoring/validation.js";
+import {
+  authoringToolCallDetailSchema,
+  authoringToolCallPageSchema,
+  type AuthoringToolCallDetail,
+  type AuthoringToolCallPage,
+} from "../../shared/authoring/calls.js";
 
 export type {
   EnvironmentVariable,
@@ -133,6 +155,11 @@ export type {
   EnvironmentProfileVariable,
   EnvironmentProfileVariableMutation,
 } from "../../shared/environment-profile.js";
+export type { AuthoringSettingsStatus, AuthoringTokenIssue } from "../../shared/authoring/auth.js";
+export type { AutomationDraft, AutomationDraftDefinition, AutomationDraftMutationResult,
+  AutomationDraftPage } from "../../shared/authoring/draft.js";
+export type { DraftValidationResult } from "../../shared/authoring/validation.js";
+export type { AuthoringToolCallDetail, AuthoringToolCallPage } from "../../shared/authoring/calls.js";
 
 export interface ProjectSummary {
   id: string;
@@ -279,6 +306,21 @@ export interface InspectorApiClient {
   getAuthoringPolicy(projectId: string, connectionId: string): Promise<ConnectionAuthoringPolicy>;
   replaceAuthoringPolicy(projectId: string, connectionId: string,
     input: ReplaceAuthoringPolicyInput): Promise<ConnectionAuthoringPolicy>;
+  getAuthoringSettings(): Promise<{ settings: AuthoringSettingsStatus; endpoint: string }>;
+  enableAuthoring(): Promise<AuthoringTokenIssue>;
+  rotateAuthoringToken(): Promise<AuthoringTokenIssue>;
+  disableAuthoring(): Promise<{ settings: AuthoringSettingsStatus; endpoint: string }>;
+  listAuthoringDrafts(projectId: string): Promise<AutomationDraftPage>;
+  getAuthoringDraft(projectId: string, draftId: string): Promise<AutomationDraft>;
+  replaceAuthoringDraft(projectId: string, draftId: string, input: {
+    expectedRevision: number;
+    goal: string;
+    definition: AutomationDraftDefinition;
+    idempotencyKey: string;
+  }): Promise<AutomationDraftMutationResult>;
+  validateAuthoringDraft(projectId: string, draftId: string, revision: number): Promise<DraftValidationResult>;
+  listAuthoringCalls(projectId: string): Promise<AuthoringToolCallPage>;
+  getAuthoringCall(projectId: string, callId: string): Promise<AuthoringToolCallDetail>;
   listTools(projectId: string, connectionId: string): Promise<CatalogToolSummary[]>;
   refreshTools(projectId: string, connectionId: string): Promise<CatalogToolSummary[]>;
   getTool(projectId: string, connectionId: string, toolName: string): Promise<ToolDetailSummary>;
@@ -1098,6 +1140,80 @@ export function createApiClient(_legacySessionToken?: string): InspectorApiClien
         { method: "PUT", headers, body: JSON.stringify(input) },
       );
       return decodeAuthoringPolicy(await decodeResponse<unknown>(response), projectId, connectionId);
+    },
+    async getAuthoringSettings() {
+      const response = await fetch("/api/authoring/settings", { headers });
+      return authoringSettingsResponseSchema.parse(await decodeResponse<unknown>(response));
+    },
+    async enableAuthoring() {
+      const response = await fetch("/api/authoring/settings/enable", { method: "POST", headers });
+      return authoringTokenIssueResponseSchema.parse(await decodeResponse<unknown>(response));
+    },
+    async rotateAuthoringToken() {
+      const response = await fetch("/api/authoring/settings/token", { method: "POST", headers });
+      return authoringTokenIssueResponseSchema.parse(await decodeResponse<unknown>(response));
+    },
+    async disableAuthoring() {
+      const response = await fetch("/api/authoring/settings/disable", { method: "POST", headers });
+      return authoringSettingsResponseSchema.parse(await decodeResponse<unknown>(response));
+    },
+    async listAuthoringDrafts(projectId) {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/authoring/drafts`, { headers });
+      const page = automationDraftPageSchema.parse(await decodeResponse<unknown>(response));
+      if (page.items.some((item) => item.projectId !== projectId)) throw new Error("Invalid Authoring Draft response");
+      return page;
+    },
+    async getAuthoringDraft(projectId, draftId) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/authoring/drafts/${encodeURIComponent(draftId)}`,
+        { headers },
+      );
+      const value = await decodeResponse<unknown>(response);
+      if (!isObject(value) || !("draft" in value)) throw new Error("Invalid Authoring Draft response");
+      const draft = automationDraftSchema.parse(value.draft);
+      if (draft.projectId !== projectId || draft.id !== draftId) throw new Error("Invalid Authoring Draft response");
+      return draft;
+    },
+    async replaceAuthoringDraft(projectId, draftId, input) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/authoring/drafts/${encodeURIComponent(draftId)}`,
+        { method: "PUT", headers, body: JSON.stringify(input) },
+      );
+      const value = await decodeResponse<unknown>(response);
+      if (!isObject(value) || !("result" in value)) throw new Error("Invalid Authoring Draft response");
+      const result = automationDraftMutationResultSchema.parse(value.result);
+      if (result.draftId !== draftId) throw new Error("Invalid Authoring Draft response");
+      return result;
+    },
+    async validateAuthoringDraft(projectId, draftId, revision) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/authoring/drafts/${encodeURIComponent(draftId)}/validate`,
+        { method: "POST", headers, body: JSON.stringify({ revision }) },
+      );
+      const value = await decodeResponse<unknown>(response);
+      if (!isObject(value) || !("validation" in value)) throw new Error("Invalid Authoring validation response");
+      const validation = draftValidationResultSchema.parse(value.validation);
+      if (validation.projectId !== projectId || validation.draftId !== draftId || validation.draftRevision !== revision) {
+        throw new Error("Invalid Authoring validation response");
+      }
+      return validation;
+    },
+    async listAuthoringCalls(projectId) {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/authoring/calls`, { headers });
+      const page = authoringToolCallPageSchema.parse(await decodeResponse<unknown>(response));
+      if (page.items.some((item) => item.projectId !== projectId)) throw new Error("Invalid Authoring call response");
+      return page;
+    },
+    async getAuthoringCall(projectId, callId) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/authoring/calls/${encodeURIComponent(callId)}`,
+        { headers },
+      );
+      const value = await decodeResponse<unknown>(response);
+      if (!isObject(value) || !("call" in value)) throw new Error("Invalid Authoring call response");
+      const call = authoringToolCallDetailSchema.parse(value.call);
+      if (call.projectId !== projectId || call.id !== callId) throw new Error("Invalid Authoring call response");
+      return call;
     },
     async listTools(projectId, connectionId) {
       const response = await fetch(

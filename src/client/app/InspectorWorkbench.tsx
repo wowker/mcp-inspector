@@ -8,6 +8,7 @@ import {
   HardDrives,
   Gauge,
   Moon,
+  Robot,
   Stack,
   SidebarSimple,
   Sun,
@@ -26,11 +27,12 @@ import { TestCasesPage, type TestCaseSourceIntent } from "../features/testing/Te
 import { TestSuitesPage } from "../features/testing/TestSuitesPage.js";
 import { TestReportsPage } from "../features/testing/TestReportsPage.js";
 import { PressureTestsPage } from "../features/testing/PressureTestsPage.js";
+import { AuthoringPage } from "../features/authoring/AuthoringPage.js";
 import { ServerTab } from "./ServerTab.js";
 
-type WorkbenchPage = "servers" | "tools" | "environment" | "testing" | "suites" | "pressure" | "reports" | "history";
-type PersistentWorkbenchPage = Extract<WorkbenchPage, "tools" | "testing" | "suites" | "pressure">;
-const persistentWorkbenchPages = new Set<WorkbenchPage>(["tools", "testing", "suites", "pressure"]);
+type WorkbenchPage = "servers" | "tools" | "authoring" | "environment" | "testing" | "suites" | "pressure" | "reports" | "history";
+type PersistentWorkbenchPage = Extract<WorkbenchPage, "tools" | "authoring" | "testing" | "suites" | "pressure">;
+const persistentWorkbenchPages = new Set<WorkbenchPage>(["tools", "authoring", "testing", "suites", "pressure"]);
 
 interface InspectorWorkbenchProps {
   api: InspectorApiClient;
@@ -52,6 +54,7 @@ function NavIcon({ type, active }: { type: WorkbenchPage; active: boolean }) {
   } as const;
   if (type === "servers") return <HardDrives {...iconProps} />;
   if (type === "tools") return <Wrench {...iconProps} />;
+  if (type === "authoring") return <Robot {...iconProps} />;
   if (type === "environment") return <BracketsCurly {...iconProps} />;
   if (type === "testing") return <TestTube {...iconProps} />;
   if (type === "suites") return <Stack {...iconProps} />;
@@ -92,6 +95,7 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
   const serversRef = useRef(servers); serversRef.current = servers;
   const pageLabels: Record<WorkbenchPage, string> = {
     servers: t("workbench.nav.servers"), tools: t("workbench.nav.tools"),
+    authoring: t("workbench.nav.authoring"),
     environment: t("workbench.nav.environment"), history: t("workbench.nav.history"),
     testing: t("workbench.nav.testing"), suites: t("workbench.nav.suites"), pressure: t("workbench.nav.pressure"), reports: t("workbench.nav.reports"),
   };
@@ -240,7 +244,7 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
           <span className="workbench-brand__text"><strong>MCP</strong><small>Inspector</small></span>
         </div>
         <nav aria-label={t("workbench.navigation")}>
-          {(["servers", "tools", "environment", "testing", "suites", "pressure", "reports", "history"] as const).map((item) => (
+          {(["servers", "tools", "authoring", "environment", "testing", "suites", "pressure", "reports", "history"] as const).map((item) => (
             <button
               key={item}
               type="button"
@@ -337,6 +341,9 @@ export function InspectorWorkbench({ api, project, version }: InspectorWorkbench
           </div>}
           {(page === "pressure" || mountedPersistentPages.has("pressure")) && <div className="workbench-page-slot" hidden={page !== "pressure"}>
             <PressureTestsPage api={api} projectId={project.id} active={page === "pressure"} />
+          </div>}
+          {(page === "authoring" || mountedPersistentPages.has("authoring")) && <div className="workbench-page-slot" hidden={page !== "authoring"}>
+            <AuthoringPage api={api} projectId={project.id} active={page === "authoring"} />
           </div>}
           {(page === "tools" || mountedPersistentPages.has("tools")) && <div className="workbench-page-slot workbench-page-slot--tools" hidden={page !== "tools"}>
             <section

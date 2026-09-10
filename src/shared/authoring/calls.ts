@@ -47,48 +47,31 @@ export type AuthoringCallStatus = z.output<typeof authoringCallStatusSchema>;
 export type AuthoringCallToolInput = z.output<typeof authoringCallToolInputSchema>;
 export type AuthoringListToolCallsInput = z.output<typeof authoringListToolCallsInputSchema>;
 
-export interface AuthoringToolCallSummary {
-  callId: string;
-  projectId: string;
-  connectionId: string;
-  toolName: string;
-  context: AuthoringCallContext;
-  purpose: AuthoringCallPurpose;
-  status: AuthoringCallStatus;
-  runId: string | null;
-  mayHaveSideEffects: boolean;
-  createdAt: string;
-  startedAt: string | null;
-  completedAt: string | null;
-  durationMs: number | null;
-}
+const callTimestamp = z.string().datetime({ offset: true });
+export const authoringToolCallSummarySchema = z.object({
+  callId: z.string().uuid(), projectId: z.string().uuid(), connectionId: z.string().uuid(),
+  toolName: z.string().trim().min(1).max(256), context: authoringCallContextSchema,
+  purpose: authoringCallPurposeSchema, status: authoringCallStatusSchema, runId: z.string().uuid().nullable(),
+  mayHaveSideEffects: z.boolean(), createdAt: callTimestamp, startedAt: callTimestamp.nullable(),
+  completedAt: callTimestamp.nullable(), durationMs: z.number().int().nonnegative().nullable(),
+}).strict();
+export const authoringToolCallPageSchema = z.object({
+  items: z.array(authoringToolCallSummarySchema), nextCursor: z.string().min(1).nullable(),
+}).strict();
+export const authoringToolCallDetailSchema = z.object({
+  id: z.string().uuid(), projectId: z.string().uuid(), connectionId: z.string().uuid(),
+  toolName: z.string().trim().min(1).max(256), toolSnapshotId: z.string().uuid().nullable(),
+  toolSchemaHash: z.string().regex(/^[a-f0-9]{64}$/u), context: authoringCallContextSchema,
+  purpose: authoringCallPurposeSchema, status: authoringCallStatusSchema, runId: z.string().uuid().nullable(),
+  idempotencyKey: z.string().min(1).max(200), arguments: jsonObjectSchema, mayHaveSideEffects: z.boolean(),
+  response: jsonValueSchema.nullable(), error: z.object({ code: z.string(), message: z.string() }).strict().nullable(),
+  createdAt: callTimestamp, startedAt: callTimestamp.nullable(), completedAt: callTimestamp.nullable(),
+  durationMs: z.number().int().nonnegative().nullable(),
+}).strict();
 
-export interface AuthoringToolCallPage {
-  items: AuthoringToolCallSummary[];
-  nextCursor: string | null;
-}
-
-export interface AuthoringToolCallDetail {
-  id: string;
-  projectId: string;
-  connectionId: string;
-  toolName: string;
-  toolSnapshotId: string | null;
-  toolSchemaHash: string;
-  context: AuthoringCallContext;
-  purpose: AuthoringCallPurpose;
-  status: AuthoringCallStatus;
-  runId: string | null;
-  idempotencyKey: string;
-  arguments: JsonObject;
-  mayHaveSideEffects: boolean;
-  response: JsonValue | null;
-  error: { code: string; message: string } | null;
-  createdAt: string;
-  startedAt: string | null;
-  completedAt: string | null;
-  durationMs: number | null;
-}
+export type AuthoringToolCallSummary = z.output<typeof authoringToolCallSummarySchema>;
+export type AuthoringToolCallPage = z.output<typeof authoringToolCallPageSchema>;
+export type AuthoringToolCallDetail = z.output<typeof authoringToolCallDetailSchema>;
 
 export function isJsonValue(value: unknown): value is JsonValue {
   return jsonValueSchema.safeParse(value).success;

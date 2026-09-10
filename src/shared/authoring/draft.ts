@@ -153,37 +153,26 @@ export const listDraftsInputSchema = z.object({
 
 export const getDraftInputSchema = z.object({ projectId: uuid, draftId: uuid }).strict();
 
-export interface AutomationDraft {
-  version: 1;
-  id: string;
-  projectId: string;
-  revision: number;
-  state: "ACTIVE" | "APPLIED" | "DISCARDED";
-  goal: string;
-  definitionDigest: string;
-  definition: z.output<typeof automationDraftDefinitionSchema>;
-  createdAt: string;
-  updatedAt: string;
-}
+export const automationDraftStateSchema = z.enum(["ACTIVE", "APPLIED", "DISCARDED"]);
+export const automationDraftSchema = z.object({
+  version: z.literal(1), id: uuid, projectId: uuid, revision: z.number().int().positive(),
+  state: automationDraftStateSchema, goal: z.string().max(2_000), definitionDigest: z.string().regex(/^[a-f0-9]{64}$/u),
+  definition: automationDraftDefinitionSchema, createdAt: timestamp, updatedAt: timestamp,
+}).strict();
+export const automationDraftSummarySchema = automationDraftSchema.pick({
+  id: true, projectId: true, revision: true, state: true, goal: true, createdAt: true, updatedAt: true,
+}).extend({ testCaseCount: z.number().int().nonnegative(), suiteCount: z.number().int().nonnegative() }).strict();
+export const automationDraftPageSchema = z.object({
+  items: z.array(automationDraftSummarySchema), nextCursor: z.string().min(1).nullable(),
+}).strict();
+export const automationDraftMutationResultSchema = z.object({
+  draftId: uuid, revision: z.number().int().positive(), definitionDigest: z.string().regex(/^[a-f0-9]{64}$/u),
+}).strict();
 
-export interface AutomationDraftSummary {
-  id: string;
-  projectId: string;
-  revision: number;
-  state: AutomationDraft["state"];
-  goal: string;
-  testCaseCount: number;
-  suiteCount: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface AutomationDraftPage { items: AutomationDraftSummary[]; nextCursor: string | null }
-export interface AutomationDraftMutationResult {
-  draftId: string;
-  revision: number;
-  definitionDigest: string;
-}
+export type AutomationDraft = z.output<typeof automationDraftSchema>;
+export type AutomationDraftSummary = z.output<typeof automationDraftSummarySchema>;
+export type AutomationDraftPage = z.output<typeof automationDraftPageSchema>;
+export type AutomationDraftMutationResult = z.output<typeof automationDraftMutationResultSchema>;
 
 export type AutomationDraftDefinition = z.output<typeof automationDraftDefinitionSchema>;
 export type CreateDraftInput = z.output<typeof createDraftInputSchema>;

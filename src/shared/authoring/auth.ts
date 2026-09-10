@@ -11,6 +11,7 @@ export const authoringSettingsStatusSchema = z.object({
 
 export const authoringSettingsResponseSchema = z.object({
   settings: authoringSettingsStatusSchema,
+  endpoint: z.string().min(1).max(2_048),
 }).strict();
 
 export const authoringTokenIssueResponseSchema = authoringSettingsResponseSchema.extend({

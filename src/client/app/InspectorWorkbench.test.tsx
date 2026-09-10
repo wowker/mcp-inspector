@@ -73,6 +73,12 @@ function api(): InspectorApiClient {
     disconnectConnection: vi.fn().mockResolvedValue(connection),
     reauthorizeConnection: vi.fn().mockResolvedValue(connection),
     getAuthoringPolicy: vi.fn(), replaceAuthoringPolicy: vi.fn(),
+    getAuthoringSettings: vi.fn().mockResolvedValue({ settings: { enabled: false, configured: false, tokenHint: null,
+      tokenCreatedAt: null, tokenRotatedAt: null, updatedAt: null }, endpoint: "http://127.0.0.1:8500/mcp/authoring" }),
+    enableAuthoring: vi.fn(), rotateAuthoringToken: vi.fn(), disableAuthoring: vi.fn(),
+    listAuthoringDrafts: vi.fn().mockResolvedValue({ items: [], nextCursor: null }), getAuthoringDraft: vi.fn(),
+    replaceAuthoringDraft: vi.fn(), validateAuthoringDraft: vi.fn(),
+    listAuthoringCalls: vi.fn().mockResolvedValue({ items: [], nextCursor: null }), getAuthoringCall: vi.fn(),
     listTools: vi.fn().mockResolvedValue([]), refreshTools: vi.fn().mockResolvedValue([]), getTool: vi.fn(), deleteTool: vi.fn(),
     listToolFolders: vi.fn().mockResolvedValue([]), createToolFolder: vi.fn(), renameToolFolder: vi.fn(),
     deleteToolFolder: vi.fn(), moveToolToFolder: vi.fn(), setToolFavorite: vi.fn(), markToolUsed: vi.fn(),
@@ -106,6 +112,19 @@ function api(): InspectorApiClient {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); void i18n.changeLanguage("zh-CN"); });
 
 describe("InspectorWorkbench", () => {
+  it("opens the persistent Authoring MCP workspace from primary navigation", async () => {
+    const user = userEvent.setup();
+    const client = api();
+    render(<InspectorWorkbench api={client} project={project} version="3.0.0" />);
+
+    await user.click(screen.getByRole("button", { name: "Authoring MCP" }));
+    expect(await screen.findByRole("heading", { name: "Authoring MCP", level: 1 })).toBeVisible();
+    expect(client.getAuthoringSettings).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("button", { name: "Servers" }));
+    await user.click(screen.getByRole("button", { name: "Authoring MCP" }));
+    expect(client.getAuthoringSettings).toHaveBeenCalledTimes(1);
+  });
+
   it("separates the local service status from footer controls so long versions cannot cover actions", () => {
     const { container } = render(<InspectorWorkbench api={api()} project={project}
       version="2.0.2-rc.1+desktop.long-build" />);

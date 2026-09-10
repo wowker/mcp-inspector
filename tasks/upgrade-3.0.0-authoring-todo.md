@@ -30,8 +30,8 @@
 
 - [x] Task 11: Draft Bundle contract and revision service.
 - [x] Task 12: Draft validation and existing asset discovery.
-- [ ] Task 13: Authoring MCP workspace shell.
-- [ ] Checkpoint D: focused gates and `npm run verify` pass.
+- [x] Task 13: Authoring MCP workspace shell.
+- [x] Checkpoint D: focused gates and `npm run verify` pass.
 
 ## Slice E — Trial execution and step-local QuickJS
 

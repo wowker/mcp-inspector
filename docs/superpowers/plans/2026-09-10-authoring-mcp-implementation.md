@@ -262,13 +262,13 @@
 - Modify: `src/shared/i18n/locales/zh-CN/app.ts`
 - Modify: `src/shared/i18n/locales/en-US/app.ts`
 
-- [ ] Add failing tests for navigation, service status, one-time Token flow, endpoint/client-config copy, Draft/call lists, project-switch reset, and menu-switch state restoration.
-- [ ] Add `Authoring MCP` to primary navigation using the existing Shell and Phosphor icon system.
-- [ ] Use list/detail or split-pane workbench patterns, not nested dashboard cards; keep one scroll owner per axis.
-- [ ] Persist filters, selection, scroll position, and unsaved Draft editor state by project while clearing them across project identity changes.
-- [ ] Add loading, empty, stale, unauthorized, disabled, interrupted, and error states from authoritative server data.
-- [ ] Run focused UI tests, keyboard/a11y checks, and `npm run verify` as Checkpoint D.
-- [ ] Commit with `feat(ui): add authoring workspace`.
+- [x] Add failing tests for navigation, service status, one-time Token flow, endpoint/client-config copy, Draft/call lists, project-switch reset, and menu-switch state restoration.
+- [x] Add `Authoring MCP` to primary navigation using the existing Shell and Phosphor icon system.
+- [x] Use list/detail or split-pane workbench patterns, not nested dashboard cards; keep one scroll owner per axis.
+- [x] Persist filters, selection, scroll position, and unsaved Draft editor state by project while clearing them across project identity changes.
+- [x] Add loading, empty, stale, unauthorized, disabled, interrupted, and error states from authoritative server data.
+- [x] Run focused UI tests, keyboard/a11y checks, and `npm run verify` as Checkpoint D.
+- [x] Commit with `feat(ui): add authoring workspace`.
 
 ---
 

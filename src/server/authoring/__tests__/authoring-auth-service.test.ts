@@ -109,8 +109,9 @@ describe("Authoring settings routes", () => {
       });
       expect(enabled.status).toBe(200);
       expect(enabled.headers.get("Cache-Control")).toBe("no-store");
-      const enabledBody = await enabled.json() as { token: string; settings: unknown };
+      const enabledBody = await enabled.json() as { token: string; settings: unknown; endpoint: string };
       expect(enabledBody.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(enabledBody.endpoint).toBe("/mcp/authoring");
       expect(JSON.stringify(enabledBody)).not.toContain("scrypt:v1:");
 
       const status = await app.request("/api/authoring/settings", { headers });

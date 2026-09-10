@@ -82,6 +82,10 @@ import type { AuthoringMcpServer } from "./authoring/authoring-mcp-server.js";
 import { createAuthoringMcpRoutes } from "./authoring/authoring-mcp-routes.js";
 import { createAuthoringPolicyRoutes } from "./authoring/authoring-policy-routes.js";
 import { createAuthoringPolicyService, type AuthoringPolicyService } from "./authoring/authoring-policy-service.js";
+import type { AuthoringCallService } from "./authoring/authoring-call-service.js";
+import type { AuthoringDraftService } from "./authoring/authoring-draft-service.js";
+import type { AuthoringDraftValidator } from "./authoring/authoring-draft-validator.js";
+import { createAuthoringWorkspaceRoutes } from "./authoring/authoring-workspace-routes.js";
 
 export interface AppDependencies {
   sessionToken: string;
@@ -116,6 +120,9 @@ export interface AppDependencies {
   authoringMcp?: AuthoringMcpServer;
   authoringOrigin?: string | (() => string);
   authoringPolicies?: AuthoringPolicyService;
+  authoringCalls?: AuthoringCallService;
+  authoringDrafts?: AuthoringDraftService;
+  authoringDraftValidator?: AuthoringDraftValidator;
   staticRoot?: string;
 }
 
@@ -336,7 +343,8 @@ export function createApp(deps: AppDependencies): Hono {
   );
 
   if (deps.authoringAuth !== undefined) {
-    app.route("/api/authoring/settings", createAuthoringSettingsRoutes(deps.authoringAuth));
+    app.route("/api/authoring/settings", createAuthoringSettingsRoutes(deps.authoringAuth,
+      () => `${typeof deps.authoringOrigin === "function" ? deps.authoringOrigin() : deps.authoringOrigin ?? ""}/mcp/authoring`));
   }
 
   if (deps.projects !== undefined) {
@@ -354,6 +362,12 @@ export function createApp(deps: AppDependencies): Hono {
     app.route("/api/projects", createProjectRoutes(deps.projects));
     const authoringPolicies = deps.authoringPolicies ?? createAuthoringPolicyService({ projects: deps.projects });
     app.route("/api/projects", createAuthoringPolicyRoutes(authoringPolicies));
+    if (deps.authoringCalls !== undefined && deps.authoringDrafts !== undefined &&
+        deps.authoringDraftValidator !== undefined) {
+      app.route("/api/projects", createAuthoringWorkspaceRoutes({
+        calls: deps.authoringCalls, drafts: deps.authoringDrafts, validator: deps.authoringDraftValidator,
+      }));
+    }
     app.route("/api/projects", createConnectionRoutes(connections));
     const tools = deps.tools ?? createToolService(deps.projects, connections);
     app.route("/api/projects", createToolRoutes(tools));
