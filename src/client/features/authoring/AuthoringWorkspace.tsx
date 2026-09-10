@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowsClockwise, CheckCircle, FileCode, TerminalWindow } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import type {
@@ -19,7 +19,7 @@ import { Button } from "../../components/actions/Button.js";
 import { FormField } from "../../components/forms/FormField.js";
 import { StatusBadge } from "../../components/feedback/StatusBadge.js";
 
-type WorkspaceView = "drafts" | "calls";
+export type AuthoringWorkspaceView = "drafts" | "calls";
 type LoadState = "idle" | "loading" | "ready" | "unauthorized" | "interrupted" | "error";
 
 interface AuthoringWorkspaceProps {
@@ -27,6 +27,7 @@ interface AuthoringWorkspaceProps {
   projectId: string;
   active: boolean;
   enabled: boolean;
+  view: AuthoringWorkspaceView;
   onOpenAsset(asset: AuthoringAppliedAsset): void;
 }
 
@@ -46,9 +47,8 @@ function callBadge(status: string): "idle" | "pending" | "success" | "warning" |
   return "idle";
 }
 
-export function AuthoringWorkspace({ api, projectId, active, enabled, onOpenAsset }: AuthoringWorkspaceProps) {
+export function AuthoringWorkspace({ api, projectId, active, enabled, view, onOpenAsset }: AuthoringWorkspaceProps) {
   const { t } = useTranslation("app");
-  const [view, setView] = useState<WorkspaceView>("drafts");
   const [filter, setFilter] = useState("");
   const [drafts, setDrafts] = useState<AutomationDraftPage["items"]>([]);
   const [calls, setCalls] = useState<AuthoringToolCallPage["items"]>([]);
@@ -99,7 +99,6 @@ export function AuthoringWorkspace({ api, projectId, active, enabled, onOpenAsse
       loadedProject.current = projectId;
       listRequestSequence.current += 1;
       detailRequestSequence.current += 1;
-      setView("drafts");
       setFilter("");
       setDrafts([]);
       setCalls([]);
@@ -263,28 +262,6 @@ export function AuthoringWorkspace({ api, projectId, active, enabled, onOpenAsse
     finally { setAction(null); }
   }
 
-  function selectView(next: WorkspaceView): void {
-    setView(next);
-    setSelectedDraft(null);
-    setSelectedCall(null);
-    setDetailState("idle");
-    setMessage(null);
-  }
-
-  function navigateViews(event: KeyboardEvent<HTMLButtonElement>, current: WorkspaceView): void {
-    const order: WorkspaceView[] = ["drafts", "calls"];
-    let index = order.indexOf(current);
-    if (event.key === "ArrowRight" || event.key === "ArrowDown") index = (index + 1) % order.length;
-    else if (event.key === "ArrowLeft" || event.key === "ArrowUp") index = (index - 1 + order.length) % order.length;
-    else if (event.key === "Home") index = 0;
-    else if (event.key === "End") index = order.length - 1;
-    else return;
-    event.preventDefault();
-    const next = order[index] ?? "drafts";
-    selectView(next);
-    queueMicrotask(() => document.getElementById(`authoring-view-${next}`)?.focus());
-  }
-
   if (!enabled) return <div className="authoring-workspace-state" role="status">
     <strong>{t("authoring.workspace.disabledTitle")}</strong><p>{t("authoring.workspace.disabledHint")}</p>
   </div>;
@@ -305,12 +282,6 @@ export function AuthoringWorkspace({ api, projectId, active, enabled, onOpenAsse
     : validation?.status === "VALID" ? undefined : t("authoring.workspace.validateFirst");
   return <section className="authoring-workspace" aria-label={t("authoring.workspace.label")}>
     <aside className="authoring-workspace__navigator">
-      <div className="authoring-view-tabs" role="tablist" aria-label={t("authoring.workspace.views")}>
-        <button id="authoring-view-drafts" type="button" role="tab" aria-selected={view === "drafts"}
-          tabIndex={view === "drafts" ? 0 : -1} onClick={() => selectView("drafts")} onKeyDown={(event) => navigateViews(event, "drafts")}>{t("authoring.workspace.drafts")}</button>
-        <button id="authoring-view-calls" type="button" role="tab" aria-selected={view === "calls"}
-          tabIndex={view === "calls" ? 0 : -1} onClick={() => selectView("calls")} onKeyDown={(event) => navigateViews(event, "calls")}>{t("authoring.workspace.calls")}</button>
-      </div>
       <div className="authoring-list-toolbar">
         <span>{t("authoring.workspace.count", { count: items.length })}</span>
         <Button variant="quiet" onClick={() => void loadLists()} aria-label={t("authoring.workspace.refresh")}><ArrowsClockwise size={16} /></Button>
@@ -318,7 +289,7 @@ export function AuthoringWorkspace({ api, projectId, active, enabled, onOpenAsse
       <label className="authoring-filter"><span className="sr-only">{t("authoring.workspace.filter")}</span>
         <input type="search" value={filter} placeholder={t("authoring.workspace.filter")}
           onChange={(event) => setFilter(event.target.value)} /></label>
-      <div ref={listScroll} className="authoring-record-list" role="tabpanel" aria-labelledby={`authoring-view-${view}`}>
+      <div ref={listScroll} className="authoring-record-list">
         {items.length === 0 ? <p className="authoring-empty">{t(view === "drafts" ? "authoring.workspace.noDrafts" : "authoring.workspace.noCalls")}</p> : null}
         {view === "drafts" ? visibleDrafts.map((draft) => <button key={draft.id} type="button"
           className="authoring-record" aria-pressed={selectedDraft?.id === draft.id} onClick={() => void openDraft(draft.id)}>

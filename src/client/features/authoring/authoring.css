@@ -6,26 +6,66 @@
 .authoring-page__icon { display: grid; width: 34px; height: 34px; flex: 0 0 34px; place-items: center; border: 1px solid var(--ui-border); border-radius: var(--ui-control-radius); color: var(--ui-accent); background: var(--ui-surface); }
 .authoring-page__actions, .authoring-draft-editor header > div:last-child { display: flex; align-items: center; gap: 8px; }
 .authoring-settings-state, .authoring-workspace-state { display: flex; min-height: 72px; align-items: center; justify-content: center; gap: 12px; padding: 16px; color: var(--ui-text-muted); }
-.authoring-connection { border-bottom: 1px solid var(--ui-border); background: var(--ui-surface); }
-.authoring-connection > header { padding: 10px 16px 0; }
-.authoring-connection h2 { margin: 0; font-size: 14px; }
-.authoring-connection header p { margin: 2px 0 0; color: var(--ui-text-muted); font-size: 11px; }
-.authoring-connection__fields { display: grid; grid-template-columns: minmax(260px, .8fr) minmax(360px, 1.2fr); gap: 12px; padding: 10px 16px 12px; }
-.authoring-connection__fields label { display: grid; min-width: 0; gap: 5px; color: var(--ui-text-muted); font-size: 11px; font-weight: 650; }
-.authoring-copy-field { display: flex; min-width: 0; align-items: flex-start; gap: 6px; }
-.authoring-copy-field input, .authoring-copy-field textarea, .authoring-draft-editor input, .authoring-json-editor { width: 100%; min-width: 0; border: 1px solid var(--ui-border); border-radius: var(--ui-control-radius); color: var(--ui-text); background: var(--ui-surface); font: 12px/1.45 var(--ui-mono); }
-.authoring-copy-field input, .authoring-draft-editor input { min-height: 34px; padding: 6px 9px; }
-.authoring-copy-field textarea { height: 58px; padding: 7px 9px; resize: vertical; }
+.authoring-draft-editor input, .authoring-json-editor { width: 100%; min-width: 0; border: 1px solid var(--ui-border); border-radius: var(--ui-control-radius); color: var(--ui-text); background: var(--ui-surface); font: 12px/1.45 var(--ui-mono); }
+.authoring-draft-editor input { min-height: 34px; padding: 6px 9px; }
 .authoring-token { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-top: 1px solid var(--ui-border-muted); color: var(--ui-warning); background: var(--ui-warning-muted); }
 .authoring-token > div { min-width: 0; flex: 1; }
 .authoring-token p { margin: 2px 0 5px; font-size: 12px; }
 .authoring-token code { color: var(--ui-text); font: 12px/1.4 var(--ui-mono); overflow-wrap: anywhere; }
 .authoring-workspace { display: grid; min-height: 0; overflow: hidden; grid-template-columns: minmax(260px, 320px) minmax(0, 1fr); }
-.authoring-workspace__navigator { display: grid; min-height: 0; overflow: hidden; border-right: 1px solid var(--ui-border); background: var(--ui-surface); grid-template-rows: auto auto auto minmax(0, 1fr); }
-.authoring-view-tabs { display: flex; min-height: 40px; border-bottom: 1px solid var(--ui-border); }
-.authoring-view-tabs button { min-width: 92px; padding: 8px 12px; border: 0; border-bottom: 2px solid transparent; color: var(--ui-text-muted); background: transparent; font-weight: 650; }
-.authoring-view-tabs button[aria-selected="true"] { border-bottom-color: var(--ui-accent); color: var(--ui-text); }
-.authoring-view-tabs button:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: -3px; }
+.authoring-page-tabs { display: flex; min-height: 40px; border-bottom: 1px solid var(--ui-border); background: var(--ui-surface); }
+.authoring-page-tabs button { min-width: 92px; padding: 8px 12px; border: 0; border-bottom: 2px solid transparent; color: var(--ui-text-muted); background: transparent; font-weight: 650; }
+.authoring-page-tabs button[aria-selected="true"] { border-bottom-color: var(--ui-accent); color: var(--ui-text); }
+.authoring-page-tabs button:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: -3px; }
+.authoring-page > [role="tabpanel"], .authoring-page__workspace-panel { min-height: 0; overflow: hidden; }
+.authoring-overview { min-height: 0; height: 100%; overflow-y: auto; padding: 16px; background: var(--ui-canvas); }
+.authoring-overview__cards { display: grid; grid-template-columns: minmax(320px, .9fr) minmax(400px, 1.1fr); gap: 12px; }
+.authoring-overview-card, .authoring-tool-access, .authoring-lifecycle { min-width: 0; border: 1px solid var(--ui-border); border-radius: var(--ui-panel-radius); background: var(--ui-surface); }
+.authoring-overview-card { display: grid; align-content: start; gap: 12px; padding: 16px; }
+.authoring-overview-card header, .authoring-tool-access > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.authoring-overview-card h2, .authoring-tool-access h2, .authoring-lifecycle h2 { margin: 0; font-size: 15px; line-height: 1.35; }
+.authoring-overview-card__eyebrow { margin: 0 0 3px; color: var(--ui-text-muted); font-size: 10px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.authoring-overview-card > p { margin: 0; color: var(--ui-text-muted); font-size: 12px; }
+.authoring-overview-copy { display: flex; min-width: 0; align-items: center; gap: 6px; padding: 5px 6px 5px 10px; border: 1px solid var(--ui-border); border-radius: var(--ui-control-radius); background: var(--ui-surface-muted); }
+.authoring-overview-copy input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: var(--ui-text); font: 12px/1.5 var(--ui-mono); text-overflow: ellipsis; }
+.authoring-overview-copy:focus-within { outline: 2px solid var(--ui-focus); outline-offset: 1px; }
+.authoring-overview-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin: 0; border-top: 1px solid var(--ui-border-muted); }
+.authoring-overview-meta > div { display: grid; min-width: 0; gap: 4px; padding: 12px 10px 0; border-left: 1px solid var(--ui-border-muted); }
+.authoring-overview-meta > div:first-child { padding-left: 0; border-left: 0; }
+.authoring-overview-meta dt { color: var(--ui-text-muted); font-size: 10px; }
+.authoring-overview-meta dd { display: flex; min-width: 0; align-items: center; gap: 5px; overflow: hidden; margin: 0; color: var(--ui-text); font: 11px/1.4 var(--ui-mono); text-overflow: ellipsis; white-space: nowrap; }
+.authoring-overview-card--config pre { min-height: 132px; max-height: 190px; margin: 0; overflow: auto; padding: 12px; border: 1px solid var(--ui-border); border-radius: var(--ui-control-radius); background: var(--ui-surface-muted); }
+.authoring-overview-card--config pre:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 1px; }
+.authoring-overview-card--config code { color: var(--ui-text); font: 11px/1.55 var(--ui-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.authoring-overview .authoring-token { margin-top: 12px; border: 1px solid var(--ui-border); border-radius: var(--ui-panel-radius); }
+.authoring-overview-state { display: flex; min-height: 180px; align-items: center; justify-content: center; gap: 10px; color: var(--ui-text-muted); font-size: 12px; }
+.authoring-overview__lower { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(260px, .45fr); gap: 12px; margin-top: 12px; }
+.authoring-tool-access { overflow: hidden; }
+.authoring-tool-access > header, .authoring-lifecycle > header { padding: 14px 16px; border-bottom: 1px solid var(--ui-border-muted); }
+.authoring-tool-access__toolbar { display: grid; grid-template-columns: minmax(190px, .55fr) minmax(220px, 1fr); gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--ui-border-muted); }
+.authoring-tool-access__toolbar > label:first-child { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; color: var(--ui-text-muted); font-size: 11px; font-weight: 650; }
+.authoring-overview-filter { display: flex; min-width: 0; align-items: center; gap: 6px; padding: 0 8px; border: 1px solid var(--ui-border); border-radius: var(--ui-control-radius); color: var(--ui-text-muted); background: var(--ui-surface); }
+.authoring-overview-filter input { width: 100%; min-width: 0; min-height: 30px; padding: 4px 0; border: 0; outline: 0; color: var(--ui-text); background: transparent; }
+.authoring-tool-access__summary { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--ui-border-muted); color: var(--ui-text-muted); font-size: 11px; }
+.authoring-tool-table-scroll { max-height: 300px; overflow: auto; }
+.authoring-tool-table-scroll:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: -2px; }
+.authoring-tool-table { width: 100%; border-collapse: collapse; font-size: 11px; text-align: left; }
+.authoring-tool-table th { position: sticky; z-index: 1; top: 0; padding: 8px 10px; border-bottom: 1px solid var(--ui-border); color: var(--ui-text-muted); background: var(--ui-surface-muted); font-weight: 650; }
+.authoring-tool-table td { max-width: 300px; padding: 9px 10px; border-bottom: 1px solid var(--ui-border-muted); color: var(--ui-text-muted); }
+.authoring-tool-table .authoring-tool-table__state { height: 72px; color: var(--ui-text-muted); text-align: center; }
+.authoring-tool-table tbody tr:last-child td { border-bottom: 0; }
+.authoring-tool-table code { color: var(--ui-text); font: 11px/1.4 var(--ui-mono); }
+.authoring-tool-description { display: -webkit-box; overflow: hidden; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.authoring-lifecycle { align-self: start; overflow: hidden; }
+.authoring-lifecycle ol { display: grid; gap: 0; margin: 0; padding: 4px 16px; list-style: none; }
+.authoring-lifecycle li { display: grid; position: relative; grid-template-columns: 20px minmax(0, 1fr); gap: 9px; padding: 10px 0; color: var(--ui-accent); }
+.authoring-lifecycle li:not(:last-child)::after { position: absolute; top: 29px; bottom: -7px; left: 8px; width: 1px; background: var(--ui-border); content: ""; }
+.authoring-lifecycle li span { display: grid; gap: 2px; }
+.authoring-lifecycle li strong { color: var(--ui-text); font-size: 12px; }
+.authoring-lifecycle li small { overflow: hidden; color: var(--ui-text-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.authoring-lifecycle__note { display: flex; align-items: flex-start; gap: 7px; margin: 0; padding: 12px 16px; border-top: 1px solid var(--ui-border-muted); color: var(--ui-text-muted); background: var(--ui-surface-muted); font-size: 10px; line-height: 1.5; }
+.authoring-lifecycle__note svg { flex: 0 0 auto; color: var(--ui-accent); }
+.authoring-workspace__navigator { display: grid; min-height: 0; overflow: hidden; border-right: 1px solid var(--ui-border); background: var(--ui-surface); grid-template-rows: auto auto minmax(0, 1fr); }
 .authoring-list-toolbar { display: flex; min-height: 38px; align-items: center; justify-content: space-between; padding: 3px 8px 3px 12px; border-bottom: 1px solid var(--ui-border-muted); color: var(--ui-text-muted); font-size: 11px; }
 .authoring-filter { padding: 8px; border-bottom: 1px solid var(--ui-border-muted); }
 .authoring-filter input { width: 100%; min-height: 32px; padding: 5px 8px; border: 1px solid var(--ui-border); border-radius: var(--ui-control-radius); color: var(--ui-text); background: var(--ui-surface); }
@@ -60,5 +100,6 @@
 .authoring-call-detail section { border-top: 1px solid var(--ui-border); padding-top: 12px; }
 .authoring-call-detail h3 { margin: 0 0 8px; font-size: 13px; }
 .authoring-call-detail pre { margin: 0; overflow: auto; padding: 10px; border: 1px solid var(--ui-border); border-radius: var(--ui-control-radius); background: var(--ui-surface); font: 12px/1.5 var(--ui-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
-@media (max-width: 900px) { .authoring-connection__fields { grid-template-columns: 1fr; } .authoring-workspace { grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); } }
-@media (max-width: 759px) { .authoring-page { overflow-y: auto; grid-template-rows: auto auto auto; } .authoring-workspace { min-height: 620px; grid-template-columns: 1fr; grid-template-rows: minmax(220px, .7fr) minmax(360px, 1fr); } .authoring-workspace__navigator { border-right: 0; border-bottom: 1px solid var(--ui-border); } }
+@media (max-width: 1100px) { .authoring-overview__lower { grid-template-columns: 1fr; } .authoring-lifecycle { align-self: stretch; } }
+@media (max-width: 900px) { .authoring-overview__cards { grid-template-columns: 1fr; } .authoring-workspace { grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); } }
+@media (max-width: 759px) { .authoring-page { overflow-y: auto; grid-template-rows: auto auto auto; } .authoring-page__header { align-items: flex-start; flex-direction: column; } .authoring-page__actions { width: 100%; flex-wrap: wrap; } .authoring-overview { height: auto; overflow: visible; padding: 10px; } .authoring-overview-meta, .authoring-tool-access__toolbar { grid-template-columns: 1fr; } .authoring-overview-meta > div { padding: 9px 0; border-top: 1px solid var(--ui-border-muted); border-left: 0; } .authoring-overview-meta > div:first-child { border-top: 0; } .authoring-tool-table-scroll { max-height: none; } .authoring-workspace { min-height: 620px; grid-template-columns: 1fr; grid-template-rows: minmax(220px, .7fr) minmax(360px, 1fr); } .authoring-workspace__navigator { border-right: 0; border-bottom: 1px solid var(--ui-border); } }
