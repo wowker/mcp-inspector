@@ -38,6 +38,23 @@ export interface AuthoringSuccess<T> {
   meta: AuthoringResponseMeta;
 }
 
+export type AuthoringErrorCategory =
+  | "AUTHENTICATION" | "AUTHORIZATION" | "VALIDATION" | "NOT_FOUND"
+  | "CONFLICT" | "RATE_LIMIT" | "CONNECTION" | "EXECUTION" | "INTERNAL";
+
+export interface AuthoringFailure {
+  [key: string]: unknown;
+  ok: false;
+  error: {
+    code: string;
+    category: AuthoringErrorCategory;
+    message: string;
+    retryable: boolean;
+    resolution?: string;
+  };
+  meta: Omit<AuthoringResponseMeta, "warnings">;
+}
+
 export interface AuthoringCapabilities {
   appVersion: string;
   endpoint: string;

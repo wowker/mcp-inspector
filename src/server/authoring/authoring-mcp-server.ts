@@ -3,13 +3,25 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { authoringListInputSchema } from "../../shared/authoring/catalog.js";
 import {
   AUTHORING_ASSET_TYPES,
   AUTHORING_LIMITS,
   AUTHORING_PROTOCOL_VERSION,
   type AuthoringCapabilities,
+  type AuthoringErrorCategory,
+  type AuthoringFailure,
   type AuthoringSuccess,
 } from "../../shared/authoring/protocol.js";
+import { ConnectionNotFoundError } from "../connections/connection-service.js";
+import { ProjectNotFoundError } from "../projects/project-service.js";
+import { ToolNotFoundError } from "../tools/tool-service.js";
+import {
+  AuthoringCatalogAccessDeniedError,
+  InvalidAuthoringCursorError,
+  type AuthoringCatalogService,
+} from "./authoring-catalog-service.js";
+import { AuthoringConnectionNotFoundError } from "./authoring-policy-service.js";
 
 interface Session {
   server: McpServer;
@@ -34,8 +46,47 @@ function createProtocolServer(options: {
   appVersion: string;
   endpoint: string | (() => string);
   maxSessions: number;
+  catalog?: AuthoringCatalogService;
 }): McpServer {
   const server = new McpServer({ name: "mcp-inspector-authoring", version: options.appVersion });
+  const meta = () => ({ requestId: randomUUID(), protocolVersion: AUTHORING_PROTOCOL_VERSION });
+  const success = <T>(data: T) => {
+    const envelope: AuthoringSuccess<T> = { ok: true, data, meta: { ...meta(), warnings: [] } };
+    if (Buffer.byteLength(JSON.stringify(envelope), "utf8") > AUTHORING_LIMITS.maxStructuredResponseBytes) {
+      return failure("REQUEST_LIMIT_EXCEEDED", "VALIDATION", "Authoring response exceeds the size limit", false);
+    }
+    return { content: [{ type: "text" as const, text: JSON.stringify(envelope) }], structuredContent: envelope };
+  };
+  const failure = (code: string, category: AuthoringErrorCategory, message: string, retryable: boolean) => {
+    const envelope: AuthoringFailure = { ok: false, error: { code, category, message, retryable }, meta: meta() };
+    return {
+      content: [{ type: "text" as const, text: `${code}: ${message}` }],
+      structuredContent: envelope,
+      isError: true,
+    };
+  };
+  const catalogCall = async <T>(action: () => T) => {
+    try {
+      return success(action());
+    } catch (error) {
+      if (error instanceof InvalidAuthoringCursorError) {
+        return failure("INVALID_INPUT", "VALIDATION", "Cursor is invalid for this request", false);
+      }
+      if (error instanceof AuthoringCatalogAccessDeniedError) {
+        return failure("AUTHORING_POLICY_DENIED", "AUTHORIZATION", "Connection policy does not allow this catalog request", false);
+      }
+      if (error instanceof ProjectNotFoundError) {
+        return failure("PROJECT_NOT_FOUND", "NOT_FOUND", "Project not found", false);
+      }
+      if (error instanceof ConnectionNotFoundError || error instanceof AuthoringConnectionNotFoundError) {
+        return failure("CONNECTION_NOT_FOUND", "NOT_FOUND", "Connection not found", false);
+      }
+      if (error instanceof ToolNotFoundError) {
+        return failure("TOOL_NOT_FOUND", "NOT_FOUND", "Tool not found", false);
+      }
+      return failure("INTERNAL_ERROR", "INTERNAL", "Authoring catalog request failed", false);
+    }
+  };
   server.registerTool("inspector_get_capabilities", {
     title: "Get Inspector authoring capabilities",
     description: "Returns the stable Authoring MCP protocol version, feature flags, and resource limits.",
@@ -54,20 +105,35 @@ function createProtocolServer(options: {
       },
       limits: { ...AUTHORING_LIMITS, maxSessions: options.maxSessions },
     };
-    const envelope: AuthoringSuccess<AuthoringCapabilities> = {
-      ok: true,
-      data,
-      meta: {
-        requestId: randomUUID(),
-        protocolVersion: AUTHORING_PROTOCOL_VERSION,
-        warnings: [],
-      },
-    };
-    return {
-      content: [{ type: "text", text: JSON.stringify(envelope) }],
-      structuredContent: envelope,
-    };
+    return success(data);
   });
+
+  if (options.catalog !== undefined) {
+    const projectIdSchema = z.string().uuid();
+    const connectionIdSchema = z.string().uuid();
+    server.registerTool("inspector_list_projects", {
+      description: "Lists Inspector projects with stable IDs and bounded pagination.",
+      inputSchema: authoringListInputSchema,
+    }, async (input) => catalogCall(() => options.catalog!.listProjects(input)));
+    server.registerTool("inspector_list_connections", {
+      description: "Lists policy-visible MCP Server connections in one exact project.",
+      inputSchema: authoringListInputSchema.extend({ projectId: projectIdSchema }),
+    }, async ({ projectId, ...input }) => catalogCall(() => options.catalog!.listConnections(projectId, input)));
+    server.registerTool("inspector_list_tools", {
+      description: "Lists policy-authorized downstream Tools and their current Schema hashes.",
+      inputSchema: authoringListInputSchema.extend({ projectId: projectIdSchema, connectionId: connectionIdSchema }),
+    }, async ({ projectId, connectionId, ...input }) =>
+      catalogCall(() => options.catalog!.listTools(projectId, connectionId, input)));
+    server.registerTool("inspector_describe_tool", {
+      description: "Returns a bounded, untrusted snapshot of one authorized downstream Tool definition.",
+      inputSchema: z.object({
+        projectId: projectIdSchema,
+        connectionId: connectionIdSchema,
+        toolName: z.string().trim().min(1).max(256),
+      }).strict(),
+    }, async ({ projectId, connectionId, toolName }) =>
+      catalogCall(() => options.catalog!.describeTool(projectId, connectionId, toolName)));
+  }
   return server;
 }
 
@@ -76,6 +142,7 @@ export function createAuthoringMcpServer(options: {
   endpoint: string | (() => string);
   maxSessions?: number;
   maxRequestBytes?: number;
+  catalog?: AuthoringCatalogService;
 }): AuthoringMcpServer {
   const maxSessions = options.maxSessions ?? AUTHORING_LIMITS.maxSessions;
   const maxRequestBytes = options.maxRequestBytes ?? AUTHORING_LIMITS.maxRequestBytes;
@@ -116,6 +183,7 @@ export function createAuthoringMcpServer(options: {
         appVersion: options.appVersion,
         endpoint: options.endpoint,
         maxSessions,
+        catalog: options.catalog,
       });
       const transport = new WebStandardStreamableHTTPServerTransport({
         sessionIdGenerator: randomUUID,

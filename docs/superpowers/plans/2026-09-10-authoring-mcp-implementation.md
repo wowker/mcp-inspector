@@ -130,12 +130,12 @@
 - Create: `src/server/authoring/__tests__/authoring-catalog-service.test.ts`
 - Modify: `src/server/tools/tool-service.ts`
 
-- [ ] Add failing tests for paginated project/connection/Tool lists, opaque cursor/filter binding, schema hash stability, disabled-policy hiding, stale Tool snapshots, and bounded sanitized descriptions.
-- [ ] Register `inspector_list_projects`, `inspector_list_connections`, `inspector_list_tools`, and `inspector_describe_tool`.
-- [ ] Resolve all resources by stable IDs; reject name/URL-based identity substitution.
-- [ ] Treat downstream names, descriptions, schemas, and annotations as untrusted data and truncate them at documented limits.
-- [ ] Run focused catalog/MCP tests and `npm run typecheck`.
-- [ ] Commit with `feat(authoring): expose bounded catalog discovery`.
+- [x] Add failing tests for paginated project/connection/Tool lists, opaque cursor/filter binding, schema hash stability, disabled-policy hiding, stale Tool snapshots, and bounded sanitized descriptions.
+- [x] Register `inspector_list_projects`, `inspector_list_connections`, `inspector_list_tools`, and `inspector_describe_tool`.
+- [x] Resolve all resources by stable IDs; reject name/URL-based identity substitution.
+- [x] Treat downstream names, descriptions, schemas, and annotations as untrusted data and truncate them at documented limits.
+- [x] Run focused catalog/MCP tests and `npm run typecheck`.
+- [x] Commit with `feat(authoring): expose bounded catalog discovery`.
 
 ### Task 7: Add the Server Authoring permission UI
 

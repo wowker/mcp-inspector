@@ -36,6 +36,12 @@ export const connectionAuthoringPolicySchema = replaceAuthoringPolicyInputSchema
 
 export type ConnectionAuthoringPolicy = z.infer<typeof connectionAuthoringPolicySchema>;
 
+export function authoringPolicyAllowsTool(policy: ConnectionAuthoringPolicy, toolName: string): boolean {
+  if (policy.mode === "FULL_ACCESS") return true;
+  if (policy.mode === "DISABLED" || policy.deniedTools.includes(toolName)) return false;
+  return policy.allowedTools.includes(toolName);
+}
+
 export function defaultConnectionAuthoringPolicy(
   projectId: string,
   connectionId: string,

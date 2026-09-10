@@ -8,6 +8,7 @@ import { createApp } from "../../app.js";
 import { startInspector } from "../../main.js";
 import { InstallationSettingsRepository } from "../../registry/installation-settings-repository.js";
 import { createAuthoringAuthService } from "../authoring-auth-service.js";
+import type { AuthoringCatalogService } from "../authoring-catalog-service.js";
 import { createAuthoringMcpServer } from "../authoring-mcp-server.js";
 
 const endpoint = new URL("http://127.0.0.1:8500/mcp/authoring");
@@ -19,7 +20,7 @@ describe("Authoring MCP Streamable HTTP route", () => {
     for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
   });
 
-  async function fixture(options: { maxSessions?: number } = {}) {
+  async function fixture(options: { maxSessions?: number; catalog?: AuthoringCatalogService } = {}) {
     const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-authoring-mcp-"));
     const repository = new InstallationSettingsRepository({ dataRoot });
     const authoringAuth = createAuthoringAuthService({ repository });
@@ -29,6 +30,7 @@ describe("Authoring MCP Streamable HTTP route", () => {
       appVersion: "3.0.0-test",
       endpoint: endpoint.toString(),
       maxSessions: options.maxSessions,
+      catalog: options.catalog,
     });
     const app = createApp({
       sessionToken: "browser-session",
@@ -125,6 +127,31 @@ describe("Authoring MCP Streamable HTTP route", () => {
     expect(await disabled.json()).toMatchObject({ error: { code: "AUTHORING_DISABLED" } });
   });
 
+  test("exposes the fixed bounded discovery Tool set when a catalog is configured", async () => {
+    const catalog: AuthoringCatalogService = {
+      listProjects: () => ({ items: [{ id: "20000000-0000-4000-8000-000000000001", name: "Project", updatedAt: "2026-09-10T00:00:00.000Z" }], nextCursor: null }),
+      listConnections: () => ({ items: [], nextCursor: null }),
+      listTools: () => ({ items: [], nextCursor: null }),
+      describeTool: () => { throw new Error("not used"); },
+    };
+    const { client } = await fixture({ catalog });
+    const { instance, transport } = client();
+    await instance.connect(transport);
+    expect((await instance.listTools()).tools.map((tool) => tool.name)).toEqual([
+      "inspector_get_capabilities",
+      "inspector_list_projects",
+      "inspector_list_connections",
+      "inspector_list_tools",
+      "inspector_describe_tool",
+    ]);
+    const result = await instance.callTool({ name: "inspector_list_projects", arguments: { limit: 1 } });
+    expect(result.structuredContent).toMatchObject({
+      ok: true,
+      data: { items: [{ name: "Project" }], nextCursor: null },
+      meta: { protocolVersion: "1" },
+    });
+  });
+
   test("rejects hostile origins, unsupported media, oversized bodies, and excess sessions", async () => {
     const { app, client, token } = await fixture({ maxSessions: 1 });
     const baseHeaders = {
@@ -209,6 +236,10 @@ describe("Authoring MCP Streamable HTTP route", () => {
     await client.connect(transport);
     expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual([
       "inspector_get_capabilities",
+      "inspector_list_projects",
+      "inspector_list_connections",
+      "inspector_list_tools",
+      "inspector_describe_tool",
     ]);
     const result = await client.callTool({ name: "inspector_get_capabilities", arguments: {} });
     expect(result.structuredContent).toMatchObject({

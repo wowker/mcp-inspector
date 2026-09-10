@@ -21,6 +21,7 @@ import { InstallationSettingsRepository } from "./registry/installation-settings
 import { createAuthoringAuthService } from "./authoring/authoring-auth-service.js";
 import { createAuthoringMcpServer } from "./authoring/authoring-mcp-server.js";
 import { createAuthoringPolicyService } from "./authoring/authoring-policy-service.js";
+import { createAuthoringCatalogService } from "./authoring/authoring-catalog-service.js";
 
 export interface InspectorAddress {
   host: "127.0.0.1";
@@ -177,10 +178,6 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
   const authoringAuth = createAuthoringAuthService({ repository: installationSettings });
   let allowedOrigin = clientOrigin ?? "";
   let serverOrigin = "";
-  const authoringMcp = createAuthoringMcpServer({
-    appVersion: config.version,
-    endpoint: () => `${serverOrigin}/mcp/authoring`,
-  });
   const authoringPolicies = createAuthoringPolicyService({ projects });
   let environment: ReturnType<typeof createEnvironmentService> | undefined;
   let environmentProfiles: ReturnType<typeof createEnvironmentProfileService> | undefined;
@@ -196,6 +193,17 @@ export async function startInspector(options: StartInspectorOptions = {}): Promi
     },
   });
   const tools = createToolService(projects, connections);
+  const authoringCatalog = createAuthoringCatalogService({
+    projects,
+    connections,
+    tools,
+    policies: authoringPolicies,
+  });
+  const authoringMcp = createAuthoringMcpServer({
+    appVersion: config.version,
+    endpoint: () => `${serverOrigin}/mcp/authoring`,
+    catalog: authoringCatalog,
+  });
   const tabs = createTabService(projects, connections, { tools });
   const runs = createRunService(projects, connections, tabs);
   const workflows = createWorkflowService(projects, tools);

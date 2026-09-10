@@ -1,5 +1,6 @@
 import {
   defaultConnectionAuthoringPolicy,
+  authoringPolicyAllowsTool,
   replaceAuthoringPolicyInputSchema,
   type ConnectionAuthoringPolicy,
   type ReplaceAuthoringPolicyInput,
@@ -77,9 +78,7 @@ export function createAuthoringPolicyService(options: {
     },
     isToolAllowed(projectId, connectionId, toolName) {
       const policy = getPolicy(projectId, connectionId);
-      if (policy.mode === "FULL_ACCESS") return true;
-      if (policy.mode === "DISABLED" || policy.deniedTools.includes(toolName)) return false;
-      return policy.allowedTools.includes(toolName);
+      return authoringPolicyAllowsTool(policy, toolName);
     },
   };
 }
