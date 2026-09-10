@@ -36,6 +36,7 @@ export class OAuthFlowCoordinator {
   private readonly credentials = new Map<string, CredentialState>();
   private readonly pending = new Map<string, PendingAuthorization>();
   private readonly authorized = new Set<string>();
+  private readonly accountSelectionRequired = new Set<string>();
 
   constructor(private readonly options: {
     redirectUrl: () => string;
@@ -79,6 +80,11 @@ export class OAuthFlowCoordinator {
       },
       async redirectToAuthorization(url) {
         if (authorizationState.length === 0) throw new OAuthCallbackError();
+        if (thisCoordinator.accountSelectionRequired.delete(connectionId)) {
+          const prompts = new Set((url.searchParams.get("prompt") ?? "").split(" ").filter(Boolean));
+          prompts.add("select_account");
+          url.searchParams.set("prompt", [...prompts].join(" "));
+        }
         const transport = attachTransport(provider);
         const completion = new Promise<void>((resolve, reject) => {
           thisCoordinator.pending.set(authorizationState, {
@@ -140,9 +146,27 @@ export class OAuthFlowCoordinator {
     }
   }
 
+  resetAuthorization(connectionId: string): void {
+    const state = this.credentials.get(connectionId);
+    if (state !== undefined) {
+      state.tokens.clear();
+      state.latestTokens = undefined;
+      state.verifier = undefined;
+    }
+    this.authorized.delete(connectionId);
+    this.accountSelectionRequired.add(connectionId);
+    for (const [authorizationState, pending] of this.pending) {
+      if (pending.connectionId === connectionId) {
+        this.pending.delete(authorizationState);
+        pending.reject(new OAuthCallbackError("OAuth authorization was cancelled"));
+      }
+    }
+  }
+
   clear(connectionId: string): void {
     this.credentials.delete(connectionId);
     this.authorized.delete(connectionId);
+    this.accountSelectionRequired.delete(connectionId);
     for (const [state, pending] of this.pending) {
       if (pending.connectionId === connectionId) {
         this.pending.delete(state);

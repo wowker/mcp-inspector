@@ -66,6 +66,13 @@ export class ConnectionNotFoundError extends Error {
   }
 }
 
+export class OAuthReauthorizationUnavailableError extends Error {
+  constructor() {
+    super("OAuth reauthorization is available only for OAuth connections");
+    this.name = "OAuthReauthorizationUnavailableError";
+  }
+}
+
 function normalizeUrl(raw: string): string {
   let url: URL;
   try {
@@ -95,6 +102,7 @@ export interface ConnectionService {
   list(projectId: string): ConnectionRecord[];
   delete(projectId: string, connectionId: string): Promise<void>;
   connect(projectId: string, connectionId: string): Promise<ConnectionRecord>;
+  reauthorize(projectId: string, connectionId: string): Promise<ConnectionRecord>;
   disconnect(projectId: string, connectionId: string): Promise<ConnectionRecord>;
   exportData(projectId: string, connectionId: string): ServerExportBundle;
   runtime(projectId: string): ConnectionRuntime;
@@ -175,6 +183,18 @@ export function createConnectionService(projects: ProjectService, options: {
     });
     runtimes.set(projectId, existing);
     return existing;
+  }
+
+  async function connect(projectId: string, connectionId: string): Promise<ConnectionRecord> {
+    try {
+      await runtime(projectId).connect(connectionId);
+      return present(find(projectId, connectionId), "connected");
+    } catch (error) {
+      if (error instanceof OAuthAuthorizationCompletedError) {
+        return present(find(projectId, connectionId), "disconnected");
+      }
+      throw error;
+    }
   }
 
   return {
@@ -263,16 +283,14 @@ export function createConnectionService(projects: ProjectService, options: {
       oauth.clear(connectionId);
     },
 
-    async connect(projectId, connectionId) {
-      try {
-        await runtime(projectId).connect(connectionId);
-        return present(find(projectId, connectionId), "connected");
-      } catch (error) {
-        if (error instanceof OAuthAuthorizationCompletedError) {
-          return present(find(projectId, connectionId), "disconnected");
-        }
-        throw error;
-      }
+    connect,
+
+    async reauthorize(projectId, connectionId) {
+      const connection = find(projectId, connectionId);
+      if (connection.authMode !== "oauth") throw new OAuthReauthorizationUnavailableError();
+      await runtime(projectId).disconnect(connectionId);
+      oauth.resetAuthorization(connectionId);
+      return connect(projectId, connectionId);
     },
 
     async disconnect(projectId, connectionId) {

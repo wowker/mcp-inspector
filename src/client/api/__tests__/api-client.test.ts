@@ -143,6 +143,20 @@ describe("connection API response decoding", () => {
     );
   });
 
+  it("requests a fresh OAuth authorization for exactly one connection", async () => {
+    const connectionId = "00000000-0000-4000-8000-000000000602";
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      connection: validConnection({ authMode: "oauth", authorizationStatus: "authorized" }),
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    await expect(createApiClient("session").reauthorizeConnection(projectId, connectionId))
+      .resolves.toEqual(validConnection({ authMode: "oauth", authorizationStatus: "authorized" }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/projects/${projectId}/connections/${connectionId}/reauthorize`,
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
   it("downloads only a valid project-owned Server export bundle", async () => {
     const connectionId = "00000000-0000-4000-8000-000000000602";
     fetchMock.mockResolvedValue(new Response(JSON.stringify({

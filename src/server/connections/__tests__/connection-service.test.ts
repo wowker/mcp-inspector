@@ -40,6 +40,35 @@ describe("ConnectionService", () => {
     expect(service.get(project.id, connection.id).status).toBe("disconnected");
   });
 
+  it("starts a fresh authorization only for OAuth connections", async () => {
+    const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-connections-"));
+    dataRoots.push(dataRoot);
+    projects = createProjectService({ dataRoot });
+    const project = projects.create("OAuth account switch");
+    const ids = [
+      "00000000-0000-4000-8000-000000000223",
+      "00000000-0000-4000-8000-000000000224",
+    ];
+    const service = createConnectionService(projects, {
+      createId: () => ids.shift()!,
+      sessionFactory: async () => { throw new OAuthAuthorizationCompletedError(); },
+    });
+    const oauth = service.create(project.id, {
+      name: "OAuth MCP", url: "https://mcp.example.test/mcp", transport: "streamable-http",
+      authMode: "oauth", timeoutMs: 10_000,
+    });
+    const plain = service.create(project.id, {
+      name: "Plain MCP", url: "https://mcp.example.test/mcp", transport: "streamable-http",
+      authMode: "none", timeoutMs: 10_000,
+    });
+
+    await expect(service.reauthorize(project.id, oauth.id)).resolves.toEqual(expect.objectContaining({
+      id: oauth.id,
+      status: "disconnected",
+    }));
+    await expect(service.reauthorize(project.id, plain.id)).rejects.toThrow(/OAuth/i);
+  });
+
   it("persists a disconnected Streamable HTTP connection and rejects non-HTTP URLs", () => {
     const dataRoot = mkdtempSync(join(tmpdir(), "mcp-inspector-connections-"));
     dataRoots.push(dataRoot);

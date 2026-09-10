@@ -63,12 +63,14 @@ function ProjectScopedConnectionPanel({
   const catalogGenerations = useRef(new Map<string, number>());
   const catalogSnapshotsRequested = useRef(new Set<string>());
   const catalogToastIds = useRef(new Set<string>());
+  const reauthorizationLocks = useRef(new Set<string>());
   const nextHeaderId = useRef(1);
   const [connections, setConnections] = useState<ConnectionSummary[] | null>(null);
   const [catalogs, setCatalogs] = useState<Record<string, CatalogToolSummary[]>>({});
   const [folders, setFolders] = useState<Record<string, ToolFolderSummary[]>>({});
   const [refreshingConnectionIds, setRefreshingConnectionIds] = useState<ReadonlySet<string>>(new Set());
   const [pendingConnectionIds, setPendingConnectionIds] = useState<ReadonlySet<string>>(new Set());
+  const [reauthorizingConnectionIds, setReauthorizingConnectionIds] = useState<ReadonlySet<string>>(new Set());
   const [exportingConnectionIds, setExportingConnectionIds] = useState<ReadonlySet<string>>(new Set());
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
@@ -106,6 +108,8 @@ function ProjectScopedConnectionPanel({
     setFolders({});
     setRefreshingConnectionIds(new Set());
     setPendingConnectionIds(new Set());
+    setReauthorizingConnectionIds(new Set());
+    reauthorizationLocks.current.clear();
     setExportingConnectionIds(new Set());
     catalogGenerations.current.clear();
     catalogSnapshotsRequested.current.clear();
@@ -430,6 +434,45 @@ function ProjectScopedConnectionPanel({
     }
   }
 
+  async function reauthorize(connection: ConnectionSummary): Promise<void> {
+    if (reauthorizationLocks.current.has(connection.id)) return;
+    reauthorizationLocks.current.add(connection.id);
+    setError(null);
+    const generation = invalidateConnection(connection.id);
+    setPending(connection.id, true);
+    setReauthorizingConnectionIds((current) => new Set(current).add(connection.id));
+    try {
+      const updated = await api.reauthorizeConnection(projectId, connection.id);
+      if (!mounted.current || catalogGenerations.current.get(connection.id) !== generation) return;
+      updateConnection(updated);
+      onConnectionDisconnected(connection.id);
+    } catch (cause) {
+      if (mounted.current && catalogGenerations.current.get(connection.id) === generation) {
+        setError(errorMessage(cause, t("errors.manage")));
+        try {
+          const latest = await api.listConnections(projectId);
+          if (mounted.current && catalogGenerations.current.get(connection.id) === generation) {
+            const refreshed = latest.find(({ id }) => id === connection.id);
+            if (refreshed !== undefined) {
+              updateConnection(refreshed);
+              if (refreshed.status !== "connected") onConnectionDisconnected(connection.id);
+            }
+          }
+        } catch {
+          // Keep the original reauthorization failure visible when status reload also fails.
+        }
+      }
+    } finally {
+      reauthorizationLocks.current.delete(connection.id);
+      if (mounted.current) {
+        setPending(connection.id, false);
+        setReauthorizingConnectionIds((current) => {
+          const next = new Set(current); next.delete(connection.id); return next;
+        });
+      }
+    }
+  }
+
   async function save(event: FormEvent): Promise<void> {
     event.preventDefault();
     if (submitLock.current) return;
@@ -653,6 +696,16 @@ function ProjectScopedConnectionPanel({
                         >{pendingConnectionIds.has(connection.id)
                           ? connection.authMode === "oauth" && connection.authorizationStatus !== "authorized" ? t("panel.actions.authorizing") : t("panel.actions.connecting")
                           : t("panel.actions.connect")}</button>
+                      )}
+                      {connection.authMode === "oauth" && connection.authorizationStatus === "authorized" && (
+                        <button
+                          type="button"
+                          className="button-secondary"
+                          disabled={pendingConnectionIds.has(connection.id)}
+                          aria-label={t("panel.actions.reauthorizeAria", { name: connection.name })}
+                          onClick={() => void reauthorize(connection)}
+                        >{reauthorizingConnectionIds.has(connection.id)
+                          ? t("panel.actions.reauthorizing") : t("panel.actions.reauthorize")}</button>
                       )}
                       <button
                         type="button"

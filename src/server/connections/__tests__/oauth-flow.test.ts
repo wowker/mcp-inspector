@@ -57,6 +57,34 @@ describe("OAuthFlowCoordinator", () => {
     expect(await replacement.tokens()).toBeUndefined();
   });
 
+  it("resets one connection's account authorization without discarding its registered client", async () => {
+    let opened = "";
+    const coordinator = new OAuthFlowCoordinator({
+      redirectUrl: () => "http://127.0.0.1:3000/oauth/callback",
+      openAuthorizationUrl: (url) => { opened = url; },
+    });
+    const context = { issuer: "https://auth.example" } as never;
+    const provider = coordinator.provider("connection-1", () => ({ finishAuth: vi.fn() } as never));
+    const client = { client_id: "registered-client" };
+    await provider.saveClientInformation?.(client, context);
+    await provider.saveTokens({ access_token: "old-account", token_type: "bearer" }, context);
+    await provider.saveCodeVerifier("old-verifier");
+
+    coordinator.resetAuthorization("connection-1");
+
+    const replacement = coordinator.provider("connection-1", () => ({ finishAuth: vi.fn() } as never));
+    expect(coordinator.authorizationStatus("connection-1")).toBe("required");
+    expect(await replacement.tokens(context)).toBeUndefined();
+    expect(await replacement.clientInformation(context)).toEqual(client);
+    expect(() => replacement.codeVerifier()).toThrow();
+
+    await replacement.state!();
+    const redirect = replacement.redirectToAuthorization(new URL("https://auth.example/authorize?prompt=consent"));
+    await vi.waitFor(() => expect(opened).toContain("prompt=consent+select_account"));
+    coordinator.clear("connection-1");
+    await expect(redirect).rejects.toThrow(/cancelled/i);
+  });
+
   it("cancels a pending authorization when its connection is cleared", async () => {
     const coordinator = new OAuthFlowCoordinator({
       redirectUrl: () => "http://127.0.0.1:3000/oauth/callback",

@@ -29,6 +29,7 @@ function api(overrides: Partial<InspectorApiClient> = {}): InspectorApiClient {
     deleteConnection: vi.fn(),
     connectConnection: vi.fn(),
     disconnectConnection: vi.fn(),
+    reauthorizeConnection: vi.fn(),
     listTools: vi.fn(),
     refreshTools: vi.fn(),
     getTool: vi.fn(),

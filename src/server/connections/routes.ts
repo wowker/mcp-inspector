@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   ConnectionNotFoundError,
   InvalidConnectionError,
+  OAuthReauthorizationUnavailableError,
   type ConnectionService,
 } from "./connection-service.js";
 import {
@@ -52,6 +53,9 @@ const errors = {
   },
   disconnectFailed: {
     error: { code: "MCP_DISCONNECT_FAILED", message: "Unable to disconnect MCP server" },
+  },
+  reauthorizationUnavailable: {
+    error: { code: "OAUTH_REAUTHORIZATION_UNAVAILABLE", message: "OAuth reauthorization requires an OAuth connection" },
   },
 } as const;
 
@@ -176,6 +180,29 @@ export function createConnectionRoutes(connections: ConnectionService): Hono {
     } catch (error) {
       if (error instanceof ConnectionNotFoundError) {
         return context.json(errors.connectionNotFound, 404);
+      }
+      if (error instanceof McpConnectError) {
+        return context.json(errors.connectFailed, 502);
+      }
+      return projectError(context, error);
+    }
+  });
+
+  routes.post("/:projectId/connections/:connectionId/reauthorize", async (context) => {
+    try {
+      return context.json({ connection: await connections.reauthorize(
+        context.req.param("projectId"),
+        context.req.param("connectionId"),
+      ) });
+    } catch (error) {
+      if (error instanceof ConnectionNotFoundError) {
+        return context.json(errors.connectionNotFound, 404);
+      }
+      if (error instanceof OAuthReauthorizationUnavailableError) {
+        return context.json(errors.reauthorizationUnavailable, 409);
+      }
+      if (error instanceof McpDisconnectError) {
+        return context.json(errors.disconnectFailed, 502);
       }
       if (error instanceof McpConnectError) {
         return context.json(errors.connectFailed, 502);

@@ -15,9 +15,9 @@ export const enUSServers = {
     status: { disconnected: "Disconnected", connecting: "Connecting", connected: "Connected", failed: "Failed" },
     authorization: { authorized: "Authorized", authorizing: "Authorizing", unauthorized: "Not authorized", pendingConnection: "Ready to connect" },
     actions: {
-      connect: "Connect", connecting: "Connecting…", authorizing: "Authorizing…", disconnect: "Disconnect", edit: "Edit",
+      connect: "Connect", connecting: "Connecting…", authorizing: "Authorizing…", disconnect: "Disconnect", reauthorize: "Reauthorize", reauthorizing: "Authorizing…", edit: "Edit",
       export: "Export", exporting: "Exporting…", delete: "Delete",
-      connectAria: "Connect {{name}}", disconnectAria: "Disconnect {{name}}", editAria: "Edit {{name}}",
+      connectAria: "Connect {{name}}", disconnectAria: "Disconnect {{name}}", reauthorizeAria: "Reauthorize {{name}}", editAria: "Edit {{name}}",
       exportAria: "Export {{name}}", deleteAria: "Delete {{name}}",
     },
     exported: "{{name}} exported",

@@ -267,6 +267,7 @@ export interface InspectorApiClient {
   exportConnection(projectId: string, connectionId: string): Promise<Blob>;
   deleteConnection(projectId: string, connectionId: string): Promise<void>;
   connectConnection(projectId: string, connectionId: string): Promise<ConnectionSummary>;
+  reauthorizeConnection(projectId: string, connectionId: string): Promise<ConnectionSummary>;
   disconnectConnection(projectId: string, connectionId: string): Promise<ConnectionSummary>;
   listTools(projectId: string, connectionId: string): Promise<CatalogToolSummary[]>;
   refreshTools(projectId: string, connectionId: string): Promise<CatalogToolSummary[]>;
@@ -1048,6 +1049,15 @@ export function createApiClient(_legacySessionToken?: string): InspectorApiClien
         { method: "POST", headers },
       );
       return decodeCreatedConnection(await decodeConnectionResponse(response), projectId);
+    },
+    async reauthorizeConnection(projectId, connectionId) {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(projectId)}/connections/${encodeURIComponent(connectionId)}/reauthorize`,
+        { method: "POST", headers },
+      );
+      const updated = decodeCreatedConnection(await decodeConnectionResponse(response), projectId);
+      if (updated.id !== connectionId) throw new Error("Invalid connection response");
+      return updated;
     },
     async disconnectConnection(projectId, connectionId) {
       const response = await fetch(

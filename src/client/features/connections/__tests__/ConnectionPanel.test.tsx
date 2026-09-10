@@ -50,6 +50,7 @@ function api(overrides: Partial<InspectorApiClient> = {}): InspectorApiClient {
     deleteConnection: vi.fn().mockResolvedValue(undefined),
     connectConnection: vi.fn().mockResolvedValue({ ...connection, status: "connected" }),
     disconnectConnection: vi.fn().mockResolvedValue(connection),
+    reauthorizeConnection: vi.fn().mockResolvedValue(connection),
     listTools: vi.fn().mockResolvedValue([]),
     refreshTools: vi.fn().mockResolvedValue([]),
     getTool: vi.fn(),
@@ -151,6 +152,60 @@ describe("ConnectionPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "连接 Catalog MCP" }));
     expect(onConnectionConnected).toHaveBeenCalledWith(connected);
+  });
+
+  it("offers an authorized OAuth connection a fresh account authorization", async () => {
+    const authorized = { ...connection, authMode: "oauth" as const, authorizationStatus: "authorized" as const };
+    const pending = deferred<typeof authorized>();
+    const reauthorizeConnection = vi.fn().mockReturnValue(pending.promise);
+    const onConnectionDisconnected = vi.fn();
+    const user = userEvent.setup();
+    render(<ConnectionPanel api={api({
+      listConnections: vi.fn().mockResolvedValue([authorized]),
+      reauthorizeConnection,
+    })} projectId={projectId} mode="servers" onConnectionDisconnected={onConnectionDisconnected} />);
+
+    const button = await screen.findByRole("button", { name: "重新授权 Catalog MCP" });
+    await user.click(button);
+    expect(reauthorizeConnection).toHaveBeenCalledWith(projectId, connection.id);
+    expect(button).toBeDisabled();
+    expect(button).toHaveTextContent("授权中");
+    await user.click(button);
+    expect(reauthorizeConnection).toHaveBeenCalledTimes(1);
+
+    await act(async () => pending.resolve(authorized));
+    expect(onConnectionDisconnected).toHaveBeenCalledWith(connection.id);
+    expect(screen.getByRole("button", { name: "重新授权 Catalog MCP" })).toBeEnabled();
+  });
+
+  it("does not offer reauthorization for unauthenticated or not-yet-authorized connections", async () => {
+    const required = { ...connection, id: "00000000-0000-4000-8000-000000000405", authMode: "oauth" as const,
+      authorizationStatus: "required" as const };
+    render(<ConnectionPanel api={api({ listConnections: vi.fn().mockResolvedValue([connection, required]) })}
+      projectId={projectId} mode="servers" />);
+
+    await screen.findAllByText("Catalog MCP");
+    expect(screen.queryByRole("button", { name: /重新授权/u })).not.toBeInTheDocument();
+  });
+
+  it("reloads the authoritative authorization state when reauthorization fails", async () => {
+    const authorized = { ...connection, authMode: "oauth" as const, authorizationStatus: "authorized" as const };
+    const failed = { ...authorized, authorizationStatus: "required" as const, status: "failed" as const,
+      lastError: { code: "MCP_CONNECT_FAILED", message: "Unable to connect to MCP server" } };
+    const listConnections = vi.fn().mockResolvedValueOnce([authorized]).mockResolvedValueOnce([failed]);
+    const onConnectionDisconnected = vi.fn();
+    const user = userEvent.setup();
+    render(<ConnectionPanel api={api({
+      listConnections,
+      reauthorizeConnection: vi.fn().mockRejectedValue(new Error("Unable to connect to MCP server")),
+    })} projectId={projectId} mode="servers" onConnectionDisconnected={onConnectionDisconnected} />);
+
+    await user.click(await screen.findByRole("button", { name: "重新授权 Catalog MCP" }));
+
+    expect(await screen.findByText("失败")).toBeVisible();
+    expect(listConnections).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("button", { name: "重新授权 Catalog MCP" })).not.toBeInTheDocument();
+    expect(onConnectionDisconnected).toHaveBeenCalledWith(connection.id);
   });
 
   it("presents saved connections in a table and opens an accessible add dialog", async () => {

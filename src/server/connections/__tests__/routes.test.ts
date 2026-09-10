@@ -6,6 +6,7 @@ import { createApp } from "../../app.js";
 import { createProjectService, type ProjectService } from "../../projects/project-service.js";
 import { createConnectionService } from "../connection-service.js";
 import { FakeMcpSession } from "../../../../test-support/fake-mcp-session.js";
+import { OAuthAuthorizationCompletedError } from "../connection-runtime.js";
 
 describe("connection routes", () => {
   let dataRoot: string;
@@ -436,6 +437,58 @@ describe("connection routes", () => {
     );
     expect(disconnected.status).toBe(200);
     expect(session.closeCount).toBe(1);
+  });
+
+  it("reauthorizes only an authenticated project-owned OAuth connection", async () => {
+    const project = projects.create("OAuth account switch");
+    const other = projects.create("Other");
+    const ids = [
+      "00000000-0000-4000-8000-000000000302",
+      "00000000-0000-4000-8000-000000000303",
+    ];
+    const connections = createConnectionService(projects, {
+      createId: () => ids.shift()!,
+      sessionFactory: async () => { throw new OAuthAuthorizationCompletedError(); },
+    });
+    const oauth = connections.create(project.id, {
+      name: "OAuth MCP", url: "http://127.0.0.1:1/mcp", transport: "streamable-http",
+      authMode: "oauth", timeoutMs: 100,
+    });
+    const plain = connections.create(project.id, {
+      name: "Plain MCP", url: "http://127.0.0.1:1/mcp", transport: "streamable-http",
+      authMode: "none", timeoutMs: 100,
+    });
+    const runtimeApp = createApp({
+      sessionToken: "test-session",
+      allowedOrigin: "http://127.0.0.1:5173",
+      version: "0.1.0",
+      projects,
+      connections,
+    });
+
+    const path = `/api/projects/${project.id}/connections/${oauth.id}/reauthorize`;
+    expect((await runtimeApp.request(path, { method: "POST" })).status).toBe(401);
+    expect((await runtimeApp.request(
+      `/api/projects/${other.id}/connections/${oauth.id}/reauthorize`,
+      { method: "POST", headers },
+    )).status).toBe(404);
+    const unsupported = await runtimeApp.request(
+      `/api/projects/${project.id}/connections/${plain.id}/reauthorize`,
+      { method: "POST", headers },
+    );
+    expect(unsupported.status).toBe(409);
+    expect(await unsupported.json()).toEqual({
+      error: {
+        code: "OAUTH_REAUTHORIZATION_UNAVAILABLE",
+        message: "OAuth reauthorization requires an OAuth connection",
+      },
+    });
+
+    const response = await runtimeApp.request(path, { method: "POST", headers });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      connection: expect.objectContaining({ id: oauth.id, status: "disconnected" }),
+    });
   });
 
   it("normalizes connection failures without returning remote details", async () => {

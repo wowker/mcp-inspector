@@ -15,9 +15,9 @@ export const zhCNServers = {
     status: { disconnected: "未连接", connecting: "连接中", connected: "已连接", failed: "失败" },
     authorization: { authorized: "已授权", authorizing: "授权中", unauthorized: "未授权", pendingConnection: "待连接" },
     actions: {
-      connect: "连接", connecting: "连接中…", authorizing: "授权中…", disconnect: "断开", edit: "编辑",
+      connect: "连接", connecting: "连接中…", authorizing: "授权中…", disconnect: "断开", reauthorize: "重新授权", reauthorizing: "授权中…", edit: "编辑",
       export: "导出", exporting: "导出中…", delete: "删除",
-      connectAria: "连接 {{name}}", disconnectAria: "断开 {{name}}", editAria: "编辑 {{name}}",
+      connectAria: "连接 {{name}}", disconnectAria: "断开 {{name}}", reauthorizeAria: "重新授权 {{name}}", editAria: "编辑 {{name}}",
       exportAria: "导出 {{name}}", deleteAria: "删除 {{name}}",
     },
     exported: "{{name}} 已导出",
