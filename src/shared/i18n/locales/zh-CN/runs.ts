@@ -37,7 +37,7 @@ export const zhCNRuns = {
     listAria: "运行记录列表", selectTitle: "选择一条运行记录",
     selectDescription: "请求参数、响应结果、RPC、HTTP 与时间线会显示在这里。",
     loadingDetail: "正在加载运行详情…", openFailed: "无法打开调试",
-    refresh: { title: "刷新", interval: "刷新间隔", unit: "刷新单位", seconds: "s", minutes: "分钟", hint: "输入正整数后定时刷新；0 表示关闭" },
+    refresh: { title: "定时刷新", label: "定时刷新：", off: "关闭" },
     filters: { title: "筛选", toolName: "Tool 名称", runId: "调用 ID", status: "状态", origin: "来源", source: "调用来源",
       pinned: "固定状态", from: "开始时间", to: "结束时间", all: "全部", original: "原始运行", replay: "回放运行",
       pinnedOnly: "仅已固定", unpinnedOnly: "仅未固定", search: "搜索", reset: "重置", invalidRun: "请输入有效的调用 ID" },

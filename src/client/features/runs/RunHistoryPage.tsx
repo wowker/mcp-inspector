@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ClockCounterClockwise, FunnelSimple, MagnifyingGlass } from "@phosphor-icons/react";
+import { ArrowClockwise, ClockCounterClockwise, FunnelSimple, MagnifyingGlass } from "@phosphor-icons/react";
 import type { InspectorApiClient, RunDetail, RunListFilter, RunSummary } from "../../api/api-client.js";
 import { Button } from "../../components/actions/Button.js";
 import { Select } from "../../components/forms/Select.js";
@@ -27,17 +27,14 @@ export function RunHistoryPage({ api, projectId, onOpenDebug, onCreateTest }: {
   const [filter, setFilter] = useState<RunListFilter>({});
   const [filterError, setFilterError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [refreshInterval, setRefreshInterval] = useState("0");
-  const [refreshUnit, setRefreshUnit] = useState<"seconds" | "minutes">("seconds");
+  const [refreshSeconds, setRefreshSeconds] = useState<0 | 3 | 5>(0);
   const observed = useRunEvents(api, projectId, selected?.id ?? null);
 
   useEffect(() => {
-    const interval = Number(refreshInterval);
-    if (!Number.isInteger(interval) || interval <= 0) return;
-    const timer = window.setInterval(() => setRefreshKey((current) => current + 1),
-      interval * (refreshUnit === "minutes" ? 60_000 : 1_000));
+    if (refreshSeconds === 0) return;
+    const timer = window.setInterval(() => setRefreshKey((current) => current + 1), refreshSeconds * 1_000);
     return () => window.clearInterval(timer);
-  }, [refreshInterval, refreshUnit]);
+  }, [refreshSeconds]);
 
   async function openDebug(run: RunDetail): Promise<void> {
     if (openingId !== null) return;
@@ -84,15 +81,14 @@ export function RunHistoryPage({ api, projectId, onOpenDebug, onCreateTest }: {
       <div className="history-page__heading-copy"><h1 id="history-page-title">{t("page.title")}</h1>
         <p>{t("page.description")}</p></div>
       <div className="history-page__heading-actions">
-        <div className="history-refresh" aria-label={t("page.refresh.title")}>
-          <span className="history-refresh__label">{t("page.refresh.title")}</span>
-          <input className="ui-input ui-mono" type="number" min="0" step="1" value={refreshInterval}
-            aria-label={t("page.refresh.interval")} title={t("page.refresh.hint")}
-            onChange={(event) => setRefreshInterval(event.target.value)} />
-          <Select value={refreshUnit} aria-label={t("page.refresh.unit")}
-            onChange={(event) => setRefreshUnit(event.target.value as "seconds" | "minutes")}>
-            <option value="seconds">{t("page.refresh.seconds")}</option>
-            <option value="minutes">{t("page.refresh.minutes")}</option>
+        <div className="history-refresh">
+          <ArrowClockwise size={15} weight="bold" aria-hidden="true" />
+          <span className="history-refresh__label">{t("page.refresh.label")}</span>
+          <Select value={String(refreshSeconds)} aria-label={t("page.refresh.title")}
+            onChange={(event) => setRefreshSeconds(event.target.value === "3" ? 3 : event.target.value === "5" ? 5 : 0)}>
+            <option value="0">{t("page.refresh.off")}</option>
+            <option value="3">3s</option>
+            <option value="5">5s</option>
           </Select>
         </div>
         <ModuleHelpPopover moduleName={t("page.title")} triggerLabel={t("page.help.trigger")} closeLabel={t("page.help.close")}

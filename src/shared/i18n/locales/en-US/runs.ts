@@ -37,7 +37,7 @@ export const enUSRuns = {
     listAria: "Run records", selectTitle: "Select a run",
     selectDescription: "Its arguments, response, RPC, HTTP, and timeline will appear here.",
     loadingDetail: "Loading run details…", openFailed: "Unable to open debugger",
-    refresh: { title: "Refresh", interval: "Refresh interval", unit: "Refresh unit", seconds: "s", minutes: "min", hint: "Enter a positive integer to refresh automatically; 0 disables it" },
+    refresh: { title: "Auto refresh", label: "Auto refresh:", off: "Off" },
     filters: { title: "Filters", toolName: "Tool name", runId: "Call ID", status: "Status", origin: "Origin", source: "Call source",
       pinned: "Pin state", from: "From", to: "To", all: "All", original: "Original runs", replay: "Replay runs",
       pinnedOnly: "Pinned only", unpinnedOnly: "Unpinned only", search: "Search", reset: "Reset", invalidRun: "Enter a valid call ID" },

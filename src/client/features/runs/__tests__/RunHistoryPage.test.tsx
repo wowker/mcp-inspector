@@ -82,7 +82,7 @@ describe("RunHistoryPage", () => {
     await waitFor(() => expect(listRuns).toHaveBeenCalledTimes(3));
   });
 
-  it("periodically reruns the current search in seconds or minutes", async () => {
+  it("keeps auto refresh off by default and reruns the search only at a selected 3s or 5s interval", async () => {
     vi.useFakeTimers();
     try {
       const listRuns = vi.fn(async () => ({ runs: [], nextCursor: null }));
@@ -91,13 +91,21 @@ describe("RunHistoryPage", () => {
       await act(async () => { await Promise.resolve(); });
       expect(listRuns).toHaveBeenCalledTimes(1);
 
-      fireEvent.change(screen.getByLabelText("刷新间隔"), { target: { value: "2" } });
-      expect(screen.getByLabelText("刷新单位")).toHaveValue("seconds");
-      await act(async () => { vi.advanceTimersByTime(2_000); await Promise.resolve(); });
-      expect(listRuns).toHaveBeenCalledTimes(2);
+      const refresh = screen.getByRole("combobox", { name: "定时刷新" });
+      expect(refresh).toHaveValue("0");
+      expect(screen.getAllByRole("option").filter((option) => ["关闭", "3s", "5s"].includes(option.textContent ?? ""))
+        .map((option) => option.textContent)).toEqual(["关闭", "3s", "5s"]);
+      await act(async () => { vi.advanceTimersByTime(5_000); await Promise.resolve(); });
+      expect(listRuns).toHaveBeenCalledTimes(1);
 
-      fireEvent.change(screen.getByLabelText("刷新单位"), { target: { value: "minutes" } });
-      await act(async () => { vi.advanceTimersByTime(120_000); await Promise.resolve(); });
+      fireEvent.change(refresh, { target: { value: "3" } });
+      await act(async () => { vi.advanceTimersByTime(3_000); await Promise.resolve(); });
+      expect(listRuns).toHaveBeenCalledTimes(2);
+      fireEvent.change(refresh, { target: { value: "5" } });
+      await act(async () => { vi.advanceTimersByTime(5_000); await Promise.resolve(); });
+      expect(listRuns).toHaveBeenCalledTimes(3);
+      fireEvent.change(refresh, { target: { value: "0" } });
+      await act(async () => { vi.advanceTimersByTime(10_000); await Promise.resolve(); });
       expect(listRuns).toHaveBeenCalledTimes(3);
     } finally {
       vi.useRealTimers();
