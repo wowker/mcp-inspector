@@ -126,13 +126,13 @@ Existing Scenario step storage continues to use its current statuses. Evidence p
 - Modify: `src/server/projects/__tests__/migration-dist-parity.test.ts`
 - Modify: `src/server/projects/__tests__/project-migrations.test.ts`
 
-- [ ] Add failing tests for upgrading from 025, optimistic review revisions, append-only decisions, exact evidence-digest binding, transaction rollback, batch audit rows, and exact formal-asset revision verification links.
-- [ ] Create one `validation_reviews` aggregate row per session and append-only `validation_review_decisions` rows for the six approved decision kinds.
-- [ ] Create `validation_review_batches` plus membership rows so one batch action remains auditable per expectation.
-- [ ] Create `validated_asset_links` keyed by exact project, asset kind, asset ID, and asset revision; link session, evidence version, and approved review revision.
-- [ ] Enforce foreign keys and triggers that prevent cross-project links, nonterminal evidence links, and verification of a revision different from the session snapshot.
-- [ ] Run focused migration/repository tests, `npm run typecheck`, and `npm run verify` as Checkpoint B.
-- [ ] Commit with `feat(review): persist human decisions and verification links`.
+- [x] Add failing tests for upgrading from 025, optimistic review revisions, append-only decisions, exact evidence-digest binding, transaction rollback, batch audit rows, and exact formal-asset revision verification links.
+- [x] Create one `validation_reviews` aggregate row per session and append-only `validation_review_decisions` rows for the six approved decision kinds.
+- [x] Create `validation_review_batches` plus membership rows so one batch action remains auditable per expectation.
+- [x] Create `validated_asset_links` keyed by exact project, asset kind, asset ID, and asset revision; link session, evidence version, and approved review revision.
+- [x] Enforce foreign keys and triggers that prevent cross-project links, nonterminal evidence links, and verification of a revision different from the session snapshot.
+- [x] Run focused migration/repository tests, `npm run typecheck`, and `npm run verify` as Checkpoint B.
+- [x] Commit with `feat(review): persist human decisions and verification links`.
 
 ---
 

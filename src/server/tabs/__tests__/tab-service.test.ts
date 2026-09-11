@@ -193,7 +193,7 @@ describe("TabService", () => {
     const { dataRoot, projects } = fixture();
     const store = projects.open(projectId);
     expect(store.database.prepare("SELECT version FROM schema_migrations ORDER BY version").all())
-      .toEqual(Array.from({ length: 25 }, (_, index) => ({ version: index + 1 })));
+      .toEqual(Array.from({ length: 26 }, (_, index) => ({ version: index + 1 })));
     expect(() => store.database.prepare(`INSERT INTO debug_tabs
       (id, project_id, connection_id, tool_name, title, position, pinned, input_mode,
        arguments_json, raw_text, view_state_json, created_at, updated_at)

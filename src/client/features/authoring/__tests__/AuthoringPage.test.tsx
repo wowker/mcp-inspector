@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { InspectorApiClient } from "../../../api/api-client.js";
@@ -92,14 +92,17 @@ describe("AuthoringPage", () => {
     const user = userEvent.setup();
     const clipboard = { writeText: vi.fn().mockResolvedValue(undefined) };
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: clipboard });
-    const client = api({ getAuthoringSettings: vi.fn().mockResolvedValue({
+    const settingsResult = {
       settings: { enabled: false, configured: false, tokenHint: null, tokenCreatedAt: null,
         tokenRotatedAt: null, updatedAt: null }, endpoint: "http://127.0.0.1:8500/mcp/authoring",
-    }) });
+    };
+    const settingsPromise = Promise.resolve(settingsResult);
+    const client = api({ getAuthoringSettings: vi.fn().mockReturnValue(settingsPromise) });
     render(<AuthoringPage api={client} projectId={firstProjectId} active />);
 
+    await act(async () => { await settingsPromise; });
     expect(await screen.findByText("未启用")).toBeVisible();
-    expect(screen.getAllByText("http://127.0.0.1:8500/mcp/authoring")[0]).toBeVisible();
+    expect(screen.getByDisplayValue("http://127.0.0.1:8500/mcp/authoring")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "启用服务" }));
     expect(await screen.findByText("请立即保存此 Token，关闭或刷新后将不再显示。")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "复制 Token" }));
