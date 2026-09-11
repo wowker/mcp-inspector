@@ -73,6 +73,33 @@ export const validationExpectationEvidenceSchema = z.object({
   truncated: z.boolean(),
 }).strict();
 
+export const projectedExpectationEvidenceSchema = z.object({
+  claimLocalId: localId,
+  testCaseLocalId: localId,
+  target: z.record(z.string(), z.unknown()),
+  statement: z.string().max(2_000),
+  sourceRefs: z.array(localId).max(100),
+  connectionId: uuid.nullable(),
+  toolName: z.string().max(512).nullable(),
+  toolSchemaHash: sha256.nullable(),
+  runId: uuid.nullable(),
+  arguments: jsonObjectSchema.nullable(),
+  executionTiming: z.object({
+    startedAt: timestamp.nullable(), completedAt: timestamp.nullable(),
+    durationMs: z.number().int().nonnegative().nullable(),
+  }).strict(),
+  assertion: z.object({
+    status: z.enum(["PASSED", "FAILED", "ERROR"]).nullable(),
+    resolvedPath: z.string().max(1_024).nullable(),
+    actual: z.unknown().optional(),
+    expected: z.unknown().optional(),
+    absenceReason: z.string().max(2_000).nullable(),
+    errorCode: z.string().max(128).nullable(),
+    message: z.string().max(2_000).nullable(),
+    durationMs: z.number().int().nonnegative().nullable(),
+  }).strict(),
+}).strict();
+
 export const validationEvidenceVersionSchema = z.object({
   id: uuid,
   projectId: uuid,

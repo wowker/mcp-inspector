@@ -167,13 +167,13 @@ Existing Scenario step storage continues to use its current statuses. Evidence p
 - Modify: `src/shared/authoring/validation-session.ts`
 - Modify: `src/server/authoring/authoring-redaction.ts`
 
-- [ ] Add failing fixture tests for PASS, FAIL, assertion ERROR, missing actual, unknown non-idempotent outcome, redacted values, oversized/deep results, stable ordering, and stable evidence digests.
-- [ ] Project one evidence item per expectation claim with target locator, sanitized arguments, expected/actual or absence reason, assertion result, Run ID, connection ID, Tool name, Schema hash, timing, and truncation/redaction counts.
-- [ ] Map deterministic results without AI input: assertion pass→`PASS`, assertion fail→`FAIL`, resolver/runtime corruption→`ERROR`, and unknown external effect or authoritative conflict→`INCONCLUSIVE`.
-- [ ] Canonicalize evidence in claim/step/attempt order and hash the completed bounded projection. Never digest before redaction and never persist raw MCP responses.
-- [ ] Derive the session verdict by severity `ERROR > INCONCLUSIVE > FAIL > PASS`; a session with zero resolved claims is `ERROR`.
-- [ ] Run `npx vitest run src/server/authoring/__tests__/validation-evidence-projector.test.ts` and `npm run typecheck`.
-- [ ] Commit with `feat(validation): project immutable tool evidence`.
+- [x] Add failing fixture tests for PASS, FAIL, assertion ERROR, missing actual, unknown non-idempotent outcome, redacted values, oversized/deep results, stable ordering, and stable evidence digests.
+- [x] Project one evidence item per expectation claim with target locator, sanitized arguments, expected/actual or absence reason, assertion result, Run ID, connection ID, Tool name, Schema hash, timing, and truncation/redaction counts.
+- [x] Map deterministic results without AI input: assertion pass→`PASS`, assertion fail→`FAIL`, resolver/runtime corruption→`ERROR`, and unknown external effect or authoritative conflict→`INCONCLUSIVE`.
+- [x] Canonicalize evidence in claim/step/attempt order and hash the completed bounded projection. Never digest before redaction and never persist raw MCP responses.
+- [x] Derive the session verdict by severity `ERROR > INCONCLUSIVE > FAIL > PASS`; a session with zero resolved claims is `ERROR`.
+- [x] Run `npx vitest run src/server/authoring/__tests__/validation-evidence-projector.test.ts` and `npm run typecheck`.
+- [x] Commit with `feat(validation): project immutable tool evidence`.
 
 ### Task 7: Attach Draft execution to Validation Sessions
 
