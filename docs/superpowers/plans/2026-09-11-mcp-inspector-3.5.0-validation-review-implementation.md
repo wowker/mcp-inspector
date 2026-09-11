@@ -62,14 +62,14 @@ Existing Scenario step storage continues to use its current statuses. Evidence p
 - Modify: `src/server/authoring/__tests__/authoring-draft-service.test.ts`
 - Modify: `src/server/authoring/__tests__/authoring-draft-validator.test.ts`
 
-- [ ] Add failing parsing tests for old Draft JSON, bounded `sourceRefs`, all four expectation target kinds, duplicate local IDs, missing source references, cross-test assertion references, low confidence, and conflicting authoritative sources.
-- [ ] Define strict shared schemas for `SourceReference`, `ExpectationTarget`, and `ExpectationClaim`. Add optional `sourceRefs: []` and `expectationClaims: []` defaults without changing the Draft definition version.
-- [ ] Keep provenance metadata bounded: local IDs 128 characters, labels 300, locators 2,000, excerpts 4,000, statements 2,000, rationales 4,000, and at most 500 sources/claims per Draft, still under the existing 2 MiB Draft cap.
-- [ ] Validate that every claim resolves to exactly one assertion in its own Tool Test or Scenario location. Reject prose-only claims with `EXPECTATION_CLAIM_INVALID`.
-- [ ] Treat two authoritative references to the same normalized locator with different digests as a source-revision conflict and mark the claim attention-required/inconclusive. Do not infer semantic conflict merely because two different sources have different digests; semantic conflict is surfaced by required review priority or an AI `REQUIREMENT_CONFLICT` assessment.
-- [ ] Include source references and claims in the existing canonical definition digest and whole-bundle replacement semantics.
-- [ ] Run `npx vitest run src/server/authoring/__tests__/authoring-draft-service.test.ts src/server/authoring/__tests__/authoring-draft-validator.test.ts` and `npm run typecheck`.
-- [ ] Commit with `feat(authoring): add expectation provenance contracts`.
+- [x] Add failing parsing tests for old Draft JSON, bounded `sourceRefs`, all four expectation target kinds, duplicate local IDs, missing source references, cross-test assertion references, low confidence, and conflicting authoritative sources.
+- [x] Define strict shared schemas for `SourceReference`, `ExpectationTarget`, and `ExpectationClaim`. Add optional `sourceRefs: []` and `expectationClaims: []` defaults without changing the Draft definition version.
+- [x] Keep provenance metadata bounded: local IDs 128 characters, labels 300, locators 2,000, excerpts 4,000, statements 2,000, rationales 4,000, and at most 500 sources/claims per Draft, still under the existing 2 MiB Draft cap.
+- [x] Validate that every claim resolves to exactly one assertion in its own Tool Test or Scenario location. Reject prose-only claims with `EXPECTATION_CLAIM_INVALID`.
+- [x] Treat two authoritative references to the same normalized locator with different digests as a source-revision conflict and mark the claim attention-required/inconclusive. Do not infer semantic conflict merely because two different sources have different digests; semantic conflict is surfaced by required review priority or an AI `REQUIREMENT_CONFLICT` assessment.
+- [x] Include source references and claims in the existing canonical definition digest and whole-bundle replacement semantics.
+- [x] Run `npx vitest run src/server/authoring/__tests__/authoring-draft-service.test.ts src/server/authoring/__tests__/authoring-draft-validator.test.ts` and `npm run typecheck`.
+- [x] Commit with `feat(authoring): add expectation provenance contracts`.
 
 ### Task 2: Add variable-backed expected operands
 

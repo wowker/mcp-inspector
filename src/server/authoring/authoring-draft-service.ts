@@ -56,7 +56,8 @@ export interface AuthoringDraftService {
 }
 
 function emptyDefinition(): AutomationDraftDefinition {
-  return { version: 1, testCases: [], suites: [], sourceAssets: [], evidence: [] };
+  return { version: 1, testCases: [], suites: [], sourceAssets: [], evidence: [],
+    sourceRefs: [], expectationClaims: [] };
 }
 
 function digest(definition: AutomationDraftDefinition): string {

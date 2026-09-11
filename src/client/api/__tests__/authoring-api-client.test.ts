@@ -36,7 +36,8 @@ describe("Authoring workspace API decoding", () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ result: {
       draftId, revision: 2, definitionDigest: "a".repeat(64),
     } }), { status: 200, headers: { "content-type": "application/json" } }));
-    const definition = { version: 1 as const, testCases: [], suites: [], sourceAssets: [], evidence: [] };
+    const definition = { version: 1 as const, testCases: [], suites: [], sourceAssets: [], evidence: [],
+      sourceRefs: [], expectationClaims: [] };
 
     await createApiClient("session").replaceAuthoringDraft(projectId, draftId, {
       expectedRevision: 1, goal: "goal", definition, idempotencyKey: "save-one",

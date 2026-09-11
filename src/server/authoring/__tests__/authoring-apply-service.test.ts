@@ -69,7 +69,8 @@ describe("AuthoringApplyService", () => {
       arguments: {}, assertions: [], timeoutMs: 30_000 }], suites: [{ localId: "suite-1", name: "Suite",
       description: "", tags: [], members: [{ localId: "member-1", testCaseLocalId: "case-1", position: 0,
         isEnabled: true }],
-      executionPolicy: { concurrency: 1, stopOnFailure: true } }], sourceAssets: [], evidence: [] };
+      executionPolicy: { concurrency: 1, stopOnFailure: true } }], sourceAssets: [], evidence: [],
+      sourceRefs: [], expectationClaims: [] };
   }
 
   it("atomically creates disabled formal tests, suites, ordered members, and stable mappings", async () => {

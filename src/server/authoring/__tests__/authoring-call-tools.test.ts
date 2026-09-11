@@ -62,7 +62,8 @@ describe("Authoring call MCP tools", () => {
       list: vi.fn(() => ({ items: [], nextCursor: null })),
       get: vi.fn(() => ({ version: 1 as const, id: draftId, projectId, revision: 1, state: "ACTIVE" as const,
         goal: "Diagnosis", definitionDigest: "b".repeat(64),
-        definition: { version: 1 as const, testCases: [], suites: [], sourceAssets: [], evidence: [] },
+        definition: { version: 1 as const, testCases: [], suites: [], sourceAssets: [], evidence: [],
+          sourceRefs: [], expectationClaims: [] },
         createdAt: detail.createdAt, updatedAt: detail.createdAt })),
       replace: vi.fn(() => ({ ...draftResult, revision: 2 })),
     };

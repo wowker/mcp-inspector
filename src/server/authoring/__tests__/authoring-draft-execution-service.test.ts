@@ -69,7 +69,8 @@ describe("AuthoringDraftExecutionService", () => {
       name: "Increment", description: "", tags: [], target: { connectionId, toolName: "increment" },
       arguments: { value: 1 }, timeoutMs: 30_000,
       assertions: [{ id: "value", source: "MCP_RESULT" as const, path: "$.structuredContent.value",
-        operator: "EQUALS" as const, expected: 2 }] }], suites: [], sourceAssets: [], evidence: [] };
+        operator: "EQUALS" as const, expected: 2 }] }], suites: [], sourceAssets: [], evidence: [],
+      sourceRefs: [], expectationClaims: [] };
   }
 
   it("returns immediately and persists the exact validated revision with expected and actual assertion values", async () => {
@@ -153,7 +154,7 @@ describe("AuthoringDraftExecutionService", () => {
         cleanupSteps: [{ id: "cleanup", name: "Cleanup", target: { connectionId, toolName: "increment" },
           fixedArguments: { value: 0 }, mappings: [], extractors: [], assertions: [], condition: null,
           polling: null, argumentTransform: null, onFailure: "CONTINUE" as const }] }],
-        suites: [], sourceAssets: [], evidence: [] };
+        suites: [], sourceAssets: [], evidence: [], sourceRefs: [], expectationClaims: [] };
       const draft = state.createDraft(definition);
       const started = state.service.start({ projectId, draftId: draft.draftId, revision: draft.revision,
         validationDigest, idempotencyKey: "cleanup", inputs: {} });
@@ -191,7 +192,7 @@ describe("AuthoringDraftExecutionService", () => {
           mappings: [], extractors: [], assertions: [], condition: null, polling: null, argumentTransform: null, onFailure: "STOP" as const }],
         cleanupSteps: [{ id: "cleanup", name: "Cleanup", target: { connectionId, toolName: "increment" }, fixedArguments: { value: 0 },
           mappings: [], extractors: [], assertions: [], condition: null, polling: null, argumentTransform: null, onFailure: "CONTINUE" as const }] }],
-        suites: [], sourceAssets: [], evidence: [] };
+        suites: [], sourceAssets: [], evidence: [], sourceRefs: [], expectationClaims: [] };
       const draft = state.createDraft(scenario);
       const execution = state.service.start({ projectId, draftId: draft.draftId, revision: draft.revision,
         validationDigest, idempotencyKey: "cancel", inputs: {} });

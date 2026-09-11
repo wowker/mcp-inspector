@@ -6,7 +6,12 @@ import { createConnectionService } from "../../connections/connection-service.js
 import { createProjectService } from "../../projects/project-service.js";
 import { createTestCaseService } from "../../testing/test-case-service.js";
 import { createTestSuiteService } from "../../testing/test-suite-service.js";
-import type { AutomationDraftDefinition } from "../../../shared/authoring/draft.js";
+import {
+  AUTHORING_DRAFT_EXPECTATION_MAX_COUNT,
+  AUTHORING_DRAFT_SOURCE_MAX_COUNT,
+  automationDraftDefinitionSchema,
+  type AutomationDraftDefinition,
+} from "../../../shared/authoring/draft.js";
 import type { AuthoringCallService } from "../authoring-call-service.js";
 import {
   AuthoringDraftIdempotencyConflictError,
@@ -66,7 +71,7 @@ describe("AuthoringDraftService", () => {
       suites: [{ localId: "suite-1", name: "Order flow", description: "", tags: [],
         members: [{ localId: "member-1", testCaseLocalId: "case-1", position: 0, isEnabled: true }],
         executionPolicy: { concurrency: 1, stopOnFailure: true } }],
-      sourceAssets: [], evidence: [],
+      sourceAssets: [], evidence: [], sourceRefs: [], expectationClaims: [],
     };
   }
 
@@ -77,10 +82,149 @@ describe("AuthoringDraftService", () => {
     expect(drafts.create(input)).toEqual(created);
     expect(drafts.get(projectId, created.draftId)).toMatchObject({
       revision: 1, state: "ACTIVE", goal: input.goal,
-      definition: { version: 1, testCases: [], suites: [], sourceAssets: [], evidence: [] },
+      definition: { version: 1, testCases: [], suites: [], sourceAssets: [], evidence: [],
+        sourceRefs: [], expectationClaims: [] },
     });
     expect(() => drafts.create({ ...input, goal: "Different" }))
       .toThrow(AuthoringDraftIdempotencyConflictError);
+  });
+
+  it("persists bounded provenance and an executable low-confidence Tool expectation in the definition digest", () => {
+    const { drafts } = fixture();
+    const created = drafts.create({ projectId, goal: "", idempotencyKey: "create-claims" });
+    const definition = validDefinition();
+    definition.testCases[0]!.assertions = [{ id: "created", source: "MCP_RESULT", path: "$.orderId",
+      operator: "EXISTS" }];
+    const claimed = {
+      ...definition,
+      sourceRefs: [{ localId: "requirement-1", kind: "PRODUCT_REQUIREMENT", authority: "AUTHORITATIVE",
+        label: "Order creation requirement", locator: "PRD-42", digest: "a".repeat(64), excerpt: "An order ID is returned." }],
+      expectationClaims: [{ localId: "expectation-1", testCaseLocalId: "case-1",
+        target: { kind: "TOOL_ASSERTION", assertionId: "created" }, statement: "Creating an order returns an ID.",
+        rationale: "The product requirement makes the identifier mandatory.", confidence: "LOW",
+        sourceRefs: ["requirement-1"], reviewPriority: "NORMAL" }],
+    } as const;
+
+    const replaced = drafts.replace({ projectId, draftId: created.draftId, expectedRevision: 1,
+      goal: "Order expectation", definition: claimed as never, idempotencyKey: "replace-claims" });
+
+    expect(drafts.get(projectId, created.draftId)).toMatchObject({ definition: claimed });
+    expect(replaced.definitionDigest).not.toBe(created.definitionDigest);
+  });
+
+  it("rejects missing provenance and assertion targets outside the claim's own test case", () => {
+    const definition = validDefinition();
+    definition.testCases[0]!.assertions = [{ id: "created", source: "MCP_RESULT", path: "$.orderId",
+      operator: "EXISTS" }];
+    const invalid = {
+      ...definition,
+      sourceRefs: [{ localId: "requirement-1", kind: "PRODUCT_REQUIREMENT", authority: "AUTHORITATIVE",
+        label: "Order creation requirement" }],
+      expectationClaims: [{ localId: "expectation-1", testCaseLocalId: "case-1",
+        target: { kind: "STEP_ASSERTION", stepId: "missing-step", assertionId: "created" },
+        statement: "Creating an order returns an ID.", rationale: "Required by the product.", confidence: "HIGH",
+        sourceRefs: ["missing-source"], reviewPriority: "NORMAL" }],
+    };
+
+    const parsed = automationDraftDefinitionSchema.safeParse(invalid);
+
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues.map(({ message }) => message)).toEqual(expect.arrayContaining([
+        expect.stringContaining("source 'missing-source' does not exist"),
+        expect.stringContaining("does not resolve to exactly one assertion"),
+      ]));
+    }
+  });
+
+  it("rejects duplicate provenance and expectation local IDs", () => {
+    const definition = validDefinition();
+    definition.testCases[0]!.assertions = [{ id: "created", source: "MCP_RESULT", path: "$.orderId",
+      operator: "EXISTS" }];
+    const source = { localId: "requirement-1", kind: "PRODUCT_REQUIREMENT" as const,
+      authority: "AUTHORITATIVE" as const, label: "Order requirement" };
+    const claim = { localId: "claim-1", testCaseLocalId: "case-1",
+      target: { kind: "TOOL_ASSERTION" as const, assertionId: "created" },
+      statement: "Creating an order returns an ID.", rationale: "Required by the product.",
+      confidence: "HIGH" as const, sourceRefs: [source.localId], reviewPriority: "NORMAL" as const };
+
+    const parsed = automationDraftDefinitionSchema.safeParse({
+      ...definition, sourceRefs: [source, source], expectationClaims: [claim, claim],
+    });
+
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues.map(({ message }) => message)).toEqual(expect.arrayContaining([
+        "Draft source reference local IDs must be unique",
+        "Draft expectation local IDs must be unique",
+      ]));
+    }
+  });
+
+  it("bounds provenance and expectation collections", () => {
+    const definition = validDefinition();
+    definition.testCases[0]!.assertions = [{ id: "created", source: "MCP_RESULT", path: "$.orderId",
+      operator: "EXISTS" }];
+    const sourceRefs = Array.from({ length: AUTHORING_DRAFT_SOURCE_MAX_COUNT + 1 }, (_, index) => ({
+      localId: `source-${index}`, kind: "CODE_REFERENCE" as const, authority: "INFORMATIVE" as const,
+      label: `Source ${index}`,
+    }));
+    const expectationClaims = Array.from({ length: AUTHORING_DRAFT_EXPECTATION_MAX_COUNT + 1 }, (_, index) => ({
+      localId: `claim-${index}`, testCaseLocalId: "case-1",
+      target: { kind: "TOOL_ASSERTION" as const, assertionId: "created" },
+      statement: `Expectation ${index}`, rationale: "Bounded claim", confidence: "LOW" as const,
+      sourceRefs: [], reviewPriority: "NORMAL" as const,
+    }));
+
+    expect(automationDraftDefinitionSchema.safeParse({ ...definition, sourceRefs }).success).toBe(false);
+    expect(automationDraftDefinitionSchema.safeParse({ ...definition, expectationClaims }).success).toBe(false);
+  });
+
+  it("rejects an assertion that exists only in a different test case", () => {
+    const definition = validDefinition();
+    definition.testCases.push({ ...definition.testCases[0]!, localId: "case-2", name: "Second",
+      assertions: [{ id: "other-assertion", source: "MCP_RESULT", path: "$.orderId", operator: "EXISTS" }] });
+
+    const parsed = automationDraftDefinitionSchema.safeParse({ ...definition,
+      expectationClaims: [{ localId: "claim-1", testCaseLocalId: "case-1",
+        target: { kind: "TOOL_ASSERTION", assertionId: "other-assertion" },
+        statement: "The other assertion passes.", rationale: "It must remain test-local.", confidence: "HIGH",
+        sourceRefs: [], reviewPriority: "NORMAL" }],
+    });
+
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues).toContainEqual(expect.objectContaining({
+        path: ["expectationClaims", 0, "target"],
+        message: "Draft expectation target does not resolve to exactly one assertion in its test case",
+      }));
+    }
+  });
+
+  it("resolves Scenario step, Scenario, and cleanup expectation targets exactly", () => {
+    const step = (id: string, assertionId: string) => ({ id, name: id, target: { connectionId, toolName: "create_order" },
+      fixedArguments: {}, mappings: [], extractors: [], assertions: [{ id: assertionId, source: "MCP_RESULT" as const,
+        path: "$.ok", operator: "EXISTS" as const }], condition: null, polling: null, argumentTransform: null,
+      onFailure: "STOP" as const });
+    const definition = {
+      version: 1, testCases: [{ localId: "scenario-1", kind: "scenario", name: "Order lifecycle", description: "",
+        tags: [], inputs: [], steps: [step("create", "created")], cleanupSteps: [step("cleanup", "deleted")],
+        assertions: [{ id: "complete", source: "VARIABLE", path: "$.done", operator: "EXISTS" }], failurePolicy: "STOP" }],
+      suites: [], sourceAssets: [], evidence: [], sourceRefs: [],
+      expectationClaims: [
+        { localId: "step-claim", testCaseLocalId: "scenario-1",
+          target: { kind: "STEP_ASSERTION", stepId: "create", assertionId: "created" },
+          statement: "The create step succeeds.", rationale: "The lifecycle must start.", confidence: "HIGH", sourceRefs: [], reviewPriority: "NORMAL" },
+        { localId: "scenario-claim", testCaseLocalId: "scenario-1",
+          target: { kind: "SCENARIO_ASSERTION", assertionId: "complete" },
+          statement: "The lifecycle completes.", rationale: "The final state is required.", confidence: "HIGH", sourceRefs: [], reviewPriority: "NORMAL" },
+        { localId: "cleanup-claim", testCaseLocalId: "scenario-1",
+          target: { kind: "CLEANUP_ASSERTION", stepId: "cleanup", assertionId: "deleted" },
+          statement: "Cleanup removes the order.", rationale: "Tests must leave no order behind.", confidence: "MEDIUM", sourceRefs: [], reviewPriority: "REQUIRED" },
+      ],
+    };
+
+    expect(automationDraftDefinitionSchema.safeParse(definition).success).toBe(true);
   });
 
   it("fully replaces by expected revision and rejects stale or broken Draft-local references", () => {

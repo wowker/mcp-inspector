@@ -65,7 +65,7 @@ describe("Authoring Draft validation and asset discovery", () => {
       name: "Read", description: "", tags: [], target: { connectionId, toolName: "read_tool" },
       arguments: { a: 1 }, assertions: [{ id: "a", source: "MCP_RESULT" as const, path: "$.value",
         operator: "EQUALS" as const, expected: 1 }], timeoutMs: 30_000 }],
-      suites: [], sourceAssets: [], evidence: [] };
+      suites: [], sourceAssets: [], evidence: [], sourceRefs: [], expectationClaims: [] };
   }
 
   function storedDraft(definition: ReturnType<typeof validToolDefinition>, key: string) {
@@ -95,6 +95,32 @@ describe("Authoring Draft validation and asset discovery", () => {
     expect(second).toEqual(first);
   });
 
+  it("keeps conflicting revisions of one authoritative source executable but attention-required", () => {
+    const definition = {
+      ...validToolDefinition(),
+      sourceRefs: [
+        { localId: "requirement-old", kind: "PRODUCT_REQUIREMENT", authority: "AUTHORITATIVE",
+          label: "Order requirement", locator: " PRD-42 ", digest: "a".repeat(64) },
+        { localId: "requirement-new", kind: "PRODUCT_REQUIREMENT", authority: "AUTHORITATIVE",
+          label: "Order requirement", locator: "PRD-42", digest: "b".repeat(64) },
+      ],
+      expectationClaims: [{ localId: "claim-1", testCaseLocalId: "case-1",
+        target: { kind: "TOOL_ASSERTION", assertionId: "a" }, statement: "The value is one.",
+        rationale: "Both revisions claim authority.", confidence: "HIGH",
+        sourceRefs: ["requirement-old", "requirement-new"], reviewPriority: "NORMAL" }],
+    } as const;
+    const { validator, draftId, revision } = storedDraft(definition as never, "authority-conflict");
+
+    const result = validator.validate({ projectId, draftId, revision });
+
+    expect(result.status).toBe("VALID");
+    expect(result.issues).toContainEqual(expect.objectContaining({
+      code: "SOURCE_AUTHORITY_CONFLICT",
+      path: "definition.expectationClaims[0].sourceRefs",
+      severity: "WARNING",
+    }));
+  });
+
   it.each([
     ["TOOL_ARGUMENTS_INVALID", () => { const value = validToolDefinition(); value.testCases[0]!.arguments = { a: "wrong" } as never; return value; }],
     ["INVALID_JSON_PATH", () => { const value = validToolDefinition(); value.testCases[0]!.assertions[0]!.path = "$.__proto__.x"; return value; }],
@@ -116,7 +142,8 @@ describe("Authoring Draft validation and asset discovery", () => {
       steps: [{ id: "write", name: "Write", target: { connectionId, toolName: "write_tool" },
         fixedArguments: { a: 1 }, mappings: [], extractors: [], assertions: [], condition: null,
         polling: null, argumentTransform: null, onFailure: "STOP" as const }], cleanupSteps: [] }], suites: [], evidence: [],
-      sourceAssets: [{ draftLocalId: "case-1", kind: "TEST_CASE" as const, assetId, revision: 1 }] };
+      sourceAssets: [{ draftLocalId: "case-1", kind: "TEST_CASE" as const, assetId, revision: 1 }],
+      sourceRefs: [], expectationClaims: [] };
     const created = state.drafts.create({ projectId, goal: "", idempotencyKey: "create-conflicts" });
     const replaced = state.drafts.replace({ projectId, draftId: created.draftId, expectedRevision: 1,
       goal: "", definition, idempotencyKey: "replace-conflicts" });
@@ -134,7 +161,7 @@ describe("Authoring Draft validation and asset discovery", () => {
         fixedArguments: { a: 1 }, mappings: [], extractors: [], assertions: [], condition: null, polling: null,
         argumentTransform: { source: "export default ({ mappedArguments }) => mappedArguments",
           sourceDigest: "0".repeat(64) }, onFailure: "STOP" as const }], cleanupSteps: [] }],
-      suites: [], evidence: [], sourceAssets: [] };
+      suites: [], evidence: [], sourceAssets: [], sourceRefs: [], expectationClaims: [] };
     const created = state.drafts.create({ projectId, goal: "", idempotencyKey: "create-transform-digest" });
     const replaced = state.drafts.replace({ projectId, draftId: created.draftId, expectedRevision: 1,
       goal: "", definition, idempotencyKey: "replace-transform-digest" });

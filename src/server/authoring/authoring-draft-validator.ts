@@ -5,7 +5,10 @@ import { parseAssertionPath } from "../../shared/testing/assertion-engine.js";
 import { linearRegexTest, UnsupportedRegexError } from "../../shared/testing/linear-regex.js";
 import type { AssertionDefinition } from "../../shared/testing/assertions.js";
 import type { JsonObject, JsonValue } from "../../shared/tool-definition.js";
-import type { AutomationDraftDefinition } from "../../shared/authoring/draft.js";
+import {
+  expectationClaimHasAuthorityConflict,
+  type AutomationDraftDefinition,
+} from "../../shared/authoring/draft.js";
 import {
   draftValidationResultSchema,
   validateDraftInputSchema,
@@ -41,8 +44,9 @@ function pointer(segments: Array<string | number>): string {
     .replaceAll("~", "~0").replaceAll("/", "~1")).join("/")}`;
 }
 
-function issue(code: string, path: string, message: string, resolution?: string): AuthoringValidationIssue {
-  return { code, path, message, ...(resolution === undefined ? {} : { resolution }) };
+function issue(code: string, path: string, message: string, resolution?: string,
+  severity: "ERROR" | "WARNING" = "ERROR"): AuthoringValidationIssue {
+  return { code, path, message, ...(resolution === undefined ? {} : { resolution }), severity };
 }
 
 function validatePath(value: string, path: string, issues: AuthoringValidationIssue[], assertion = false): void {
@@ -268,12 +272,20 @@ export function createAuthoringDraftValidator(options: {
         }
       });
 
+      draft.definition.expectationClaims.forEach((claim, index) => {
+        if (expectationClaimHasAuthorityConflict(draft.definition, claim)) {
+          issues.push(issue("SOURCE_AUTHORITY_CONFLICT", `definition.expectationClaims[${index}].sourceRefs`,
+            "Authoritative source revisions conflict for this expectation",
+            "Review the expectation against the current authoritative source revision.", "WARNING"));
+        }
+      });
+
       const boundedIssues = issues.length <= maxValidationIssues ? issues : [
         ...issues.slice(0, maxValidationIssues - 1),
         issue("ISSUE_LIMIT_EXCEEDED", "definition", `Validation found more than ${maxValidationIssues} issues`),
       ];
       const sortedHashes = Object.fromEntries(Object.entries(toolSchemaHashes).sort(([left], [right]) => left.localeCompare(right)));
-      const status = issues.length === 0 ? "VALID" as const : "INVALID" as const;
+      const status = issues.some(({ severity }) => severity !== "WARNING") ? "INVALID" as const : "VALID" as const;
       const validationDigest = createHash("sha256").update(canonicalJson({
         draftId: draft.id, draftRevision: draft.revision, definitionDigest: draft.definitionDigest,
         toolSchemaHashes: sortedHashes, status, issues: boundedIssues,

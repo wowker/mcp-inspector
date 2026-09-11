@@ -14,6 +14,7 @@ export const authoringValidationIssueSchema = z.object({
   path: z.string().max(2_048),
   message: z.string().min(1).max(2_000),
   resolution: z.string().max(2_000).optional(),
+  severity: z.enum(["ERROR", "WARNING"]).optional(),
 }).strict();
 
 export const draftValidationResultSchema = z.object({
