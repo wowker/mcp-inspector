@@ -28,6 +28,7 @@ export function validatePublishedFiles(files, options = {}) {
   const exact = new Set([
     "package.json",
     "README.md",
+    "README.zh-CN.md",
     "bin/mcp-inspector.mjs",
     "dist/client/index.html",
     "dist/server/main.js",
@@ -44,7 +45,7 @@ export function validatePublishedFiles(files, options = {}) {
     throw new Error(`npm package contains unexpected files: ${unexpected.join(", ")}`);
   }
 
-  const required = ["package.json", "README.md", "bin/mcp-inspector.mjs", "dist/server/main.js",
+  const required = ["package.json", "README.md", "README.zh-CN.md", "bin/mcp-inspector.mjs", "dist/server/main.js",
     "dist/server/workflows/script-worker.js", "dist/client/index.html", ...(options.requiredFiles ?? [])];
   const missing = required.filter((name) => !names.includes(name));
   if (missing.length > 0) {
@@ -79,7 +80,7 @@ export function validateReleaseManifest(manifest) {
   if (manifest.bin?.["mcp-inspector"] !== "bin/mcp-inspector.mjs") {
     throw new Error("package must expose the production mcp-inspector entry");
   }
-  for (const path of ["bin", "dist", "README.md"]) {
+  for (const path of ["bin", "dist", "README.md", "README.zh-CN.md"]) {
     if (!manifest.files?.includes(path)) throw new Error(`package files must include ${path}`);
   }
   const sdk = manifest.dependencies?.["@modelcontextprotocol/sdk"];

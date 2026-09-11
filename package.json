@@ -1,6 +1,22 @@
 {
   "name": "@wuwei0215/mcp-inspector",
   "version": "3.0.0",
+  "description": "A local-first workbench for inspecting, debugging, testing, replaying, and safely authoring MCP Tool workflows.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "inspector",
+    "testing",
+    "developer-tools"
+  ],
+  "homepage": "https://github.com/wowker/mcp-inspector#readme",
+  "bugs": {
+    "url": "https://github.com/wowker/mcp-inspector/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wowker/mcp-inspector.git"
+  },
   "type": "module",
   "bin": {
     "mcp-inspector": "bin/mcp-inspector.mjs"
@@ -8,7 +24,8 @@
   "files": [
     "bin",
     "dist",
-    "README.md"
+    "README.md",
+    "README.zh-CN.md"
   ],
   "engines": {
     "node": ">=22"
