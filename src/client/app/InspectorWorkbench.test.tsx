@@ -167,7 +167,7 @@ describe("InspectorWorkbench", () => {
     expect(screen.getByRole("button", { name: "Interface language" })).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("opens structured module help beside each supported page title", async () => {
+  it("opens structured module help within each supported page heading", async () => {
     const user = userEvent.setup();
     render(<InspectorWorkbench api={api()} project={project} version="2.0.2" />);
 
@@ -184,7 +184,7 @@ describe("InspectorWorkbench", () => {
       await user.click(screen.getByRole("button", { name: module.navigation }));
       const title = await screen.findByRole("heading", { name: module.title, level: 1 });
       const trigger = screen.getByRole("button", { name: module.trigger });
-      expect(title.parentElement).toContainElement(trigger);
+      expect(title.closest("header")).toContainElement(trigger);
       await user.click(trigger);
       const dialog = screen.getByRole("dialog", { name: module.title });
       expect(dialog).toHaveTextContent(module.description);

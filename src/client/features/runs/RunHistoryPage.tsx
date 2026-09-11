@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { ClockCounterClockwise, FunnelSimple } from "@phosphor-icons/react";
+import { useEffect, useState } from "react";
+import { ClockCounterClockwise, FunnelSimple, MagnifyingGlass } from "@phosphor-icons/react";
 import type { InspectorApiClient, RunDetail, RunListFilter, RunSummary } from "../../api/api-client.js";
 import { Button } from "../../components/actions/Button.js";
 import { Select } from "../../components/forms/Select.js";
@@ -23,10 +23,21 @@ export function RunHistoryPage({ api, projectId, onOpenDebug, onCreateTest }: {
   const [openError, setOpenError] = useState<string | null>(null);
   const [replaySource, setReplaySource] = useState<RunDetail | null>(null);
   const [comparisonReplayId, setComparisonReplayId] = useState<string | null>(null);
-  const [draft, setDraft] = useState({ toolName: "", connectionId: "", status: "", origin: "", source: "", pinned: "", createdFrom: "", createdTo: "" });
+  const [draft, setDraft] = useState({ toolName: "", runId: "", status: "", origin: "", source: "", pinned: "", createdFrom: "", createdTo: "" });
   const [filter, setFilter] = useState<RunListFilter>({});
   const [filterError, setFilterError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [refreshInterval, setRefreshInterval] = useState("0");
+  const [refreshUnit, setRefreshUnit] = useState<"seconds" | "minutes">("seconds");
   const observed = useRunEvents(api, projectId, selected?.id ?? null);
+
+  useEffect(() => {
+    const interval = Number(refreshInterval);
+    if (!Number.isInteger(interval) || interval <= 0) return;
+    const timer = window.setInterval(() => setRefreshKey((current) => current + 1),
+      interval * (refreshUnit === "minutes" ? 60_000 : 1_000));
+    return () => window.clearInterval(timer);
+  }, [refreshInterval, refreshUnit]);
 
   async function openDebug(run: RunDetail): Promise<void> {
     if (openingId !== null) return;
@@ -42,15 +53,15 @@ export function RunHistoryPage({ api, projectId, onOpenDebug, onCreateTest }: {
   }
 
   function applyFilters(): void {
-    if (draft.connectionId !== "" && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(draft.connectionId)) {
-      setFilterError(t("page.filters.invalidConnection"));
+    if (draft.runId !== "" && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(draft.runId)) {
+      setFilterError(t("page.filters.invalidRun"));
       return;
     }
     setFilterError(null);
     setSelected(null);
     setFilter({
       ...(draft.toolName.trim() === "" ? {} : { toolName: draft.toolName.trim() }),
-      ...(draft.connectionId === "" ? {} : { connectionId: draft.connectionId }),
+      ...(draft.runId === "" ? {} : { runId: draft.runId }),
       ...(draft.status === "" ? {} : { status: draft.status as NonNullable<RunListFilter["status"]> }),
       ...(draft.origin === "" ? {} : { origin: draft.origin as NonNullable<RunListFilter["origin"]> }),
       ...(draft.source === "" ? {} : { source: draft.source as NonNullable<RunListFilter["source"]> }),
@@ -58,10 +69,11 @@ export function RunHistoryPage({ api, projectId, onOpenDebug, onCreateTest }: {
       ...(draft.createdFrom === "" ? {} : { createdFrom: new Date(draft.createdFrom).toISOString() }),
       ...(draft.createdTo === "" ? {} : { createdTo: new Date(draft.createdTo).toISOString() }),
     });
+    setRefreshKey((current) => current + 1);
   }
 
   function resetFilters(): void {
-    setDraft({ toolName: "", connectionId: "", status: "", origin: "", source: "", pinned: "", createdFrom: "", createdTo: "" });
+    setDraft({ toolName: "", runId: "", status: "", origin: "", source: "", pinned: "", createdFrom: "", createdTo: "" });
     setFilterError(null);
     setSelected(null);
     setFilter({});
@@ -69,11 +81,25 @@ export function RunHistoryPage({ api, projectId, onOpenDebug, onCreateTest }: {
 
   return <section className="history-page" aria-labelledby="history-page-title">
     <header className="page-heading page-heading--compact history-page__heading">
-      <div><div className="module-heading-title"><h1 id="history-page-title">{t("page.title")}</h1>
+      <div className="history-page__heading-copy"><h1 id="history-page-title">{t("page.title")}</h1>
+        <p>{t("page.description")}</p></div>
+      <div className="history-page__heading-actions">
+        <div className="history-refresh" aria-label={t("page.refresh.title")}>
+          <span className="history-refresh__label">{t("page.refresh.title")}</span>
+          <input className="ui-input ui-mono" type="number" min="0" step="1" value={refreshInterval}
+            aria-label={t("page.refresh.interval")} title={t("page.refresh.hint")}
+            onChange={(event) => setRefreshInterval(event.target.value)} />
+          <Select value={refreshUnit} aria-label={t("page.refresh.unit")}
+            onChange={(event) => setRefreshUnit(event.target.value as "seconds" | "minutes")}>
+            <option value="seconds">{t("page.refresh.seconds")}</option>
+            <option value="minutes">{t("page.refresh.minutes")}</option>
+          </Select>
+        </div>
         <ModuleHelpPopover moduleName={t("page.title")} triggerLabel={t("page.help.trigger")} closeLabel={t("page.help.close")}
           summary={t("page.help.summary")} description={t("page.description")} sections={(["purpose", "configure", "use", "effect"] as const).map((section) => ({
             id: section, title: t(`page.help.sections.${section}`), items: [t(`page.help.${section}.one`), t(`page.help.${section}.two`)],
-          }))} /></div><p>{t("page.description")}</p></div>
+          }))} />
+      </div>
     </header>
     <div className="history-page__layout">
       <aside className="history-page__list" aria-label={t("page.listAria")}>
@@ -82,13 +108,13 @@ export function RunHistoryPage({ api, projectId, onOpenDebug, onCreateTest }: {
             <h2 id="history-filters-title">{t("page.filters.title")}</h2>
             <ModuleHelpPopover moduleName={t("page.filterHelp.title")} triggerLabel={t("page.filterHelp.trigger")}
               closeLabel={t("page.filterHelp.close")} summary={t("page.filterHelp.summary")}
-              sections={(["toolName", "connectionId", "status", "origin", "source", "pinned", "time"] as const).map((section) => ({
+              sections={(["toolName", "runId", "status", "origin", "source", "pinned", "time"] as const).map((section) => ({
                 id: section, title: t(`page.filterHelp.sections.${section}`), items: [t(`page.filterHelp.items.${section}`)],
               }))} /></div>
           <div className="history-filters__grid">
-            <label>{t("page.filters.toolName")}<input value={draft.toolName} onChange={(event) => setDraft({ ...draft, toolName: event.target.value })} /></label>
-            <label>{t("page.filters.connectionId")}<input className="ui-mono" value={draft.connectionId}
-              onChange={(event) => setDraft({ ...draft, connectionId: event.target.value.trim() })} /></label>
+            <label>{t("page.filters.toolName")}<input className="ui-input" value={draft.toolName} onChange={(event) => setDraft({ ...draft, toolName: event.target.value })} /></label>
+            <label>{t("page.filters.runId")}<input className="ui-input ui-mono" value={draft.runId}
+              onChange={(event) => setDraft({ ...draft, runId: event.target.value.trim() })} /></label>
             <label>{t("page.filters.status")}<Select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value })}>
               <option value="">{t("page.filters.all")}</option>{(["queued", "connecting", "authorizing", "running", "succeeded", "failed", "cancelled", "interrupted"] as const)
                 .map((status) => <option key={status} value={status}>{t(`status.${status}`)}</option>)}</Select></label>
@@ -102,16 +128,16 @@ export function RunHistoryPage({ api, projectId, onOpenDebug, onCreateTest }: {
             <label>{t("page.filters.pinned")}<Select value={draft.pinned} onChange={(event) => setDraft({ ...draft, pinned: event.target.value })}>
               <option value="">{t("page.filters.all")}</option><option value="true">{t("page.filters.pinnedOnly")}</option>
               <option value="false">{t("page.filters.unpinnedOnly")}</option></Select></label>
-            <label>{t("page.filters.from")}<input type="datetime-local" value={draft.createdFrom}
+            <label>{t("page.filters.from")}<input className="ui-input" type="datetime-local" value={draft.createdFrom}
               onChange={(event) => setDraft({ ...draft, createdFrom: event.target.value })} /></label>
-            <label>{t("page.filters.to")}<input type="datetime-local" value={draft.createdTo}
+            <label>{t("page.filters.to")}<input className="ui-input" type="datetime-local" value={draft.createdTo}
               onChange={(event) => setDraft({ ...draft, createdTo: event.target.value })} /></label>
           </div>
           {filterError !== null && <p className="history-filters__error" role="alert">{filterError}</p>}
           <div className="history-filters__actions"><Button variant="quiet" onClick={resetFilters}>{t("page.filters.reset")}</Button>
-            <Button variant="secondary" onClick={applyFilters}>{t("page.filters.apply")}</Button></div>
+            <Button variant="secondary" onClick={applyFilters}><MagnifyingGlass size={15} weight="bold" aria-hidden="true" />{t("page.filters.search")}</Button></div>
         </section>
-        <RunHistory api={api} projectId={projectId} filter={filter} allowPinning onOpen={setSelected}
+        <RunHistory api={api} projectId={projectId} filter={filter} refreshKey={refreshKey} allowPinning onOpen={setSelected}
           hideHeading compactId selectedId={selected?.id} />
       </aside>
       <div className="history-page__detail">

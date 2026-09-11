@@ -32,6 +32,16 @@
   line-height: 1;
 }
 .run-result-action > svg { display: block; flex: 0 0 auto; }
+.run-result-actions .run-result-action {
+  min-height: 32px;
+  padding: 5px 11px;
+  border-color: var(--ui-border);
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  font-size: 0.76rem;
+  font-weight: 650;
+  line-height: 1;
+}
 .run-result-action:hover:not(:disabled) { border-color: var(--ui-accent); color: var(--ui-accent); background: var(--ui-accent-muted); }
 
 .open-json-control { position: relative; display: inline-flex; }

@@ -305,7 +305,9 @@ describe("RunResultPanel", () => {
   it("uses the same compact secondary-action treatment for every copy and save command", () => {
     render(<RunResultPanel run={run} onSaveResponse={vi.fn()} />);
     expect(screen.getByRole("button", { name: "保存响应" })).toHaveClass("run-result-action");
-    expect(screen.getByRole("button", { name: "复制全部结果" })).toHaveClass("run-result-action");
+    const copyAll = screen.getByRole("button", { name: "复制全部结果" });
+    expect(copyAll).toHaveClass("run-result-action");
+    expect(copyAll.querySelector("svg")).not.toBeNull();
     expect(screen.getByRole("button", { name: "复制参数" })).toHaveClass("run-result-action");
   });
 

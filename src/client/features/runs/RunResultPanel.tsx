@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ArrowClockwise, ArrowsLeftRight, ArrowsOutSimple, CaretRight, Flask, Question, Wrench, X } from "@phosphor-icons/react";
+import { ArrowClockwise, ArrowsLeftRight, ArrowsOutSimple, CaretRight, Copy, Flask, Question, Wrench, X } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import type { RunDetail, RunEvent, WorkflowExecutionDetail } from "../../api/api-client.js";
 import { JsonViewer, parseJsonDocument } from "./JsonViewer.js";
@@ -33,10 +33,11 @@ function canonicalJsonText(value: unknown): string | null {
   catch { return null; }
 }
 
-function CopyButton({ value, label, className, onCopied }: {
+function CopyButton({ value, label, className, icon, onCopied }: {
   value: unknown;
   label?: string;
   className?: string;
+  icon?: ReactNode;
   onCopied?: () => void;
 }) {
   const { t } = useTranslation("runs");
@@ -47,7 +48,7 @@ function CopyButton({ value, label, className, onCopied }: {
       await navigator.clipboard.writeText(typeof value === "string" ? value : json(value, t("serializationFailed"))); setError(false); onCopied?.();
     } catch { setError(true); }
   }
-  return <span className="copy-control"><button type="button" className={className ?? "run-result-action"} onClick={() => void copy()}>{label ?? t("result.copy")}</button>
+  return <span className="copy-control"><button type="button" className={className ?? "run-result-action"} onClick={() => void copy()}>{icon}{label ?? t("result.copy")}</button>
     {error && <span role="alert">{t("result.copyFailed")}</span>}</span>;
 }
 
@@ -425,7 +426,8 @@ export function RunResultPanel({ run, onSaveResponse, onOpenDebug, onCreateTest,
           {onCompare !== undefined && run.replayedFromRunId !== null && <button type="button" className="run-result-action" onClick={() => onCompare(run)}>
             <ArrowsLeftRight size={15} weight="bold" aria-hidden="true" />{t("result.compare")}
           </button>}
-          <CopyButton value={run.response} label={t("result.copyAll")} className="run-result-action" /></div></header>
+          <CopyButton value={run.response} label={t("result.copyAll")} className="run-result-action"
+            icon={<Copy size={15} weight="bold" aria-hidden="true" />} /></div></header>
       {expanded && run.response?.truncated && <p role="status" className="truncated-warning">{t("result.truncated", { bytes: run.response.originalBytes ?? t("result.unknown") })}</p>}
       {expanded && <div role="tablist" aria-label={t("result.viewsAria")} className="result-tabs" onKeyDown={(event) => {
         if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
