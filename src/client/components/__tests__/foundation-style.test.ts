@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 const stylesheet = readFileSync(fileURLToPath(new URL("../foundation.css", import.meta.url)), "utf8");
 const legacyStylesheet = readFileSync(resolve(process.cwd(), "src/client/app/redesign.css"), "utf8");
 const testingStylesheet = readFileSync(resolve(process.cwd(), "src/client/features/testing/testing.css"), "utf8");
+const runResultsStylesheet = readFileSync(resolve(process.cwd(), "src/client/app/run-results.css"), "utf8");
 
 describe("UI Foundation theme contract", () => {
   it("uses semantic UI tokens so the same primitives work in light and dark themes", () => {
@@ -41,5 +42,10 @@ describe("UI Foundation theme contract", () => {
   it("uses one identical divider between scenario configuration, result, and history sections", () => {
     expect(testingStylesheet).toMatch(/\.testing-execution--flush\s*\{[^}]*border-bottom:\s*1px solid var\(--ui-border\)/s);
     expect(testingStylesheet).not.toMatch(/\.test-execution-workspace\s*\{[^}]*border-top:/s);
+  });
+
+  it("vertically centers icons and labels in every Run result action", () => {
+    expect(runResultsStylesheet).toMatch(/\.run-result-action\s*\{[^}]*display:\s*inline-flex[^}]*align-items:\s*center[^}]*gap:\s*5px[^}]*line-height:\s*1/s);
+    expect(runResultsStylesheet).toMatch(/\.run-result-action\s*>\s*svg\s*\{[^}]*display:\s*block/s);
   });
 });
