@@ -140,15 +140,21 @@ function deepEqual(actual: JsonValue, expected: JsonValue, definition: Assertion
     deepEqual(actualObject[key]!, expectedObject[key]!, definition, true));
 }
 
-function expectedValue(definition: AssertionDefinition): JsonValue {
+function expectedValue(definition: AssertionDefinition, resolvedExpected?: ResolvedValue): JsonValue {
+  if (definition.expectedSource !== undefined) {
+    if (resolvedExpected?.exists !== true) {
+      throw new AssertionInputError(`Dynamic expected source ${definition.expectedSource.path || "$"} did not resolve`);
+    }
+    return resolvedExpected.value!;
+  }
   if (!("expected" in definition) || definition.expected === undefined) {
     throw new AssertionInputError(`${definition.operator} requires an expected value`);
   }
   return definition.expected;
 }
 
-function expectedNumber(definition: AssertionDefinition): number {
-  const expected = expectedValue(definition);
+function expectedNumber(definition: AssertionDefinition, resolvedExpected?: ResolvedValue): number {
+  const expected = expectedValue(definition, resolvedExpected);
   if (typeof expected !== "number" || !Number.isFinite(expected)) {
     throw new AssertionInputError(`${definition.operator} requires a numeric expected value`);
   }
@@ -162,9 +168,9 @@ function actualNumber(actual: JsonValue | undefined, definition: AssertionDefini
   return actual;
 }
 
-function matches(definition: AssertionDefinition, resolved: ResolvedValue): boolean {
+function matches(definition: AssertionDefinition, resolved: ResolvedValue, resolvedExpected?: ResolvedValue): boolean {
   const actual = resolved.value;
-  const expected = () => expectedValue(definition);
+  const expected = () => expectedValue(definition, resolvedExpected);
   switch (definition.operator) {
     case "EXISTS": return resolved.exists;
     case "NOT_EXISTS": return !resolved.exists;
@@ -221,10 +227,10 @@ function matches(definition: AssertionDefinition, resolved: ResolvedValue): bool
         throw error;
       }
     }
-    case "GT": return actualNumber(actual, definition) > expectedNumber(definition);
-    case "GTE": return actualNumber(actual, definition) >= expectedNumber(definition);
-    case "LT": return actualNumber(actual, definition) < expectedNumber(definition);
-    case "LTE": return actualNumber(actual, definition) <= expectedNumber(definition);
+    case "GT": return actualNumber(actual, definition) > expectedNumber(definition, resolvedExpected);
+    case "GTE": return actualNumber(actual, definition) >= expectedNumber(definition, resolvedExpected);
+    case "LT": return actualNumber(actual, definition) < expectedNumber(definition, resolvedExpected);
+    case "LTE": return actualNumber(actual, definition) <= expectedNumber(definition, resolvedExpected);
     case "BETWEEN": {
       const value = expected();
       if (!Array.isArray(value) || value.length !== 2 || value.some((item) => typeof item !== "number")) {
@@ -240,7 +246,7 @@ function matches(definition: AssertionDefinition, resolved: ResolvedValue): bool
         throw new AssertionInputError(`${definition.operator} requires a string or array actual value`);
       }
       const length = actual.length;
-      const value = expectedNumber(definition);
+      const value = expectedNumber(definition, resolvedExpected);
       return definition.operator === "LENGTH_EQUALS" ? length === value : length >= value;
     }
     case "ARRAY_CONTAINS":
@@ -276,7 +282,7 @@ function matches(definition: AssertionDefinition, resolved: ResolvedValue): bool
       return actual === value;
     }
     case "DURATION_LTE":
-    case "NETWORK_DURATION_LTE": return actualNumber(actual, definition) <= expectedNumber(definition);
+    case "NETWORK_DURATION_LTE": return actualNumber(actual, definition) <= expectedNumber(definition, resolvedExpected);
   }
 }
 
@@ -289,9 +295,11 @@ export function evaluateAssertion(
   const createId = options.createId ?? (() => globalThis.crypto.randomUUID());
   const parsed = assertionDefinitionSchema.safeParse(input);
   const definition = parsed.success ? parsed.data : input;
-  const redacted = parsed.success && context.redactedSources?.has(parsed.data.source) === true;
+  const redacted = parsed.success && (context.redactedSources?.has(parsed.data.source) === true ||
+    (parsed.data.expectedSource !== undefined && context.redactedSources?.has(parsed.data.expectedSource.source) === true));
   let resolvedPath: string | null = parsed.success ? parsed.data.path || "$" : null;
   let actual: JsonValue | undefined;
+  let resolvedExpected: ResolvedValue | undefined;
   let status: AssertionResult["status"] = "ERROR";
   let errorCode: string | null = "ASSERTION_INVALID";
   let message: string | null = null;
@@ -300,7 +308,10 @@ export function evaluateAssertion(
     const resolved = resolve(context.sources[parsed.data.source], parsed.data.path);
     resolvedPath = resolved.resolvedPath;
     actual = resolved.value;
-    let passed = matches(parsed.data, resolved);
+    if (parsed.data.expectedSource !== undefined) {
+      resolvedExpected = resolve(context.sources[parsed.data.expectedSource.source], parsed.data.expectedSource.path);
+    }
+    let passed = matches(parsed.data, resolved, resolvedExpected);
     if (parsed.data.options?.isNegated === true) passed = !passed;
     status = passed ? "PASSED" : "FAILED";
     errorCode = null;
@@ -318,7 +329,8 @@ export function evaluateAssertion(
     definition,
     resolvedPath,
     ...(!redacted && actual !== undefined && jsonValueSchema.safeParse(actual).success ? { actual } : {}),
-    ...(!redacted && parsed.success && parsed.data.expected !== undefined ? { expected: parsed.data.expected } : {}),
+    ...(!redacted && parsed.success && (parsed.data.expected !== undefined || resolvedExpected?.exists === true)
+      ? { expected: parsed.data.expected !== undefined ? parsed.data.expected : resolvedExpected!.value } : {}),
     errorCode,
     message,
     durationMs: Math.max(0, Math.ceil(finishedAt - startedAt)),

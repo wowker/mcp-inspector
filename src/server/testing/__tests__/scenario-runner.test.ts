@@ -187,6 +187,47 @@ describe("runScenario", () => {
     expect(result.assertions).toMatchObject([{ assertionId: "order", status: "PASSED", actual: "o-1" }]);
   });
 
+  it("uses variables extracted by an earlier step as a later step's expected operand", async () => {
+    const scenario = definition();
+    scenario.cleanupSteps = [];
+    scenario.steps[1]!.polling = null;
+    scenario.steps[1]!.assertions = [{ id: "same-order", source: "MCP_RESULT", path: "$.order_id",
+      operator: "EQUALS", expectedSource: { source: "VARIABLE", path: "$.orderId" } } as never];
+    const result = await runScenario({ definition: scenario, inputs: { storeId: "s-1" } }, {
+      invoke: async ({ toolName }) => ({ sources: { MCP_RESULT: toolName === "create_order"
+        ? { order_id: "o-1" } : { order_id: "o-1" } }, runId: `run-${toolName}`, workflowExecutionId: null }),
+      wait: async () => undefined, resolveEnvironment: async () => undefined,
+      createId: () => "00000000-0000-4000-8000-000000001998",
+    });
+
+    expect(result).toMatchObject({ status: "PASSED", steps: [
+      { stepId: "create", status: "PASSED" },
+      { stepId: "inspect", status: "PASSED", assertions: [{ assertionId: "same-order", status: "PASSED",
+        expected: "o-1", definition: { expectedSource: { source: "VARIABLE", path: "$.orderId" } } }] },
+    ] });
+  });
+
+  it("uses a redacted extracted variable without persisting its resolved expected value", async () => {
+    const scenario = definition();
+    scenario.cleanupSteps = [];
+    scenario.steps[1]!.polling = null;
+    scenario.steps[1]!.assertions = [{ id: "same-order", source: "MCP_RESULT", path: "$.order_id",
+      operator: "EQUALS", expectedSource: { source: "VARIABLE", path: "$.orderId" } } as never];
+    const secretId = "sensitive-order-id";
+    const result = await runScenario({ definition: scenario, inputs: { storeId: "s-1" } }, {
+      invoke: async ({ toolName }) => ({ sources: { MCP_RESULT: { order_id: secretId } },
+        ...(toolName === "create_order" ? { redactedSources: new Set(["MCP_RESULT"] as const) } : {}),
+        runId: `run-${toolName}`, workflowExecutionId: null }),
+      wait: async () => undefined, resolveEnvironment: async () => undefined,
+      createId: () => "00000000-0000-4000-8000-000000001997",
+    });
+
+    expect(result.steps[1]!.assertions[0]).toMatchObject({ status: "PASSED", isRedacted: true });
+    expect(result.steps[1]!.assertions[0]).not.toHaveProperty("expected");
+    expect(result.variables).toEqual({ orderId: "[REDACTED]" });
+    expect(JSON.stringify(result)).not.toContain(secretId);
+  });
+
   it("rejects prototype mapping paths without mutating object prototypes", async () => {
     const scenario = definition();
     scenario.steps[0]!.mappings[0]!.targetPath = "$.__proto__.polluted";

@@ -15,12 +15,20 @@ export const assertionOperatorSchema = z.enum([
   "STATUS_IS", "IS_ERROR_IS", "DURATION_LTE", "NETWORK_DURATION_LTE",
 ]);
 
+export const assertionExpectedSourceSchema = z.object({
+  source: z.literal("VARIABLE"),
+  path: z.string().max(1_024),
+}).strict();
+
+const operatorsWithoutExpectedOperand = new Set(["EXISTS", "NOT_EXISTS", "IS_NULL", "NOT_NULL"]);
+
 export const assertionDefinitionSchema = z.object({
   id: z.string().trim().min(1).max(128),
   source: assertionSourceSchema,
   path: z.string().max(1_024),
   operator: assertionOperatorSchema,
   expected: jsonValueSchema.optional(),
+  expectedSource: assertionExpectedSourceSchema.optional(),
   options: z.object({
     isNegated: z.boolean().optional(),
     arrayOrder: z.enum(["ORDERED", "UNORDERED"]).optional(),
@@ -28,9 +36,21 @@ export const assertionDefinitionSchema = z.object({
     caseSensitive: z.boolean().optional(),
   }).strict().optional(),
   message: z.string().max(2_000).optional(),
-}).strict();
+}).strict().superRefine((definition, context) => {
+  const hasLiteral = definition.expected !== undefined;
+  const hasSource = definition.expectedSource !== undefined;
+  if (hasLiteral && hasSource) {
+    context.addIssue({ code: "custom", path: ["expectedSource"],
+      message: "expected and expectedSource are mutually exclusive" });
+  }
+  if (operatorsWithoutExpectedOperand.has(definition.operator)) {
+    if (hasLiteral || hasSource) context.addIssue({ code: "custom", path: hasSource ? ["expectedSource"] : ["expected"],
+      message: `${definition.operator} does not consume an expected operand` });
+  }
+});
 
 export type AssertionDefinition = z.output<typeof assertionDefinitionSchema>;
+export type AssertionExpectedSource = z.output<typeof assertionExpectedSourceSchema>;
 
 export const assertionResultStatusSchema = z.enum(["PASSED", "FAILED", "ERROR"]);
 

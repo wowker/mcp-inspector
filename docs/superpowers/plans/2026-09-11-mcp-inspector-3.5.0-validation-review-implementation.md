@@ -83,13 +83,13 @@ Existing Scenario step storage continues to use its current statuses. Evidence p
 - Create: `src/shared/testing/__tests__/test-case.test.ts`
 - Modify: `src/server/testing/__tests__/scenario-runner.test.ts`
 
-- [ ] Add failing tests for literal expected values remaining unchanged, `expectedSource: { source: "VARIABLE", path }`, mutual exclusion with `expected`, missing variables, redacted variables, and rejection on operators that do not consume an expected operand.
-- [ ] Define `assertionExpectedSourceSchema` in `assertions.ts` to avoid a circular import with `test-case.ts`; allow only `VARIABLE` in 3.5.0.
-- [ ] Extend `evaluateAssertion` to resolve the expected operand from the existing `AssertionContext`, returning `ERROR` when the path cannot be resolved and preserving the authored `expectedSource` in the definition snapshot.
-- [ ] Add current Scenario variables to each step assertion context. Do not expose environment secrets or persist a resolved secret as `expected`.
-- [ ] Extend static Scenario validation so dynamic expected variables must be created by an extractor in an earlier main-flow step; reject forward, cleanup-to-main, missing, and cross-Scenario references.
-- [ ] Run `npx vitest run src/shared/testing/__tests__/assertion-engine.test.ts src/shared/testing/__tests__/test-case.test.ts src/server/testing/__tests__/scenario-runner.test.ts` and `npm run typecheck`.
-- [ ] Commit with `feat(testing): support scenario variable expectations`.
+- [x] Add failing tests for literal expected values remaining unchanged, `expectedSource: { source: "VARIABLE", path }`, mutual exclusion with `expected`, missing variables, redacted variables, and rejection on operators that do not consume an expected operand.
+- [x] Define `assertionExpectedSourceSchema` in `assertions.ts` to avoid a circular import with `test-case.ts`; allow only `VARIABLE` in 3.5.0.
+- [x] Extend `evaluateAssertion` to resolve the expected operand from the existing `AssertionContext`, returning `ERROR` when the path cannot be resolved and preserving the authored `expectedSource` in the definition snapshot.
+- [x] Add current Scenario variables to each step assertion context. Do not expose environment secrets or persist a resolved secret as `expected`.
+- [x] Extend static Scenario validation so dynamic expected variables must be created by an extractor in an earlier main-flow step; reject forward, cleanup-to-main, missing, and cross-Scenario references.
+- [x] Run `npx vitest run src/shared/testing/__tests__/assertion-engine.test.ts src/shared/testing/__tests__/test-case.test.ts src/server/testing/__tests__/scenario-runner.test.ts` and `npm run typecheck`.
+- [x] Commit with `feat(testing): support scenario variable expectations`.
 
 ### Task 3: Add Validation Session and evidence persistence
 

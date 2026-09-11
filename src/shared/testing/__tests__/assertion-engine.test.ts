@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AssertionDefinition } from "../assertions.js";
+import { assertionDefinitionSchema, type AssertionDefinition } from "../assertions.js";
 import { evaluateAssertion, type AssertionContext } from "../assertion-engine.js";
 
 const context: AssertionContext = {
@@ -100,5 +100,44 @@ describe("assertion engine", () => {
   it("treats an unresolved ordinary path as a failed assertion, not an engine crash", () => {
     expect(evaluateAssertion(definition("EQUALS", "$.missing", "value"), context, options))
       .toMatchObject({ status: "FAILED", errorCode: null, resolvedPath: "$.missing" });
+  });
+
+  it("resolves a variable-backed expected operand and preserves its authored source", () => {
+    const dynamic = { id: "dynamic", source: "MCP_RESULT", path: "$.orderId", operator: "EQUALS",
+      expectedSource: { source: "VARIABLE", path: "$.createdOrderId" } } as unknown as AssertionDefinition;
+    const result = evaluateAssertion(dynamic, { sources: {
+      MCP_RESULT: { orderId: "o-1" }, VARIABLE: { createdOrderId: "o-1" },
+    } }, options);
+
+    expect(result).toMatchObject({ status: "PASSED", expected: "o-1",
+      definition: { expectedSource: { source: "VARIABLE", path: "$.createdOrderId" } } });
+  });
+
+  it("returns ERROR when a dynamic expected operand cannot be resolved", () => {
+    const dynamic = { id: "dynamic-missing", source: "MCP_RESULT", path: "$.orderId", operator: "EQUALS",
+      expectedSource: { source: "VARIABLE", path: "$.missing" } } as unknown as AssertionDefinition;
+
+    expect(evaluateAssertion(dynamic, { sources: { MCP_RESULT: { orderId: "o-1" }, VARIABLE: {} } }, options))
+      .toMatchObject({ status: "ERROR", errorCode: "ASSERTION_INVALID",
+        message: expect.stringContaining("expected source") });
+  });
+
+  it("compares but does not expose a resolved expected value from a redacted variable source", () => {
+    const dynamic = { id: "dynamic-redacted", source: "MCP_RESULT", path: "$.orderId", operator: "EQUALS",
+      expectedSource: { source: "VARIABLE", path: "$.secretOrderId" } } as unknown as AssertionDefinition;
+    const result = evaluateAssertion(dynamic, { sources: {
+      MCP_RESULT: { orderId: "secret-id" }, VARIABLE: { secretOrderId: "secret-id" },
+    }, redactedSources: new Set(["VARIABLE"]) }, options);
+
+    expect(result).toMatchObject({ status: "PASSED", isRedacted: true });
+    expect(result).not.toHaveProperty("expected");
+  });
+
+  it("keeps literal operands compatible and rejects ambiguous or unused operands", () => {
+    expect(assertionDefinitionSchema.safeParse(definition("EQUALS", "$.number", 10)).success).toBe(true);
+    expect(assertionDefinitionSchema.safeParse({ ...definition("EQUALS", "$.number", 10),
+      expectedSource: { source: "VARIABLE", path: "$.ten" } }).success).toBe(false);
+    expect(assertionDefinitionSchema.safeParse({ ...definition("EXISTS", "$.number"),
+      expectedSource: { source: "VARIABLE", path: "$.ten" } }).success).toBe(false);
   });
 });

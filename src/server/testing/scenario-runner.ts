@@ -339,6 +339,7 @@ function extractVariables(
   step: ScenarioStepDefinition,
   invocation: ScenarioInvocationResult,
   variables: JsonObject,
+  redactedVariables: Set<string>,
 ): void {
   for (const extractor of step.extractors) {
     const assertionSource = extractor.source === "RESULT" ? "MCP_RESULT"
@@ -351,12 +352,27 @@ function extractVariables(
       continue;
     }
     variables[extractor.name] = cloneJson(resolved.value!);
+    if (invocation.redactedSources?.has(assertionSource) === true) redactedVariables.add(extractor.name);
   }
 }
 
 function skippedStep(step: ScenarioStepDefinition, position: number): ScenarioRunStepResult {
   return { stepId: step.id, position, attempt: 1, status: "SKIPPED", argumentsValue: null,
     runId: null, workflowExecutionId: null, assertions: [], error: null };
+}
+
+function persistedArguments(
+  step: ScenarioStepDefinition,
+  value: JsonObject,
+  redactedVariables: ReadonlySet<string>,
+): JsonObject {
+  const sanitized = cloneJson(value);
+  for (const mapping of step.mappings) {
+    if (mapping.source.kind === "VARIABLE" && redactedVariables.has(mapping.source.name)) {
+      setPath(sanitized, mapping.targetPath, "[REDACTED]");
+    }
+  }
+  return sanitized;
 }
 
 async function runStep(
@@ -366,6 +382,7 @@ async function runStep(
   input: RunScenarioInput,
   inputs: JsonObject,
   variables: JsonObject,
+  redactedVariables: Set<string>,
   stepResponses: Map<string, JsonValue | undefined>,
   dependencies: ScenarioRunnerDependencies,
 ): Promise<ScenarioRunStepResult[]> {
@@ -392,7 +409,12 @@ async function runStep(
         phase,
         signal: input.signal,
       });
-      const context: AssertionContext = { sources: invocation.sources, redactedSources: invocation.redactedSources };
+      const redactedSources = new Set(invocation.redactedSources ?? []);
+      if (redactedVariables.size > 0) redactedSources.add("VARIABLE");
+      const context: AssertionContext = {
+        sources: { ...invocation.sources, VARIABLE: cloneJson(variables) },
+        redactedSources,
+      };
       const regularAssertions = assertionResults(step.assertions, context, dependencies);
       const failAssertions = assertionResults(step.polling?.failWhen ?? [], context, dependencies);
       const untilAssertions = assertionResults(step.polling?.until ?? [], context, dependencies);
@@ -408,7 +430,8 @@ async function runStep(
       const terminalAttempt = passed || explicitlyFailed || step.polling === null || pollingExhausted;
       let current: ScenarioRunStepResult = {
         stepId: step.id, position, attempt, status: passed ? "PASSED" : "FAILED",
-        argumentsValue: cloneJson(invocation.sanitizedArguments ?? argumentsValue), runId: invocation.runId,
+        argumentsValue: persistedArguments(step, invocation.sanitizedArguments ?? argumentsValue, redactedVariables),
+        runId: invocation.runId,
         workflowExecutionId: invocation.workflowExecutionId, assertions: allAssertions,
         error: !passed && invocation.succeeded === false
           ? invocation.error ?? { code: "TOOL_EXECUTION_FAILED", message: "Tool execution failed" }
@@ -417,7 +440,7 @@ async function runStep(
       stepResponses.set(step.id, invocation.sources.MCP_RESULT);
       if (terminalAttempt) {
         try {
-          extractVariables(step, invocation, variables);
+          extractVariables(step, invocation, variables, redactedVariables);
         } catch (error) {
           current = { ...current, status: "ERROR", error: errorResult(error) };
         }
@@ -427,7 +450,8 @@ async function runStep(
       results.push(current);
       await dependencies.wait(step.polling!.intervalMs, input.signal);
     } catch (error) {
-      results.push({ stepId: step.id, position, attempt, status: "ERROR", argumentsValue: cloneJson(argumentsValue),
+      results.push({ stepId: step.id, position, attempt, status: "ERROR",
+        argumentsValue: persistedArguments(step, argumentsValue, redactedVariables),
         runId: null, workflowExecutionId: null, assertions: [], error: errorResult(error) });
       return results;
     }
@@ -445,6 +469,7 @@ export async function runScenario(
 ): Promise<ScenarioRunResult> {
   const steps: ScenarioRunStepResult[] = [];
   const variables: JsonObject = {};
+  const redactedVariables = new Set<string>();
   let scenarioAssertions: AssertionResult[] = [];
   const stepResponses = new Map<string, JsonValue | undefined>();
   let status: ScenarioRunResult["status"] = "PASSED";
@@ -459,7 +484,8 @@ export async function runScenario(
         continue;
       }
       if (step.condition !== null) {
-        const condition = evaluateAssertion(step.condition, { sources: { VARIABLE: variables } }, {
+        const condition = evaluateAssertion(step.condition, { sources: { VARIABLE: variables },
+          ...(redactedVariables.size > 0 ? { redactedSources: new Set(["VARIABLE"] as const) } : {}) }, {
           createId: dependencies.createId, now: dependencies.now,
         });
         if (condition.status !== "PASSED") {
@@ -467,7 +493,9 @@ export async function runScenario(
           continue;
         }
       }
-      const stepResults = await runStep(step, position, "main", input, inputs, variables, stepResponses, dependencies);
+      const stepResults = await runStep(
+        step, position, "main", input, inputs, variables, redactedVariables, stepResponses, dependencies,
+      );
       steps.push(...stepResults);
       const stepStatus = lastStatus(stepResults);
       if (stepStatus === "ERROR") {
@@ -491,7 +519,7 @@ export async function runScenario(
       try {
         const cleanupResults = await runStep(
           step, cleanupOffset + index, "cleanup", { ...input, signal: undefined }, inputs, variables,
-          stepResponses, dependencies,
+          redactedVariables, stepResponses, dependencies,
         );
         steps.push(...cleanupResults);
         if (lastStatus(cleanupResults) === "ERROR" && status === "PASSED") {
@@ -512,7 +540,8 @@ export async function runScenario(
     }
   }
   if (status !== "CANCELLED") {
-    scenarioAssertions = assertionResults(input.definition.assertions, { sources: { VARIABLE: variables } }, dependencies);
+    scenarioAssertions = assertionResults(input.definition.assertions, { sources: { VARIABLE: variables },
+      ...(redactedVariables.size > 0 ? { redactedSources: new Set(["VARIABLE"] as const) } : {}) }, dependencies);
     if (scenarioAssertions.some(({ status: assertionStatus }) => assertionStatus === "ERROR")) {
       status = "ERROR";
       error ??= { code: "ASSERTION_EVALUATION_ERROR", message: "One or more scenario assertions could not be evaluated" };
@@ -523,5 +552,7 @@ export async function runScenario(
   if (status === "ERROR" && error?.code === "TEST_EXECUTION_FAILED") {
     error = { code: "TEST_EXECUTION_FAILED", message: "Scenario step execution failed" };
   }
-  return { status, steps, variables, assertions: scenarioAssertions, error };
+  const sanitizedVariables = cloneJson(variables);
+  for (const name of redactedVariables) sanitizedVariables[name] = "[REDACTED]";
+  return { status, steps, variables: sanitizedVariables, assertions: scenarioAssertions, error };
 }

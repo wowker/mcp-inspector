@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { jsonObjectSchema, jsonValueSchema } from "../tool-definition.js";
 import { assertionDefinitionSchema } from "./assertions.js";
+import { parseAssertionPath } from "./assertion-engine.js";
 import { SCRIPT_SOURCE_MAX_BYTES } from "../script-workflow.js";
 
 export const TEST_CASE_NAME_MAX_LENGTH = 120;
@@ -125,9 +126,38 @@ const scenarioTestCaseDefinitionBaseSchema = z.object({
 }).strict();
 
 function validateScenarioDefinition(
-  definition: Pick<z.output<typeof scenarioTestCaseDefinitionBaseSchema>, "steps" | "cleanupSteps" | "inputs">,
+  definition: Pick<z.output<typeof scenarioTestCaseDefinitionBaseSchema>, "steps" | "cleanupSteps" | "inputs" | "assertions">,
   context: z.RefinementCtx,
 ) {
+  const validateExpectedSource = (
+    assertion: z.output<typeof assertionDefinitionSchema>,
+    availableVariables: ReadonlySet<string>,
+    path: Array<string | number>,
+  ) => {
+    if (assertion.expectedSource === undefined) return;
+    let variableName: string | undefined;
+    try {
+      const [root] = parseAssertionPath(assertion.expectedSource.path);
+      if (typeof root === "string") variableName = root;
+    } catch {
+      context.addIssue({ code: "custom", path: [...path, "expectedSource", "path"],
+        message: "Dynamic expected source path is invalid" });
+      return;
+    }
+    if (variableName === undefined || !availableVariables.has(variableName)) {
+      context.addIssue({ code: "custom", path: [...path, "expectedSource", "path"],
+        message: `Dynamic expected variable '${variableName ?? assertion.expectedSource.path}' must be extracted by a previous main-flow step` });
+    }
+  };
+  const validateExpectedSources = (
+    assertions: ReadonlyArray<z.output<typeof assertionDefinitionSchema>>,
+    availableVariables: ReadonlySet<string>,
+    path: Array<string | number>,
+  ) => {
+    assertions.forEach((assertion, assertionIndex) => {
+      validateExpectedSource(assertion, availableVariables, [...path, assertionIndex]);
+    });
+  };
   const stepIds = [...definition.steps, ...definition.cleanupSteps].map(({ id }) => id);
   if (new Set(stepIds).size !== stepIds.length) {
     context.addIssue({ code: "custom", path: ["steps"], message: "Scenario step IDs must be unique" });
@@ -139,10 +169,21 @@ function validateScenarioDefinition(
   const inputSet = new Set(definition.inputs.map(({ name }) => name));
   const priorStepIds = new Set<string>();
   const priorVariables = new Set<string>();
+  const priorMainVariables = new Set<string>();
+  const mainVariables = new Set(definition.steps.flatMap(({ extractors }) => extractors.map(({ name }) => name)));
   const extractorOwners = new Map<string, string>();
   const ordered = [...definition.steps.map((step, index) => ({ step, section: "steps" as const, index })),
     ...definition.cleanupSteps.map((step, index) => ({ step, section: "cleanupSteps" as const, index }))];
   for (const { step, section, index } of ordered) {
+    const availableExpectedVariables = section === "steps" ? priorMainVariables : mainVariables;
+    validateExpectedSources(step.assertions, availableExpectedVariables, [section, index, "assertions"]);
+    if (step.condition !== null) {
+      validateExpectedSource(step.condition, availableExpectedVariables, [section, index, "condition"]);
+    }
+    if (step.polling !== null) {
+      validateExpectedSources(step.polling.until, availableExpectedVariables, [section, index, "polling", "until"]);
+      validateExpectedSources(step.polling.failWhen, availableExpectedVariables, [section, index, "polling", "failWhen"]);
+    }
     step.mappings.forEach((mapping, mappingIndex) => {
       const source = mapping.source;
       const path = [section, index, "mappings", mappingIndex, "source"];
@@ -165,10 +206,12 @@ function validateScenarioDefinition(
       } else {
         extractorOwners.set(normalized, step.id);
         priorVariables.add(extractor.name);
+        if (section === "steps") priorMainVariables.add(extractor.name);
       }
     });
     priorStepIds.add(step.id);
   }
+  validateExpectedSources(definition.assertions, mainVariables, ["assertions"]);
 }
 
 export const scenarioTestCaseDefinitionSchema = scenarioTestCaseDefinitionBaseSchema
