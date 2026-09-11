@@ -21,12 +21,20 @@ import {
 } from "./authoring-apply-repository.js";
 import type { AuthoringDraftService } from "./authoring-draft-service.js";
 import type { AuthoringDraftValidator } from "./authoring-draft-validator.js";
+import type { ValidationSourceGuard } from "./validation-source-guard.js";
+import { ValidationSourceActiveError } from "./validation-source-guard.js";
 
 export class AuthoringApplyValidationError extends Error {
   constructor() { super("Authoring Draft validation is stale or invalid"); this.name = "AuthoringApplyValidationError"; }
 }
 export class AuthoringApplyConflictError extends Error {
   constructor() { super("Authoring Draft Apply conflicts with current state"); this.name = "AuthoringApplyConflictError"; }
+}
+export class AuthoringApplyValidationActiveError extends Error {
+  readonly code = "DRAFT_VALIDATION_ACTIVE";
+
+  constructor() { super("Authoring Draft is frozen by an active Validation Session");
+    this.name = "AuthoringApplyValidationActiveError"; }
 }
 
 export interface AuthoringApplyService {
@@ -44,6 +52,7 @@ export function createAuthoringApplyService(options: {
   validator: Pick<AuthoringDraftValidator, "validate">;
   testCases: Pick<TestCaseService, "get">;
   testSuites: Pick<TestSuiteService, "get">;
+  sourceGuard?: Pick<ValidationSourceGuard, "assertMutable">;
   createId?: () => string;
   now?: () => Date;
   afterStage?(stage: string): void;
@@ -90,6 +99,8 @@ export function createAuthoringApplyService(options: {
           draftId: input.draftId, draftRevision: input.expectedRevision, validationId: validation.id,
           validationDigest: input.validationDigest, idempotencyKey: input.idempotencyKey, requestHash,
           timestamp, afterStage: options.afterStage,
+          assertMutable: () => options.sourceGuard?.assertMutable(input.projectId,
+            { kind: "DRAFT", id: input.draftId }),
           writeAssets: () => {
             const caseRepository = new TestCaseRepository(store);
             const suiteRepository = new TestSuiteRepository(store);
@@ -149,6 +160,7 @@ export function createAuthoringApplyService(options: {
             return assets;
           } });
       } catch (error) {
+        if (error instanceof ValidationSourceActiveError) throw new AuthoringApplyValidationActiveError();
         if (error instanceof AuthoringApplyRepositoryConflictError ||
             error instanceof AuthoringApplyRepositoryAlreadyAppliedError) throw new AuthoringApplyConflictError();
         throw error;

@@ -66,6 +66,7 @@ import {
   AuthoringDraftInvalidError,
   AuthoringDraftNotFoundError,
   AuthoringDraftRevisionConflictError,
+  AuthoringDraftValidationActiveError,
   AuthoringDraftSourceRevisionConflictError,
   AuthoringDraftTooLargeError,
   type AuthoringDraftService,
@@ -92,6 +93,7 @@ import {
 } from "./authoring-draft-execution-service.js";
 import {
   AuthoringApplyConflictError,
+  AuthoringApplyValidationActiveError,
   AuthoringApplyValidationError,
   type AuthoringApplyService,
 } from "./authoring-apply-service.js";
@@ -233,6 +235,9 @@ function createProtocolServer(options: {
       if (error instanceof AuthoringDraftRevisionConflictError ||
           error instanceof AuthoringDraftSourceRevisionConflictError) {
         return failure("DRAFT_REVISION_CONFLICT", "CONFLICT", error.message, false);
+      }
+      if (error instanceof AuthoringDraftValidationActiveError || error instanceof AuthoringApplyValidationActiveError) {
+        return failure("DRAFT_VALIDATION_ACTIVE", "CONFLICT", error.message, true);
       }
       if (error instanceof AuthoringDraftValidationStaleError) {
         return failure("DRAFT_VALIDATION_STALE", "CONFLICT", error.message, false);

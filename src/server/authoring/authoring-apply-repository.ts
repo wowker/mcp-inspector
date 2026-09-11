@@ -33,10 +33,12 @@ export class AuthoringApplyRepository {
     applyId: string; projectId: string; draftId: string; draftRevision: number;
     validationId: string; validationDigest: string; idempotencyKey: string; requestHash: string;
     timestamp: string; writeAssets(): AuthoringAppliedAsset[]; afterStage?(stage: string): void;
+    assertMutable?: () => void;
   }): AuthoringApplyResult {
     return this.store.database.transaction(() => {
       const replay = this.replay(input.projectId, input.idempotencyKey, input.requestHash);
       if (replay !== null) return replay;
+      input.assertMutable?.();
       const alreadyApplied = this.store.database.prepare(`SELECT 1 FROM authoring_draft_apply_results
         WHERE project_id = ? AND draft_id = ? AND status = 'APPLIED'`).get(input.projectId, input.draftId);
       if (alreadyApplied !== undefined) throw new AuthoringApplyRepositoryAlreadyAppliedError();

@@ -9,7 +9,7 @@ import { InstallationSettingsRepository } from "../../registry/installation-sett
 import { createAuthoringAuthService } from "../authoring-auth-service.js";
 import type { AuthoringCallService } from "../authoring-call-service.js";
 import { createAuthoringMcpServer } from "../authoring-mcp-server.js";
-import type { AuthoringDraftService } from "../authoring-draft-service.js";
+import { AuthoringDraftValidationActiveError, type AuthoringDraftService } from "../authoring-draft-service.js";
 import type { AuthoringDraftValidator } from "../authoring-draft-validator.js";
 import type { AuthoringAssetService } from "../authoring-asset-service.js";
 import type { AuthoringDraftExecutionService } from "../authoring-draft-execution-service.js";
@@ -150,6 +150,19 @@ describe("Authoring call MCP tools", () => {
     expect(replaced.structuredContent).toMatchObject({ ok: true, data: { draftId, revision: 2 } });
     expect(drafts.createFromCall).toHaveBeenCalledWith(expect.objectContaining({ callId }));
     expect(drafts.replace).toHaveBeenCalledWith(expect.objectContaining({ expectedRevision: 1 }));
+  });
+
+  it("returns a retryable stable conflict when validation freezes a Draft", async () => {
+    const { client, drafts } = await fixture();
+    vi.mocked(drafts.replace).mockImplementationOnce(() => { throw new AuthoringDraftValidationActiveError(); });
+
+    const result = await client.callTool({ name: "inspector_replace_draft", arguments: {
+      projectId, draftId, expectedRevision: 1, goal: "Blocked", idempotencyKey: "blocked-replace",
+      definition: { version: 1, testCases: [], suites: [], sourceAssets: [], evidence: [] },
+    } });
+
+    expect(result.structuredContent).toMatchObject({ ok: false,
+      error: { code: "DRAFT_VALIDATION_ACTIVE", category: "CONFLICT", retryable: true } });
   });
 
   it("validates exact Draft revisions and discovers existing test assets", async () => {

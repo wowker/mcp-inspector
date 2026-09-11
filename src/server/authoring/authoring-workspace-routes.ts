@@ -16,6 +16,7 @@ import {
   AuthoringDraftInvalidError,
   AuthoringDraftNotFoundError,
   AuthoringDraftRevisionConflictError,
+  AuthoringDraftValidationActiveError,
   type AuthoringDraftService,
 } from "./authoring-draft-service.js";
 import { InvalidAuthoringDraftCursorError } from "./authoring-draft-repository.js";
@@ -29,6 +30,7 @@ import {
 } from "./authoring-draft-execution-service.js";
 import {
   AuthoringApplyConflictError,
+  AuthoringApplyValidationActiveError,
   AuthoringApplyValidationError,
   type AuthoringApplyService,
 } from "./authoring-apply-service.js";
@@ -54,6 +56,9 @@ function errorResponse(context: Context, error: unknown) {
   }
   if (error instanceof AuthoringDraftRevisionConflictError || error instanceof AuthoringDraftValidationStaleError) {
     return context.json({ error: { code: "DRAFT_REVISION_CONFLICT", message: error.message } }, 409);
+  }
+  if (error instanceof AuthoringDraftValidationActiveError || error instanceof AuthoringApplyValidationActiveError) {
+    return context.json({ error: { code: "DRAFT_VALIDATION_ACTIVE", message: error.message } }, 409);
   }
   if (error instanceof AuthoringApplyConflictError || error instanceof AuthoringApplyValidationError ||
       error instanceof AuthoringDraftExecutionActiveError || error instanceof AuthoringDraftExecutionConflictError ||

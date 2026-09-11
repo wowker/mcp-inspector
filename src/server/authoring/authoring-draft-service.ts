@@ -23,6 +23,8 @@ import type { TestCaseService } from "../testing/test-case-service.js";
 import type { TestSuiteService } from "../testing/test-suite-service.js";
 import { canonicalJson } from "../tools/tool-service.js";
 import type { AuthoringCallService } from "./authoring-call-service.js";
+import type { ValidationSourceGuard } from "./validation-source-guard.js";
+import { ValidationSourceActiveError } from "./validation-source-guard.js";
 import {
   AuthoringDraftIdempotencyConflictError,
   AuthoringDraftRepository,
@@ -45,6 +47,12 @@ export class AuthoringDraftRevisionConflictError extends Error {
 }
 export class AuthoringDraftSourceRevisionConflictError extends Error {
   constructor() { super("Authoring Draft source revision conflict"); this.name = "AuthoringDraftSourceRevisionConflictError"; }
+}
+export class AuthoringDraftValidationActiveError extends Error {
+  readonly code = "DRAFT_VALIDATION_ACTIVE";
+
+  constructor() { super("Authoring Draft is frozen by an active Validation Session");
+    this.name = "AuthoringDraftValidationActiveError"; }
 }
 
 export interface AuthoringDraftService {
@@ -91,6 +99,7 @@ export function createAuthoringDraftService(options: {
   calls: Pick<AuthoringCallService, "get">;
   testCases: Pick<TestCaseService, "get">;
   testSuites: Pick<TestSuiteService, "get">;
+  sourceGuard?: Pick<ValidationSourceGuard, "assertMutable">;
   createId?: () => string;
   now?: () => Date;
 }): AuthoringDraftService {
@@ -233,8 +242,11 @@ export function createAuthoringDraftService(options: {
           idempotencyKey: parsed.data.idempotencyKey, operation: "REPLACE_DRAFT",
           requestHash: createHash("sha256").update(canonicalJson(parsed.data)).digest("hex"),
           updatedAt: now().toISOString(),
+          assertMutable: () => options.sourceGuard?.assertMutable(parsed.data.projectId,
+            { kind: "DRAFT", id: parsed.data.draftId }),
         });
       } catch (error) {
+        if (error instanceof ValidationSourceActiveError) throw new AuthoringDraftValidationActiveError();
         if (error instanceof AuthoringDraftRepositoryConflictError) throw new AuthoringDraftRevisionConflictError();
         throw error;
       }

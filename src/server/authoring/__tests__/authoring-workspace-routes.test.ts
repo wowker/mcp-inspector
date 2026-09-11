@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AuthoringCallService } from "../authoring-call-service.js";
-import type { AuthoringDraftService } from "../authoring-draft-service.js";
+import { AuthoringDraftValidationActiveError, type AuthoringDraftService } from "../authoring-draft-service.js";
 import type { AuthoringDraftValidator } from "../authoring-draft-validator.js";
 import type { AuthoringDraftExecutionService } from "../authoring-draft-execution-service.js";
 import type { AuthoringApplyService } from "../authoring-apply-service.js";
@@ -75,5 +75,22 @@ describe("Authoring workspace browser routes", () => {
     });
     expect(applied.status).toBe(200);
     expect(vi.mocked(apply.apply)).toHaveBeenCalledWith(expect.objectContaining({ projectId, draftId }));
+  });
+
+  it("reports the stable active-validation conflict when a source is frozen", async () => {
+    const drafts = { replace: vi.fn(() => { throw new AuthoringDraftValidationActiveError(); }) } as unknown as AuthoringDraftService;
+    const app = createAuthoringWorkspaceRoutes({ calls: {} as AuthoringCallService, drafts,
+      validator: {} as AuthoringDraftValidator });
+
+    const response = await app.request(`/${projectId}/authoring/drafts/${draftId}`, {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ expectedRevision: 1, goal: "blocked",
+        definition: { version: 1, testCases: [], suites: [], sourceAssets: [], evidence: [] },
+        idempotencyKey: "blocked" }),
+    });
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: { code: "DRAFT_VALIDATION_ACTIVE",
+      message: "Authoring Draft is frozen by an active Validation Session" } });
   });
 });

@@ -109,6 +109,14 @@ export class ValidationSessionRepository {
     return row === undefined ? null : detail(row);
   }
 
+  replay(projectId: string, idempotencyKey: string, requestHash: string): ValidationSessionDetail | null {
+    const row = this.store.database.prepare(`SELECT ${sessionColumns} FROM validation_sessions
+      WHERE project_id = ? AND idempotency_key = ?`).get(projectId, idempotencyKey) as SessionRow | undefined;
+    if (row === undefined) return null;
+    if (row.request_hash !== requestHash) throw new ValidationSessionConflictError();
+    return detail(row);
+  }
+
   list(projectId: string, input: { cursor?: string; limit?: number; phase?: ValidationPhase } = {}): ValidationSessionPage {
     const limit = Math.min(100, Math.max(1, input.limit ?? 50));
     const cursor = input.cursor === undefined ? undefined : decodeCursor(projectId, input.cursor);
@@ -136,7 +144,7 @@ export class ValidationSessionRepository {
   create(input: {
     id: string; projectId: string; source: ValidationSource; sourceSnapshot: JsonObject;
     sourceSnapshotDigest: string; toolSchemaHashes: Record<string, string>; mode: ValidationExecutionMode;
-    idempotencyKey: string; requestHash: string; createdAt: string;
+    idempotencyKey: string; requestHash: string; createdAt: string; assertSourceCurrent?: () => void;
   }): { created: boolean; session: ValidationSessionDetail } {
     return this.store.database.transaction(() => {
       const parsedSource = validationSourceSchema.parse(input.source);
@@ -151,6 +159,7 @@ export class ValidationSessionRepository {
         if (existing.request_hash !== input.requestHash) throw new ValidationSessionConflictError();
         return { created: false, session: detail(existing) };
       }
+      input.assertSourceCurrent?.();
       const identity = sourceIdentity(parsedSource);
       const active = this.store.database.prepare(`SELECT 1 FROM validation_sessions
         WHERE project_id = ? AND source_kind = ? AND source_id = ?

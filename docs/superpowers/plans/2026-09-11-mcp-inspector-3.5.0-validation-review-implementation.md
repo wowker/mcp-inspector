@@ -148,15 +148,15 @@ Existing Scenario step storage continues to use its current statuses. Evidence p
 - Modify: `src/server/authoring/authoring-draft-service.ts`
 - Modify: `src/server/authoring/__tests__/authoring-draft-service.test.ts`
 
-- [ ] Add race tests for replace-versus-start, duplicate starts, static validation without a lock, terminal unlock, unchanged-revision rerun, cancel while cleanup is pending, and restart interruption before unlock.
-- [ ] Expose `start`, `get`, `list`, `transition`, `completeEvidence`, `cancel`, and `interruptActive` behind one service; validate every phase transition against an explicit transition table.
-- [ ] In one immediate SQLite transaction, recheck source revision/digest and validation digest, snapshot the full source plus Tool Schema hashes, create the session, and claim the active-source slot.
-- [ ] Recheck the exact revision immediately before the first downstream call without holding the transaction open.
-- [ ] Add `assertMutable(projectId, source)` to the source guard. Inject it into Draft replacement/discard/apply paths; translate its typed error to `DRAFT_VALIDATION_ACTIVE`.
-- [ ] Cancellation sets intent, stops future business steps, and leaves the slot active until cleanup and evidence projection reach a terminal phase.
-- [ ] On first repository access after restart, transition active sessions to `INTERRUPTED`, preserve completed evidence/Run links, and only then allow mutation.
-- [ ] Run `npx vitest run src/server/authoring/__tests__/validation-session-service.test.ts src/server/authoring/__tests__/authoring-draft-service.test.ts` and `npm run typecheck`.
-- [ ] Commit with `feat(validation): freeze active source revisions`.
+- [x] Add race tests for replace-versus-start, duplicate starts, static validation without a lock, terminal unlock, unchanged-revision rerun, cancel while cleanup is pending, and restart interruption before unlock.
+- [x] Expose `start`, `get`, `list`, `transition`, `completeEvidence`, `cancel`, and `interruptActive` behind one service; validate every phase transition against an explicit transition table.
+- [x] In one immediate SQLite transaction, recheck source revision/digest and validation digest, snapshot the full source plus Tool Schema hashes, create the session, and claim the active-source slot.
+- [x] Recheck the exact revision immediately before the first downstream call without holding the transaction open.
+- [x] Add `assertMutable(projectId, source)` to the source guard. Inject it into the available Draft replacement/apply paths; translate its typed error to `DRAFT_VALIDATION_ACTIVE`. (There is no Draft discard mutation API in the current baseline.)
+- [x] Cancellation sets intent, stops future business steps, and leaves the slot active until cleanup and evidence projection reach a terminal phase.
+- [x] On first repository access after restart, transition active sessions to `INTERRUPTED`, preserve completed evidence/Run links, and only then allow mutation.
+- [x] Run `npx vitest run src/server/authoring/__tests__/validation-session-service.test.ts src/server/authoring/__tests__/authoring-draft-service.test.ts` and `npm run typecheck`.
+- [x] Commit with `feat(validation): freeze active source revisions`.
 
 ### Task 6: Project deterministic Tool Test evidence
 

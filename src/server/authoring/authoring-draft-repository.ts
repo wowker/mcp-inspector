@@ -154,10 +154,12 @@ export class AuthoringDraftRepository {
     operation: string;
     requestHash: string;
     updatedAt: string;
+    assertMutable?: () => void;
   }): AutomationDraftMutationResult {
     return this.store.database.transaction(() => {
       const replay = this.idempotentDraft(input.projectId, input.idempotencyKey, input.operation, input.requestHash);
       if (replay !== null) return replay;
+      input.assertMutable?.();
       const definitionJson = JSON.stringify(input.definition);
       const nextRevision = input.expectedRevision + 1;
       const changed = this.store.database.prepare(`UPDATE authoring_drafts

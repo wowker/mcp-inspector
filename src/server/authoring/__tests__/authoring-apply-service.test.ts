@@ -12,9 +12,11 @@ import type { AuthoringDraftValidator } from "../authoring-draft-validator.js";
 import { AuthoringDraftValidationRepository } from "../authoring-draft-validation-repository.js";
 import {
   AuthoringApplyConflictError,
+  AuthoringApplyValidationActiveError,
   AuthoringApplyValidationError,
   createAuthoringApplyService,
 } from "../authoring-apply-service.js";
+import { ValidationSourceActiveError } from "../validation-source-guard.js";
 
 const projectId = "00000000-0000-4000-8000-000000009001";
 const connectionId = "00000000-0000-4000-8000-000000009002";
@@ -24,7 +26,8 @@ describe("AuthoringApplyService", () => {
   const roots: string[] = [];
   afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
-  function fixture(options: { failAfterStage?: string; validationStatus?: "VALID" | "INVALID" } = {}) {
+  function fixture(options: { failAfterStage?: string; validationStatus?: "VALID" | "INVALID";
+    freezeApply?: boolean } = {}) {
     const dataRoot = mkdtempSync(join(tmpdir(), "authoring-apply-")); roots.push(dataRoot);
     let id = 9_100;
     const createId = () => `00000000-0000-4000-8000-${String(id++).padStart(12, "0")}`;
@@ -51,6 +54,7 @@ describe("AuthoringApplyService", () => {
       return new AuthoringDraftValidationRepository(projects.open(projectId)).insert(result);
     }) };
     const service = createAuthoringApplyService({ projects, drafts, validator, testCases, testSuites,
+      sourceGuard: options.freezeApply ? { assertMutable: () => { throw new ValidationSourceActiveError(); } } : undefined,
       createId, now, afterStage: options.failAfterStage === undefined ? undefined : (stage) => {
         if (stage === options.failAfterStage) throw new Error(`Injected ${stage}`);
       } });
@@ -126,6 +130,21 @@ describe("AuthoringApplyService", () => {
         .toThrow(AuthoringApplyConflictError);
       expect(() => state.service.apply({ ...request, idempotencyKey: "second-apply" }))
         .toThrow(AuthoringApplyConflictError);
+    } finally { await state.connections.close(); state.projects.close(); }
+  });
+
+  it("does not apply or change a Draft while its Validation Session is active", async () => {
+    const state = fixture({ freezeApply: true });
+    try {
+      const draft = state.replace(definition(), "frozen");
+
+      expect(() => state.service.apply({ projectId, draftId: draft.draftId,
+        expectedRevision: draft.revision, validationDigest, idempotencyKey: "apply-frozen" }))
+        .toThrow(AuthoringApplyValidationActiveError);
+      expect(state.projects.open(projectId).database.prepare(
+        "SELECT count(*) AS count FROM authoring_draft_apply_results",
+      ).get()).toEqual({ count: 0 });
+      expect(state.drafts.get(projectId, draft.draftId).state).toBe("ACTIVE");
     } finally { await state.connections.close(); state.projects.close(); }
   });
 
