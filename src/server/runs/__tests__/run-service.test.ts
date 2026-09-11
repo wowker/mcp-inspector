@@ -84,7 +84,7 @@ describe("RunService", () => {
       const snapshot = firstStore.database.prepare("SELECT id FROM tool_snapshots LIMIT 1").get() as { id: string };
       const input = { projectId, connectionId, tabId: tabA.id, toolName: "sum", toolSnapshotId: snapshot.id,
         idempotencyKey: "parallel", canonicalArguments: '{"a":1}', jsonrpc: { method: "tools/call" }, clientInfo: {},
-        createdAt: "2026-08-17T00:00:00.000Z" };
+        createdAt: "2026-08-17T00:00:00.000Z", invocationSource: "MANUAL_DEBUG" };
       const barrier = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT);
       const state = new Int32Array(barrier);
       const runWorker = (id: string) => {
@@ -155,8 +155,10 @@ describe("RunService", () => {
         toolName: "sum",
         idempotencyKey: "workflow-helper-1",
         arguments: { a: 4 },
+        invocationSource: "SCRIPT_WORKFLOW",
       });
       expect(helper.tabId).toBeNull();
+      expect(helper.invocationSource).toBe("SCRIPT_WORKFLOW");
       const completed = await service.waitForTerminal(projectId, helper.id);
       expect(completed.status).toBe("succeeded");
       expect(completed.response?.result).toEqual({ content: [{ type: "text", text: "sum" }] });
@@ -520,7 +522,7 @@ describe("RunService", () => {
       projects.open(projectId).database.prepare("UPDATE run_requests SET arguments_json = 'not-json' WHERE run_id = ?").run(runs[0].id);
       expect(() => service.get(projectId, runs[0].id)).toThrow(/corrupt/i);
       expect(projects.open(projectId).database.prepare("SELECT version FROM schema_migrations ORDER BY version").all())
-        .toEqual(Array.from({ length: 23 }, (_, index) => ({ version: index + 1 })));
+        .toEqual(Array.from({ length: 24 }, (_, index) => ({ version: index + 1 })));
       const store = projects.open(projectId); const snapshotId = store.database.prepare("SELECT id FROM tool_snapshots LIMIT 1").get() as { id: string };
       const insert = store.database.prepare(`INSERT INTO runs
         (id, project_id, connection_id, tab_id, tool_name, tool_snapshot_id, idempotency_key, status, created_at, client_info_json)
@@ -593,7 +595,7 @@ describe("RunService", () => {
       const ordinary = service.start({ projectId, tabId: tabA.id, idempotencyKey: "ordinary-source", arguments: { a: 1 } });
       service.cancel(projectId, ordinary.id);
       const authoring = service.startInvocation({ projectId, connectionId, toolName: "sum",
-        idempotencyKey: "authoring-source", arguments: { a: 2 } });
+        idempotencyKey: "authoring-source", arguments: { a: 2 }, invocationSource: "AUTHORING_STANDALONE" });
       service.cancel(projectId, authoring.id);
       projects.open(projectId).database.prepare(`INSERT INTO authoring_tool_calls
         (id, project_id, context_kind, connection_id, tool_name, tool_snapshot_id, tool_schema_hash,
@@ -603,6 +605,10 @@ describe("RunService", () => {
           'DIAGNOSTIC', 'authoring-source-record', ?, '{}', 'CANCELLED', 0, ?, ?)`)
         .run(projectId, connectionId, authoring.toolSnapshotId, "a".repeat(64), "b".repeat(64), authoring.id, authoring.createdAt);
 
+      expect(service.list(projectId, undefined, { source: "AUTHORING_STANDALONE" }).runs.map(({ id }) => id))
+        .toEqual([authoring.id]);
+      expect(service.list(projectId, undefined, { source: "MANUAL_DEBUG" }).runs.map(({ id }) => id))
+        .toContain(ordinary.id);
       expect(service.list(projectId, undefined, { source: "AUTHORING" }).runs.map(({ id }) => id))
         .toEqual([authoring.id]);
       expect(service.list(projectId, undefined, { source: "OTHER" }).runs.map(({ id }) => id))
@@ -618,7 +624,7 @@ describe("RunService", () => {
       const otherTab = service.start({ projectId, tabId: tabB.id, idempotencyKey: "tool-history-other-tab", arguments: { a: 2 } });
       service.cancel(projectId, otherTab.id);
       const unbound = service.startInvocation({ projectId, connectionId, toolName: "sum",
-        idempotencyKey: "tool-history-mcp", arguments: { a: 3 } });
+        idempotencyKey: "tool-history-mcp", arguments: { a: 3 }, invocationSource: "AUTHORING_STANDALONE" });
       service.cancel(projectId, unbound.id);
 
       expect(service.list(projectId, undefined, {

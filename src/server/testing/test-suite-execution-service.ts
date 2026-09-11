@@ -200,7 +200,7 @@ export function createTestSuiteExecutionService(deps: {
             idempotencyKey: `${executionId}:${member.id}`,
             confirmDestructive,
             inputs: inputsByMember[member.id] ?? {},
-          });
+          }, "TEST_SUITE");
           const completed = await deps.testExecutions.waitForTerminal(projectId, started.id, signal);
           return terminalResult(completed);
         },

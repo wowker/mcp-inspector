@@ -90,7 +90,10 @@ describe("TestExecutionService", () => {
         steps: [{ status: "PASSED", workflowExecutionId: null }],
         assertions: [{ assertionId: "value", status: "PASSED", actual: 2 }],
       });
-      expect(value.runs.get(projectId, completed.steps[0].runId!).tabId).toBeNull();
+      expect(value.runs.get(projectId, completed.steps[0].runId!)).toMatchObject({
+        tabId: null,
+        invocationSource: "AUTOMATED_TEST",
+      });
       expect(JSON.stringify(completed)).not.toContain("fixture-token");
     } finally { await close(value); }
   });
@@ -167,6 +170,7 @@ describe("TestExecutionService", () => {
       });
       expect(value.runs.get(projectId, completed.steps[0].runId!).request.arguments).toEqual({ a: 4 });
       expect(value.runs.get(projectId, completed.steps[0].runId!).tabId).toBeNull();
+      expect(value.runs.get(projectId, completed.steps[0].runId!).invocationSource).toBe("AUTOMATED_TEST");
     } finally { await close(value); }
   });
 

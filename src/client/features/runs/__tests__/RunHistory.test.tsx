@@ -11,7 +11,7 @@ function item(id: string, createdAt: string, tabId: string | null): RunSummary {
   return { id, projectId, connectionId: "00000000-0000-4000-8000-000000000812", tabId, toolName: "sum",
     toolSnapshotId: "00000000-0000-4000-8000-000000000813", idempotencyKey: id, status: "succeeded",
     createdAt, startedAt: createdAt, completedAt: createdAt, durationMs: 12, networkDurationMs: 8,
-    pinned: false, replayedFromRunId: null };
+    pinned: false, replayedFromRunId: null, invocationSource: "MANUAL_DEBUG" };
 }
 
 describe("RunHistory", () => {
@@ -46,6 +46,16 @@ describe("RunHistory", () => {
     await waitFor(() => expect(listRuns).toHaveBeenCalledWith(projectId, undefined, {
       tabId, connectionId, toolName: "sum", includeUnboundToolRuns: true,
     }));
+  });
+
+  it("labels the persisted invocation source for every Run", async () => {
+    const agent = { ...item("00000000-0000-4000-8000-000000000898", "2026-09-10T00:00:00.000Z", null),
+      invocationSource: "AUTHORING_STANDALONE" as const };
+    const api = { listRuns: vi.fn(async () => ({ runs: [agent], nextCursor: null })) } as unknown as InspectorApiClient;
+
+    render(<RunHistory api={api} projectId={projectId} onOpen={vi.fn()} />);
+
+    expect(await screen.findByText("Agent 独立调用")).toBeVisible();
   });
 
   it("fences a stale project response", async () => {

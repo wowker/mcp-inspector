@@ -1,6 +1,10 @@
 export const enUSRuns = {
   serializationFailed: "[Unable to serialize]",
   status: { queued: "Queued", connecting: "Connecting", authorizing: "Authorizing", running: "Running", succeeded: "Succeeded", failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted" },
+  source: {
+    MANUAL_DEBUG: "Manual debug", AUTHORING_STANDALONE: "Agent standalone", AUTHORING_DRAFT: "Agent Draft",
+    AUTOMATED_TEST: "Automated test", TEST_SUITE: "Test suite", SCRIPT_WORKFLOW: "Script workflow", PRESSURE_TEST: "Pressure test",
+  },
   history: {
     projectAria: "Project run history", tabAria: "Current Tab history", title: "Run history", tabTitle: "Current Tab history",
     empty: "No runs yet", openAria: "Open run {{id}}", notRecorded: "Not recorded", loading: "Loading run history…", more: "Load more",
@@ -25,7 +29,7 @@ export const enUSRuns = {
         connectionId: "Filters by the connection's stable UUID, not its display name or URL.",
         status: "Filters by the current or final Run state: queued, connecting, authorizing, running, succeeded, failed, cancelled, or interrupted.",
         origin: "An original Run was started directly; a replay Run is a new Run created by re-executing a historical record.",
-        source: "Separates calls started through Authoring MCP from other debug, test, or workflow calls.",
+        source: "Separates manual debug, Agent, automated test, test suite, script workflow, and pressure test calls.",
         pinned: "Shows only pinned or unpinned records. Pinning preserves an important record without changing its result.",
         time: "Filters by Run creation time. Local browser date-time values are converted to standard timestamps before submission.",
       },
@@ -34,7 +38,7 @@ export const enUSRuns = {
     selectDescription: "Its arguments, response, RPC, HTTP, and timeline will appear here.",
     loadingDetail: "Loading run details…", openFailed: "Unable to open debugger",
     filters: { title: "Filters", toolName: "Tool name", connectionId: "Connection ID", status: "Status", origin: "Origin", source: "Call source",
-      pinned: "Pin state", from: "From", to: "To", all: "All", original: "Original runs", replay: "Replay runs", authoring: "Authoring MCP", other: "Other calls",
+      pinned: "Pin state", from: "From", to: "To", all: "All", original: "Original runs", replay: "Replay runs",
       pinnedOnly: "Pinned only", unpinnedOnly: "Unpinned only", apply: "Apply", reset: "Reset", invalidConnection: "Enter a valid connection ID" },
   },
   errors: { loadRun: "Unable to load run", eventInterrupted: "Run event connection interrupted" },
@@ -80,7 +84,7 @@ export const enUSRuns = {
     unsupported: "This content is not executed or loaded automatically.", contentBlock: "Content block {{index}}", text: "Text", responseContent: "Response content {{index}}",
     embeddedText: "Embedded text resource", uriNotLoaded: "URI (not loaded): {{uri}}", unserializable: "[Unable to serialize]",
     metadata: {
-      status: "Status", totalDuration: "Total duration", networkDuration: "Network duration", created: "Created", started: "Started", completed: "Completed",
+      status: "Status", invocationSource: "Call source", totalDuration: "Total duration", networkDuration: "Network duration", created: "Created", started: "Started", completed: "Completed",
       snapshotHash: "Tool snapshot hash", protocolVersion: "Protocol version", notRecorded: "Not recorded",
       runHelp: "A unique identifier for each Tool call that links its request, response, HTTP, RPC, timeline, and history.",
       snapshotHelp: "The SHA-256 fingerprint of the Tool definition used for this run. A change indicates an updated description or Schema and supports precise replay and comparison.",

@@ -15,7 +15,7 @@ const tool: ToolDetailSummary = { tool: { projectId, connectionId, name: "sum", 
     createdAt: "2026-08-17T00:00:00.000Z", definition: { name: "sum", inputSchema: { type: "object", properties: { a: { type: "number" } } } } } }, snapshots: [] };
 const summary: RunSummary = { id: runId, projectId, connectionId, tabId, toolName: "sum", toolSnapshotId: tool.tool.currentSnapshot.id,
   idempotencyKey: "once", status: "queued", createdAt: "2026-08-17T00:00:00.000Z", startedAt: null, completedAt: null,
-  durationMs: null, networkDurationMs: null, pinned: false, replayedFromRunId: null };
+  durationMs: null, networkDurationMs: null, pinned: false, replayedFromRunId: null, invocationSource: "MANUAL_DEBUG" };
 function detail(owner: string | null = tabId): RunDetail { return { ...summary, tabId: owner, status: "succeeded", startedAt: "2026-08-17T00:00:00.000Z",
   completedAt: "2026-08-17T00:00:00.010Z", durationMs: 10, networkDurationMs: 5, toolSnapshotHash: "a".repeat(64), protocolVersion: "2025-06-18",
   serverInfo: { name: "fixture" }, clientInfo: { name: "Inspector" }, request: { arguments: { a: 2 }, jsonrpc: {}, http: null },

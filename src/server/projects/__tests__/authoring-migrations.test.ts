@@ -68,7 +68,7 @@ describe("Authoring project migrations", () => {
     const upgraded = createProjectService({ dataRoot });
     try {
       const database = upgraded.open(project.id).database;
-      expect(database.prepare("SELECT max(version) AS version FROM schema_migrations").get()).toEqual({ version: 23 });
+      expect(database.prepare("SELECT max(version) AS version FROM schema_migrations").get()).toEqual({ version: 24 });
       expect(database.prepare("SELECT name FROM connections WHERE project_id = ?").get(project.id)).toEqual({ name: "Preserved" });
       const tables = (database.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>)
         .map(({ name }) => name);

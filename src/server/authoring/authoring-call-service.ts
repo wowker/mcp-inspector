@@ -302,6 +302,7 @@ export function createAuthoringCallService(options: {
             projectId: input.projectId, connectionId: input.connectionId, toolName: input.toolName,
             idempotencyKey: `authoring-call:${call.id}`, arguments: input.arguments,
             timeoutMs: policy.maxCallDurationMs, expectedToolSnapshotId: tool.currentSnapshot.id,
+            invocationSource: input.context.kind === "DRAFT" ? "AUTHORING_DRAFT" : "AUTHORING_STANDALONE",
           });
         } catch (error) {
           const blocked = repository(input.projectId).finish({

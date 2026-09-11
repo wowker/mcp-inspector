@@ -50,7 +50,7 @@ const historyRun: RunDetail = {
   toolSnapshotId: historyTool.tool.currentSnapshot.id, toolSnapshotHash: "a".repeat(64),
   idempotencyKey: "history-open", status: "succeeded", createdAt: "2026-08-26T00:00:00.000Z",
   startedAt: "2026-08-26T00:00:00.010Z", completedAt: "2026-08-26T00:00:00.020Z",
-  durationMs: 10, networkDurationMs: 8, pinned: false, replayedFromRunId: null,
+  durationMs: 10, networkDurationMs: 8, pinned: false, replayedFromRunId: null, invocationSource: "MANUAL_DEBUG",
   protocolVersion: "2025-06-18", serverInfo: null,
   clientInfo: { name: "mcp-inspector", version: "0.1.0" },
   request: { arguments: { a: 40, b: 2 }, jsonrpc: {}, http: null },

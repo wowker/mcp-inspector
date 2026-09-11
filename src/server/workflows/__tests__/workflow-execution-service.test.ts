@@ -101,6 +101,8 @@ describe("WorkflowExecutionService", () => {
       expect(completed.runs.map(({ phase }) => phase)).toEqual(["helper-before", "main"]);
       expect(runs.get(projectId, completed.runs[0].runId).tabId).toBeNull();
       expect(runs.get(projectId, completed.runs[1].runId).tabId).toBe(tab.id);
+      expect(completed.runs.map(({ runId }) => runs.get(projectId, runId).invocationSource))
+        .toEqual(["SCRIPT_WORKFLOW", "SCRIPT_WORKFLOW"]);
       expect(environment.resolve(projectId, connectionId).project).toEqual({ lastTotal: 6 });
       expect(completed.events.filter(({ kind }) => kind === "script-log")).toHaveLength(2);
       expect(session.calls.map(({ name }) => name)).toEqual(["lookup", "main"]);
@@ -116,11 +118,14 @@ describe("WorkflowExecutionService", () => {
       await connections.connect(projectId, connectionId);
       const started = executions.startInvocation({
         projectId, connectionId, toolName: "main", idempotencyKey: "test-invocation", arguments: {},
+        invocationSource: "AUTOMATED_TEST",
       });
       const completed = await executions.waitForTerminal(projectId, started.id);
       expect(completed).toMatchObject({ status: "succeeded", tabId: null, finalArguments: { a: 3 } });
       expect(completed.runs.map(({ phase }) => phase)).toEqual(["helper-before", "main"]);
       expect(completed.runs.every(({ runId }) => runs.get(projectId, runId).tabId === null)).toBe(true);
+      expect(completed.runs.map(({ runId }) => runs.get(projectId, runId).invocationSource))
+        .toEqual(["AUTOMATED_TEST", "AUTOMATED_TEST"]);
     } finally {
       await executions.close(); await runs.close(); await connections.close(); projects.close();
     }

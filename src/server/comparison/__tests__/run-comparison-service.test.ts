@@ -18,6 +18,7 @@ function summary(id: string, patch: Partial<RunSummary> = {}): RunSummary {
     startedAt: "2026-09-01T00:00:00.010Z", completedAt: "2026-09-01T00:00:00.020Z",
     durationMs: 10, networkDurationMs: 8, pinned: false,
     replayedFromRunId: id === replayId ? sourceId : null,
+    invocationSource: "MANUAL_DEBUG",
     ...patch,
   };
 }

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { JsonObject } from "../../shared/tool-definition.js";
 import type { ProjectStore } from "../projects/project-store.js";
 import { RunEventBus } from "./run-event-bus.js";
-import type { RunDetail, RunError, RunEvent, RunListFilter, RunPage, RunStatus, RunSummary } from "./run-types.js";
+import type { RunDetail, RunError, RunEvent, RunInvocationSource, RunListFilter, RunPage, RunStatus, RunSummary } from "./run-types.js";
 
 interface RunRow {
   id: string; project_id: string; connection_id: string; tab_id: string | null; tool_name: string;
@@ -10,6 +10,7 @@ interface RunRow {
   started_at: string | null; completed_at: string | null; duration_ms: number | null;
   network_duration_ms: number | null; protocol_version: string | null;
   server_info_json: string | null; client_info_json: string; pinned: number; replayed_from_run_id: string | null;
+  invocation_source: RunInvocationSource;
 }
 interface RequestRow { arguments_json: string; jsonrpc_json: string; http_json: string | null }
 interface ResponseRow { result_json: string | null; error_json: string | null; truncated: number; original_bytes: number | null }
@@ -17,7 +18,8 @@ interface EventRow { run_id: string; sequence: number; kind: string; occurred_at
 
 const columns = `id, project_id, connection_id, tab_id, tool_name, tool_snapshot_id,
   idempotency_key, status, created_at, started_at, completed_at, duration_ms,
-  network_duration_ms, protocol_version, server_info_json, client_info_json, pinned, replayed_from_run_id`;
+  network_duration_ms, protocol_version, server_info_json, client_info_json, pinned, replayed_from_run_id,
+  invocation_source`;
 const active: RunStatus[] = ["queued", "connecting", "authorizing", "running"];
 
 function parseJson(text: string, label: string): unknown {
@@ -33,7 +35,8 @@ function summary(row: RunRow): RunSummary {
     toolName: row.tool_name, toolSnapshotId: row.tool_snapshot_id, idempotencyKey: row.idempotency_key,
     status: row.status, createdAt: row.created_at, startedAt: row.started_at, completedAt: row.completed_at,
     durationMs: row.duration_ms, networkDurationMs: row.network_duration_ms,
-    pinned: row.pinned === 1, replayedFromRunId: row.replayed_from_run_id };
+    pinned: row.pinned === 1, replayedFromRunId: row.replayed_from_run_id,
+    invocationSource: row.invocation_source };
 }
 function event(row: EventRow): RunEvent {
   return { runId: row.run_id, sequence: row.sequence, kind: row.kind, occurredAt: row.occurred_at,
@@ -44,12 +47,14 @@ export interface NewRun {
   id: string; projectId: string; connectionId: string; tabId: string | null; toolName: string; toolSnapshotId: string;
   idempotencyKey: string; canonicalArguments: string; jsonrpc: unknown; clientInfo: Record<string, unknown>; createdAt: string;
   replayedFromRunId?: string | null;
+  invocationSource: RunInvocationSource;
 }
 export interface ExistingIdentity {
   tabId: string | null;
   toolSnapshotId: string;
   canonicalArguments: string;
   replayedFromRunId: string | null;
+  invocationSource: RunInvocationSource;
 }
 
 export class RunRepository {
@@ -64,12 +69,12 @@ export class RunRepository {
     const operation = this.store.database.transaction(() => {
       const inserted = this.store.database.prepare(`INSERT INTO runs
         (id, project_id, connection_id, tab_id, tool_name, tool_snapshot_id, idempotency_key,
-         status, created_at, client_info_json, replayed_from_run_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?)
+         status, created_at, client_info_json, replayed_from_run_id, invocation_source)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?)
         ON CONFLICT(project_id, idempotency_key) DO NOTHING`)
         .run(input.id, input.projectId, input.connectionId, input.tabId, input.toolName,
           input.toolSnapshotId, input.idempotencyKey, input.createdAt, JSON.stringify(input.clientInfo),
-          input.replayedFromRunId ?? null);
+          input.replayedFromRunId ?? null, input.invocationSource);
       if (inserted.changes === 0) {
         const previous = this.byIdempotency(input.projectId, input.idempotencyKey);
         if (previous === null) throw new Error("Conflicting Run could not be read");
@@ -85,7 +90,8 @@ export class RunRepository {
       if (created === null) throw new Error("Run was not persisted");
       return { run: created, created: true,
         identity: { tabId: input.tabId, toolSnapshotId: input.toolSnapshotId,
-          canonicalArguments: input.canonicalArguments, replayedFromRunId: input.replayedFromRunId ?? null }, queuedEvent };
+          canonicalArguments: input.canonicalArguments, replayedFromRunId: input.replayedFromRunId ?? null,
+          invocationSource: input.invocationSource }, queuedEvent };
     });
     const result = operation();
     if (result.queuedEvent !== null) this.bus.publish(result.queuedEvent);
@@ -99,6 +105,7 @@ export class RunRepository {
     return row === undefined ? null : { run: summary(row), identity: {
       tabId: row.tab_id, toolSnapshotId: row.tool_snapshot_id, canonicalArguments: row.arguments_json,
       replayedFromRunId: row.replayed_from_run_id,
+      invocationSource: row.invocation_source,
     } };
   }
 
@@ -361,10 +368,14 @@ export class RunRepository {
     if (status !== undefined) { clauses.push("status = ?"); parameters.push(status); }
     if (origin === "ORIGINAL") clauses.push("replayed_from_run_id IS NULL");
     if (origin === "REPLAY") clauses.push("replayed_from_run_id IS NOT NULL");
-    const authoringSource = `EXISTS (SELECT 1 FROM authoring_tool_calls authoring_call
-      WHERE authoring_call.project_id = runs.project_id AND authoring_call.run_id = runs.id)`;
-    if (source === "AUTHORING") clauses.push(authoringSource);
-    if (source === "OTHER") clauses.push(`NOT ${authoringSource}`);
+    if (source === "AUTHORING") {
+      clauses.push("invocation_source IN ('AUTHORING_STANDALONE', 'AUTHORING_DRAFT')");
+    } else if (source === "OTHER") {
+      clauses.push("invocation_source NOT IN ('AUTHORING_STANDALONE', 'AUTHORING_DRAFT')");
+    } else if (source !== undefined) {
+      clauses.push("invocation_source = ?");
+      parameters.push(source);
+    }
     if (pinned !== undefined) { clauses.push("pinned = ?"); parameters.push(Number(pinned)); }
     if (createdFrom !== undefined) { clauses.push("created_at >= ?"); parameters.push(createdFrom); }
     if (createdTo !== undefined) { clauses.push("created_at <= ?"); parameters.push(createdTo); }

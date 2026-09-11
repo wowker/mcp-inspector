@@ -13,7 +13,7 @@ import type { ConnectionService } from "../connections/connection-service.js";
 import type { EnvironmentService } from "../environment/environment-service.js";
 import type { ProjectService } from "../projects/project-service.js";
 import { RunValidationError, type RunServiceWithEvents } from "../runs/run-service.js";
-import type { RunDetail } from "../runs/run-types.js";
+import type { RunDetail, RunInvocationSource } from "../runs/run-types.js";
 import { ToolRepository } from "../tools/tool-repository.js";
 import { canonicalJson } from "../tools/tool-service.js";
 import type { WorkflowExecutionDetail } from "../workflows/workflow-execution-repository.js";
@@ -55,7 +55,7 @@ export class DestructiveConfirmationRequiredError extends Error {
 }
 
 export interface TestExecutionService {
-  start(input: unknown): TestExecutionDetail;
+  start(input: unknown, invocationSource?: "AUTOMATED_TEST" | "TEST_SUITE" | "PRESSURE_TEST"): TestExecutionDetail;
   get(projectId: string, executionId: string): TestExecutionDetail;
   list(projectId: string, input?: { testCaseId?: string; cursor?: string; limit?: number }): TestExecutionReportPage;
   updateBaseline(projectId: string, executionId: string, input: unknown): UpdateTestExecutionBaselineResult;
@@ -64,7 +64,8 @@ export interface TestExecutionService {
   close(): Promise<void>;
 }
 
-interface ActiveExecution { controller: AbortController; timedOut: boolean; timer: ReturnType<typeof setTimeout> | null }
+interface ActiveExecution { controller: AbortController; timedOut: boolean; timer: ReturnType<typeof setTimeout> | null;
+  invocationSource: RunInvocationSource }
 
 function asJson(value: unknown): JsonValue | undefined {
   const parsed = jsonValueSchema.safeParse(value);
@@ -223,6 +224,8 @@ export function createTestExecutionService(deps: {
     projectId: string; executionId: string; connectionId: string; toolName: string;
     argumentsValue: JsonObject; stepId: string; attempt: number; signal?: AbortSignal;
   }): Promise<ScenarioInvocationResult> {
+    const invocationSource = active.get(key(input.projectId, input.executionId))?.invocationSource;
+    if (invocationSource === undefined) throw new InvalidTestExecutionError("Test execution is not active");
     let invocation: { run: RunDetail; workflow: WorkflowExecutionDetail | null };
     try {
       const workflowConfig = deps.workflows.get(input.projectId, input.connectionId, input.toolName);
@@ -232,6 +235,7 @@ export function createTestExecutionService(deps: {
         const started = deps.workflowExecutions.startInvocation({
           projectId: input.projectId, connectionId: input.connectionId, toolName: input.toolName,
           idempotencyKey: `${idempotencyKey}:workflow`, arguments: input.argumentsValue,
+          invocationSource,
         });
         const completed = await deps.workflowExecutions.waitForTerminal(input.projectId, started.id, input.signal);
         const main = completed.runs.find(({ phase }) => phase === "main");
@@ -241,6 +245,7 @@ export function createTestExecutionService(deps: {
         const started = deps.runs.startInvocation({
           projectId: input.projectId, connectionId: input.connectionId, toolName: input.toolName,
           idempotencyKey: `${idempotencyKey}:run`, arguments: input.argumentsValue,
+          invocationSource,
         });
         invocation = {
           run: await deps.runs.waitForTerminal(input.projectId, started.id, input.signal), workflow: null,
@@ -356,6 +361,7 @@ export function createTestExecutionService(deps: {
         const started = deps.workflowExecutions.startInvocation({
           projectId, connectionId: testCase.target.connectionId, toolName: testCase.target.toolName,
           idempotencyKey: `${executionId}:workflow`, arguments: testCase.arguments,
+          invocationSource: activeExecution.invocationSource,
         });
         linkedWorkflowId = started.id;
         repository(projectId).linkInvocation(projectId, executionId, stepRecordId, {
@@ -369,6 +375,7 @@ export function createTestExecutionService(deps: {
         const started = deps.runs.startInvocation({
           projectId, connectionId: testCase.target.connectionId, toolName: testCase.target.toolName,
           idempotencyKey: `${executionId}:run`, arguments: testCase.arguments,
+          invocationSource: activeExecution.invocationSource,
         });
         repository(projectId).linkInvocation(projectId, executionId, stepRecordId, {
           runId: started.id, workflowExecutionId: null,
@@ -427,9 +434,10 @@ export function createTestExecutionService(deps: {
     }
   }
 
-  function schedule(projectId: string, executionId: string, stepRecordId: string, timeoutMs: number): void {
+  function schedule(projectId: string, executionId: string, stepRecordId: string, timeoutMs: number,
+    invocationSource: RunInvocationSource): void {
     const controller = new AbortController();
-    const state: ActiveExecution = { controller, timedOut: false, timer: null };
+    const state: ActiveExecution = { controller, timedOut: false, timer: null, invocationSource };
     state.timer = setTimeout(() => { state.timedOut = true; controller.abort(); }, timeoutMs);
     state.timer.unref?.();
     const operationKey = key(projectId, executionId);
@@ -452,7 +460,7 @@ export function createTestExecutionService(deps: {
         nextCursor: page.next === null ? null : encodeCursor(parsedProjectId.data, parsedInput.data.testCaseId, page.next) };
     },
     updateBaseline,
-    start(raw) {
+    start(raw, invocationSource = "AUTOMATED_TEST") {
       const parsed = startSchema.safeParse(raw);
       if (!parsed.success) throw new InvalidTestExecutionError();
       const input = parsed.data;
@@ -476,6 +484,7 @@ export function createTestExecutionService(deps: {
         testCaseId: definition.id, revision: definition.revision,
         confirmDestructive: input.confirmDestructive === true,
         inputs: executionInputs,
+        invocationSource,
       })).digest("hex");
       const executionId = generatedId("Test execution");
       const result = repository(input.projectId).create({
@@ -484,7 +493,7 @@ export function createTestExecutionService(deps: {
       });
       if (result.requestHash !== requestHash) throw new TestExecutionConflictError();
       const timeoutMs = definition.kind === "tool" ? definition.timeoutMs : 3_600_000;
-      if (result.created) schedule(input.projectId, executionId, generatedId("Test execution step"), timeoutMs);
+      if (result.created) schedule(input.projectId, executionId, generatedId("Test execution step"), timeoutMs, invocationSource);
       return result.execution;
     },
     get,

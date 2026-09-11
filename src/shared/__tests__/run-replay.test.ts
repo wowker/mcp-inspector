@@ -16,6 +16,7 @@ describe("run replay contracts", () => {
       toolName: "sum", toolSnapshotId: uuid(4), idempotencyKey: "intent-1", status: "succeeded",
       createdAt: "2026-09-01T00:00:00.000Z", startedAt: null, completedAt: null,
       durationMs: null, networkDurationMs: null, pinned: false, replayedFromRunId: null,
+      invocationSource: "MANUAL_DEBUG",
     };
     expect(runSummarySchema.parse(summary)).toEqual(summary);
     expect(runSummarySchema.safeParse(({ ...summary, pinned: undefined })).success).toBe(false);
@@ -31,6 +32,11 @@ describe("run replay contracts", () => {
       createdTo: "2026-09-01T00:00:00.000Z",
     }).success).toBe(false);
     expect(runHistoryFilterSchema.safeParse({ limit: 0 }).success).toBe(false);
+  });
+
+  it("keeps the 3.0 Authoring and Other source filters compatible", () => {
+    expect(runHistoryFilterSchema.parse({ source: "AUTHORING" })).toEqual({ source: "AUTHORING" });
+    expect(runHistoryFilterSchema.parse({ source: "OTHER" })).toEqual({ source: "OTHER" });
   });
 
   it("keeps pin and replay requests strict", () => {

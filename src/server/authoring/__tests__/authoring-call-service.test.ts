@@ -71,7 +71,7 @@ describe("Authoring Tool calls", () => {
     cleanups.push(() => rmSync(dataRoot, { recursive: true, force: true }));
     cleanups.push(() => projects.close());
     cleanups.push(() => runs.close());
-    return { projects, connections, session, policies, calls };
+    return { projects, connections, session, policies, calls, runs };
   }
 
   function setPolicy(
@@ -166,7 +166,7 @@ describe("Authoring Tool calls", () => {
   });
 
   it("redacts sensitive response keys and bearer material even when ordinary Run redaction is disabled", async () => {
-    const { policies, calls } = fixture(async () => ({
+    const { policies, calls, runs } = fixture(async () => ({
       content: [{ type: "text", text: "Bearer response-secret" }],
       structuredContent: { token: "response-secret", safe: "visible" },
     }));
@@ -175,6 +175,7 @@ describe("Authoring Tool calls", () => {
     expect(JSON.stringify(result)).toContain("visible");
     expect(JSON.stringify(result)).not.toContain("response-secret");
     expect(result.response).toMatchObject({ structuredContent: { token: "[REDACTED]", safe: "visible" } });
+    expect(runs.get(projectId, result.runId!).invocationSource).toBe("AUTHORING_STANDALONE");
   });
 
   it("emits metadata-only audit events with redaction and truncation facts", async () => {
@@ -241,7 +242,7 @@ describe("Authoring Tool calls", () => {
   });
 
   it("cancels a diagnostic call and records a Draft-scoped call against the exact revision", async () => {
-    const { projects, policies, calls, session } = fixture(async ({ signal }) => await new Promise((_, reject) => {
+    const { projects, policies, calls, session, runs } = fixture(async ({ signal }) => await new Promise((_, reject) => {
       signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
     }));
     setPolicy(policies, "FULL_ACCESS", { duration: 10_000 });
@@ -267,6 +268,7 @@ describe("Authoring Tool calls", () => {
       context: { kind: "DRAFT", draftId, draftRevision: 1 }, purpose: "DISCOVERY",
     }));
     expect(draftCall).toMatchObject({ context: { kind: "DRAFT", draftId, draftRevision: 1 } });
+    expect(runs.get(projectId, draftCall.runId!).invocationSource).toBe("AUTHORING_DRAFT");
   });
 
   it("lists project-bound call summaries with filter-bound opaque pagination", async () => {

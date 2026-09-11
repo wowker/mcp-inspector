@@ -12,7 +12,8 @@ const tabId = "00000000-0000-4000-8000-000000000704";
 const summary: RunSummary = { id: runId, projectId, connectionId: "00000000-0000-4000-8000-000000000702",
   tabId, toolName: "sum", toolSnapshotId: "00000000-0000-4000-8000-000000000705", idempotencyKey: "submit",
   status: "queued", createdAt: "2026-08-17T00:00:00.000Z", startedAt: null, completedAt: null,
-  durationMs: null, networkDurationMs: null, pinned: false, replayedFromRunId: null };
+  durationMs: null, networkDurationMs: null, pinned: false, replayedFromRunId: null,
+  invocationSource: "MANUAL_DEBUG" };
 const detail: RunDetail = { ...summary, toolSnapshotHash: "a".repeat(64), protocolVersion: null, serverInfo: null, clientInfo: {},
   request: { arguments: { a: 1 }, jsonrpc: {}, http: null }, response: null, events: [] };
 
@@ -22,6 +23,7 @@ function fake(overrides: Partial<RunServiceWithEvents> = {}): RunServiceWithEven
     list: () => ({ runs: [summary], nextCursor: null }), getSummary: () => summary, get: () => detail,
     assertExists: () => summary,
     startInvocation: () => summary,
+    startTabInvocation: () => summary,
     getRedacted: () => detail,
     startReplayInvocation: () => summary,
     waitForTerminal: async () => detail, setPinned: () => summary,
@@ -67,10 +69,10 @@ describe("run routes", () => {
   it("validates extended filters and exposes an idempotent project-fenced pin mutation", async () => {
     const list = vi.fn(() => ({ runs: [summary], nextCursor: null }));
     const response = await createRunRoutes(fake({ list })).request(
-      `/${projectId}/runs?status=failed&origin=REPLAY&source=AUTHORING&pinned=true&createdFrom=2026-09-01T00%3A00%3A00.000Z&limit=25`);
+      `/${projectId}/runs?status=failed&origin=REPLAY&source=AUTHORING_STANDALONE&pinned=true&createdFrom=2026-09-01T00%3A00%3A00.000Z&limit=25`);
     expect(response.status).toBe(200);
     expect(list).toHaveBeenCalledWith(projectId, undefined, {
-      status: "failed", origin: "REPLAY", source: "AUTHORING", pinned: true,
+      status: "failed", origin: "REPLAY", source: "AUTHORING_STANDALONE", pinned: true,
       createdFrom: "2026-09-01T00:00:00.000Z", limit: 25,
     });
     expect((await createRunRoutes(fake()).request(`/${projectId}/runs?pinned=yes`)).status).toBe(400);

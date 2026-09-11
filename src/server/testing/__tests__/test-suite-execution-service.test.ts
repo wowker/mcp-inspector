@@ -36,7 +36,7 @@ describe("TestSuiteExecutionService", () => {
       members: cases.map((testCase, position) => ({ id: createId(), testCaseId: testCase.id, position, isEnabled: true })),
       executionPolicy: { concurrency: 2, stopOnFailure: false } });
     const executionRepository = new TestExecutionRepository(projects.open(projectId));
-    const start = vi.fn((input: any) => {
+    const start = vi.fn((input: any, _source?: "AUTOMATED_TEST" | "TEST_SUITE" | "PRESSURE_TEST") => {
       const id = createId();
       return executionRepository.create({ id, projectId, testCase: testCases.get(projectId, input.testCaseId),
         idempotencyKey: input.idempotencyKey, requestHash: id, inputs: input.inputs ?? {},
@@ -85,6 +85,7 @@ describe("TestSuiteExecutionService", () => {
       await vi.waitFor(() => expect(service.get(projectId, started.id).status).toBe("PASSED"));
       const completed = service.get(projectId, started.id);
       expect(start).toHaveBeenCalledTimes(2);
+      expect(start.mock.calls.map(([, source]) => source)).toEqual(["TEST_SUITE", "TEST_SUITE"]);
       expect(completed.summary).toEqual({ total: 2, passed: 2, failed: 0, errors: 0, cancelled: 0 });
       expect(completed.items.map(({ position, status, testExecutionId }) =>
         [position, status, testExecutionId !== null])).toEqual([[0, "PASSED", true], [1, "PASSED", true]]);

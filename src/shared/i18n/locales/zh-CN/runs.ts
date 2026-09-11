@@ -1,6 +1,10 @@
 export const zhCNRuns = {
   serializationFailed: "[无法序列化]",
   status: { queued: "排队中", connecting: "连接中", authorizing: "授权中", running: "运行中", succeeded: "成功", failed: "失败", cancelled: "已取消", interrupted: "已中断" },
+  source: {
+    MANUAL_DEBUG: "人工调试", AUTHORING_STANDALONE: "Agent 独立调用", AUTHORING_DRAFT: "Agent Draft 调用",
+    AUTOMATED_TEST: "自动化测试", TEST_SUITE: "测试套件", SCRIPT_WORKFLOW: "脚本工作流", PRESSURE_TEST: "压力测试",
+  },
   history: {
     projectAria: "项目运行历史", tabAria: "当前 Tab 历史", title: "运行历史", tabTitle: "当前 Tab 历史",
     empty: "暂无运行记录", openAria: "打开运行 {{id}}", notRecorded: "未记录", loading: "正在加载运行历史…", more: "加载更多",
@@ -25,7 +29,7 @@ export const zhCNRuns = {
         connectionId: "按连接的稳定 UUID 精确筛选；不是 Server 展示名称或 URL。",
         status: "按运行当前或最终状态筛选，包括排队、连接、授权、运行、成功、失败、取消与中断。",
         origin: "原始运行是直接发起的调用；回放运行是从一条历史记录重新执行后创建的新 Run。",
-        source: "区分由 Authoring MCP 发起的调用和其他调试、测试或工作流调用。",
+        source: "区分人工调试、Agent、自动化测试、测试套件、脚本工作流和压力测试调用。",
         pinned: "仅显示已固定或未固定的记录；固定用于保留重要记录，不改变执行结果。",
         time: "按 Run 的创建时间范围筛选；浏览器输入的本地时间会转换为标准时间后提交。",
       },
@@ -34,7 +38,7 @@ export const zhCNRuns = {
     selectDescription: "请求参数、响应结果、RPC、HTTP 与时间线会显示在这里。",
     loadingDetail: "正在加载运行详情…", openFailed: "无法打开调试",
     filters: { title: "筛选", toolName: "Tool 名称", connectionId: "连接 ID", status: "状态", origin: "来源", source: "调用来源",
-      pinned: "固定状态", from: "开始时间", to: "结束时间", all: "全部", original: "原始运行", replay: "回放运行", authoring: "Authoring MCP", other: "其他调用",
+      pinned: "固定状态", from: "开始时间", to: "结束时间", all: "全部", original: "原始运行", replay: "回放运行",
       pinnedOnly: "仅已固定", unpinnedOnly: "仅未固定", apply: "应用", reset: "重置", invalidConnection: "请输入有效的连接 ID" },
   },
   errors: { loadRun: "加载运行失败", eventInterrupted: "运行事件连接中断" },
@@ -80,7 +84,7 @@ export const zhCNRuns = {
     unsupported: "此内容不会在页面中执行或自动加载。", contentBlock: "内容块 {{index}}", text: "文本", responseContent: "响应内容 {{index}}",
     embeddedText: "嵌入文本资源", uriNotLoaded: "URI（未加载）：{{uri}}", unserializable: "[无法序列化]",
     metadata: {
-      status: "状态", totalDuration: "总耗时", networkDuration: "网络耗时", created: "创建", started: "开始", completed: "完成",
+      status: "状态", invocationSource: "调用来源", totalDuration: "总耗时", networkDuration: "网络耗时", created: "创建", started: "开始", completed: "完成",
       snapshotHash: "Tool 快照哈希", protocolVersion: "协议版本", notRecorded: "未记录",
       runHelp: "每次 Tool 调用的唯一标识，用于关联请求、响应、HTTP、RPC、时间线和运行历史。",
       snapshotHelp: "执行时 Tool 定义快照的 SHA-256 指纹。哈希变化表示 Tool 描述或 Schema 已更新，用于准确回放和对比历史调用。",

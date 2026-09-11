@@ -17,7 +17,7 @@ const source = {
   id: sourceId, projectId, connectionId, tabId: null, toolName: "update_item", toolSnapshotId: snapshotId,
   idempotencyKey: "source", status: "succeeded", createdAt: "2026-09-01T00:00:00.000Z",
   startedAt: "2026-09-01T00:00:00.000Z", completedAt: "2026-09-01T00:00:01.000Z",
-  durationMs: 1_000, networkDurationMs: 900, pinned: false, replayedFromRunId: null,
+  durationMs: 1_000, networkDurationMs: 900, pinned: false, replayedFromRunId: null, invocationSource: "MANUAL_DEBUG",
   toolSnapshotHash: "a".repeat(64), protocolVersion: null, serverInfo: null, clientInfo: {},
   request: { arguments: { id: "source" }, jsonrpc: {}, http: null },
   response: { result: { ok: true }, error: null, truncated: false, originalBytes: 11 }, events: [],

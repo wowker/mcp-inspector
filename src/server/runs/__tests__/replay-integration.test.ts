@@ -62,7 +62,7 @@ describe("replay integration", () => {
       const exactArguments = { id: "source-value", nested: { keep: [1, 2, 3] } };
       const source = runs.startInvocation({
         projectId, connectionId: oauthConnectionId, toolName: "update_item",
-        idempotencyKey: "source", arguments: exactArguments,
+        idempotencyKey: "source", arguments: exactArguments, invocationSource: "SCRIPT_WORKFLOW",
       });
       await runs.waitForTerminal(projectId, source.id);
 

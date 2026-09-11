@@ -45,7 +45,7 @@ const completedRun: RunDetail = {
   id: runId, projectId, connectionId, tabId: null, toolName: "get_price",
   toolSnapshotId: tool.currentSnapshot.id, toolSnapshotHash: "a".repeat(64), idempotencyKey: "test-execution",
   status: "succeeded", createdAt: timestamp, startedAt: timestamp, completedAt: timestamp,
-  durationMs: 12, networkDurationMs: 8, pinned: false, replayedFromRunId: null,
+  durationMs: 12, networkDurationMs: 8, pinned: false, replayedFromRunId: null, invocationSource: "AUTOMATED_TEST",
   protocolVersion: "2025-06-18", serverInfo: { name: "fixture", version: "1" },
   clientInfo: { name: "MCP Inspector", version: "2.0.4" },
   request: { arguments: { product_id: "42" }, jsonrpc: { jsonrpc: "2.0", id: 1, method: "tools/call" }, http: null },

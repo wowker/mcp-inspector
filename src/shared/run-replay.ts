@@ -10,6 +10,11 @@ export const runStatusSchema = z.enum([
   "queued", "connecting", "authorizing", "running", "succeeded", "failed", "cancelled", "interrupted",
 ]);
 
+export const runInvocationSourceSchema = z.enum([
+  "MANUAL_DEBUG", "AUTHORING_STANDALONE", "AUTHORING_DRAFT", "AUTOMATED_TEST",
+  "TEST_SUITE", "SCRIPT_WORKFLOW", "PRESSURE_TEST",
+]);
+
 export const runErrorSchema = z.object({
   code: z.string().min(1).max(128),
   message: z.string().min(1).max(2_000),
@@ -39,6 +44,7 @@ export const runSummarySchema = z.object({
   networkDurationMs: z.number().int().nonnegative().nullable(),
   pinned: z.boolean(),
   replayedFromRunId: uuid.nullable(),
+  invocationSource: runInvocationSourceSchema,
 }).strict().superRefine((value, context) => {
   if (value.replayedFromRunId === value.id) {
     context.addIssue({ code: "custom", path: ["replayedFromRunId"], message: "A Run cannot replay itself" });
@@ -66,7 +72,7 @@ export const runDetailSchema = runSummarySchema.safeExtend({
 }).strict();
 
 export const runOriginSchema = z.enum(["ORIGINAL", "REPLAY"]);
-export const runSourceSchema = z.enum(["AUTHORING", "OTHER"]);
+export const runSourceSchema = z.union([runInvocationSourceSchema, z.enum(["AUTHORING", "OTHER"])]);
 
 export const runHistoryFilterSchema = z.object({
   tabId: uuid.optional(),
@@ -153,6 +159,7 @@ export const replayErrorSchema = z.object({
 }).strict();
 
 export type RunStatus = z.output<typeof runStatusSchema>;
+export type RunInvocationSource = z.output<typeof runInvocationSourceSchema>;
 export type RunError = z.output<typeof runErrorSchema>;
 export type RunEvent = z.output<typeof runEventSchema>;
 export type RunSummary = z.output<typeof runSummarySchema>;

@@ -6,9 +6,10 @@ import type {
   RunHistoryFilter,
   RunStatus,
   RunSummary,
+  RunInvocationSource,
 } from "../../shared/run-replay.js";
 
-export type { RunDetail, RunError, RunEvent, RunStatus, RunSummary } from "../../shared/run-replay.js";
+export type { RunDetail, RunError, RunEvent, RunStatus, RunSummary, RunInvocationSource } from "../../shared/run-replay.js";
 export interface StartRunInput {
   projectId: string; connectionId?: string; tabId: string; idempotencyKey: string; arguments: Record<string, unknown>;
 }

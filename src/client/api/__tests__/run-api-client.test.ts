@@ -7,7 +7,7 @@ const run = { id: "00000000-0000-4000-8000-000000000833", projectId,
   connectionId: "00000000-0000-4000-8000-000000000834", tabId, toolName: "sum",
   toolSnapshotId: "00000000-0000-4000-8000-000000000835", idempotencyKey: "once", status: "queued",
   createdAt: "2026-08-17T00:00:00.000Z", startedAt: null, completedAt: null,
-  durationMs: null, networkDurationMs: null, pinned: false, replayedFromRunId: null };
+  durationMs: null, networkDurationMs: null, pinned: false, replayedFromRunId: null, invocationSource: "MANUAL_DEBUG" };
 const connectionId = run.connectionId;
 
 describe("Run API client", () => {

@@ -43,7 +43,7 @@ describe("PressureTestExecutionService", () => {
     });
     let invocation = 0;
     const testExecutions = {
-      start: vi.fn(() => {
+      start: vi.fn((_input: unknown, _source?: "AUTOMATED_TEST" | "TEST_SUITE" | "PRESSURE_TEST") => {
         const id = `10000000-0000-4000-8000-${String(++invocation).padStart(12, "0")}`;
         const at = new Date().toISOString();
         projects.open(projectId).database.prepare(`INSERT INTO test_executions
@@ -81,6 +81,8 @@ describe("PressureTestExecutionService", () => {
       expect(completed.summary).toMatchObject({ total: 3, passed: 3, failed: 0, errors: 0 });
       expect(service.samples(projectId, queued.id).items).toHaveLength(3);
       expect(testExecutions.start).toHaveBeenCalledTimes(3);
+      expect(vi.mocked(testExecutions.start).mock.calls.map(([, source]) => source))
+        .toEqual(["PRESSURE_TEST", "PRESSURE_TEST", "PRESSURE_TEST"]);
       expect(service.start({ projectId, pressureTestId: pressureTest.id,
         idempotencyKey: "intent-1", request: {} }).id).toBe(queued.id);
     } finally { await service.close(); await connections.close(); projects.close(); }

@@ -30,6 +30,7 @@ const summary = {
   id: replayRunId, projectId, connectionId, tabId: null, toolName: "update_item", toolSnapshotId: snapshotId,
   idempotencyKey: "replay-1", status: "queued", createdAt: "2026-09-01T00:00:00.000Z", startedAt: null,
   completedAt: null, durationMs: null, networkDurationMs: null, pinned: false, replayedFromRunId: sourceRunId,
+  invocationSource: "MANUAL_DEBUG",
 } satisfies RunSummary;
 
 function fixture(overrides: { preflight?: ReplayPreflight; start?: () => RunSummary } = {}) {

@@ -20,6 +20,7 @@ const run = {
   toolSnapshotId: "00000000-0000-4000-8000-000000000835", idempotencyKey: "replay", status: "queued",
   createdAt: "2026-09-01T00:00:00.000Z", startedAt: null, completedAt: null, durationMs: null,
   networkDurationMs: null, pinned: false, replayedFromRunId: sourceRunId,
+  invocationSource: "MANUAL_DEBUG",
 } satisfies RunSummary;
 
 function app(start: ReplayExecutionService["start"]) {

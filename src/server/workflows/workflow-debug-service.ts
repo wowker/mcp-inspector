@@ -58,7 +58,8 @@ export function createWorkflowDebugService(deps: {
             throw new Error("Secret environment values cannot be persisted as Tool arguments");
           }
           const run = deps.runs.startInvocation({ projectId, connectionId: connection.id, toolName: input.name,
-            idempotencyKey: `debug:${randomUUID()}:${helperOrdinal++}`, arguments: input.arguments });
+            idempotencyKey: `debug:${randomUUID()}:${helperOrdinal++}`, arguments: input.arguments,
+            invocationSource: "SCRIPT_WORKFLOW" });
           const detail = await deps.runs.waitForTerminal(projectId, run.id, callSignal);
           if (detail.status !== "succeeded" || detail.response?.result === null || detail.response?.result === undefined) {
             throw new Error("Helper Tool call failed");

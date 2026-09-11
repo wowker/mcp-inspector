@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { JsonObject, JsonValue } from "../../shared/tool-definition.js";
+import { runInvocationSourceSchema, type RunInvocationSource } from "../../shared/run-replay.js";
 import type { ConnectionService } from "../connections/connection-service.js";
 import type { EnvironmentService, StagedEnvironmentMutation } from "../environment/environment-service.js";
 import type { ProjectService } from "../projects/project-service.js";
@@ -32,6 +33,7 @@ const invocationSchema = z.object({
   projectId: z.uuid(), connectionId: z.uuid(), toolName: z.string().trim().min(1).max(512),
   idempotencyKey: z.string().min(1).max(200), arguments: z.record(z.string(), z.unknown()),
   allowDestructiveHelpers: z.boolean().optional(),
+  invocationSource: runInvocationSourceSchema,
 }).strict();
 const terminal = new Set(["succeeded", "failed", "cancelled", "interrupted"]);
 
@@ -87,7 +89,11 @@ export interface WorkflowExecutionService {
   close(): Promise<void>;
 }
 
-interface ActiveExecution { controller: AbortController; allowDestructiveHelpers: boolean }
+interface ActiveExecution {
+  controller: AbortController;
+  allowDestructiveHelpers: boolean;
+  invocationSource: RunInvocationSource;
+}
 
 function assertSecretMutationsRemainSecret(
   mutations: StagedEnvironmentMutation[],
@@ -170,6 +176,7 @@ export function createWorkflowExecutionService(deps: {
         toolName: input.name,
         idempotencyKey: `${id}:helper:${ordinal}`,
         arguments: input.arguments,
+        invocationSource: current.invocationSource,
       });
       repo(projectId).linkRun(projectId, id, run.id, phase, ordinal++, timestamp());
       const detail = await deps.runs.waitForTerminal(projectId, run.id, signal);
@@ -206,11 +213,12 @@ export function createWorkflowExecutionService(deps: {
         ? deps.runs.startInvocation({
           projectId, connectionId: execution.connectionId, toolName: execution.toolName,
           idempotencyKey: `${id}:main`, arguments: argumentsValue,
+          invocationSource: current.invocationSource,
         })
-        : deps.runs.start({
+        : deps.runs.startTabInvocation({
           projectId, connectionId: execution.connectionId, tabId: execution.tabId,
           idempotencyKey: `${id}:main`, arguments: argumentsValue,
-        });
+        }, current.invocationSource);
       repo(projectId).linkRun(projectId, id, main.id, "main", ordinal++, timestamp());
       const mainDetail: RunDetail = await deps.runs.waitForTerminal(projectId, main.id, current.controller.signal);
       response = (mainDetail.response?.result ?? null) as JsonValue | null;
@@ -258,6 +266,7 @@ export function createWorkflowExecutionService(deps: {
   function createAndSchedule(input: {
     projectId: string; connectionId: string; tabId: string | null; toolName: string;
     idempotencyKey: string; arguments: JsonObject; allowDestructiveHelpers?: boolean;
+    invocationSource: RunInvocationSource;
   }): WorkflowExecutionDetail {
       const workflow = deps.workflows.get(input.projectId, input.connectionId, input.toolName);
       if (!workflow.before.enabled && !workflow.after.enabled) throw new InvalidWorkflowExecutionError("Tool workflow is disabled");
@@ -271,21 +280,24 @@ export function createWorkflowExecutionService(deps: {
         id, projectId: input.projectId, connectionId: input.connectionId, tabId: input.tabId, toolName: input.toolName,
         toolSnapshotId: tool.tool.currentSnapshot.id, idempotencyKey: input.idempotencyKey,
         initialArguments: input.arguments as JsonObject,
-        workflowSnapshot: { ...workflow, allowDestructiveHelpers } as unknown as JsonObject,
+        workflowSnapshot: { ...workflow, allowDestructiveHelpers,
+          invocationSource: input.invocationSource } as unknown as JsonObject,
         createdAt,
       });
       if (!result.created) {
         const existingAllowsDestructiveHelpers =
           result.execution.workflowSnapshot.allowDestructiveHelpers === true;
+        const existingInvocationSource = result.execution.workflowSnapshot.invocationSource;
         if (result.execution.tabId !== input.tabId || result.execution.toolSnapshotId !== tool.tool.currentSnapshot.id ||
             canonicalJson(result.execution.initialArguments) !== canonicalJson(input.arguments) ||
-            existingAllowsDestructiveHelpers !== allowDestructiveHelpers) {
+            existingAllowsDestructiveHelpers !== allowDestructiveHelpers ||
+            existingInvocationSource !== input.invocationSource) {
           throw new WorkflowExecutionConflictError();
         }
         return result.execution;
       }
       active.set(key(input.projectId, id), {
-        controller: new AbortController(), allowDestructiveHelpers,
+        controller: new AbortController(), allowDestructiveHelpers, invocationSource: input.invocationSource,
       });
       const operationKey = key(input.projectId, id);
       const operation = Promise.resolve().then(() => execute(input.projectId, id)).catch(() => undefined);
@@ -305,7 +317,8 @@ export function createWorkflowExecutionService(deps: {
       if (tab.connectionId !== input.connectionId) {
         throw new InvalidWorkflowExecutionError("Workflow Tab belongs to a different connection");
       }
-      return createAndSchedule({ ...input, tabId: tab.id, toolName: tab.toolName, arguments: input.arguments as JsonObject });
+      return createAndSchedule({ ...input, tabId: tab.id, toolName: tab.toolName,
+        arguments: input.arguments as JsonObject, invocationSource: "SCRIPT_WORKFLOW" });
     },
     startInvocation(raw) {
       const parsed = invocationSchema.safeParse(raw);

@@ -203,6 +203,7 @@ function metadata(run: RunDetail, t: TFunction<"runs">): MetadataEntry[] {
   return [
     { name: "Run ID", value: run.id, help: t("result.metadata.runHelp") },
     { name: t("result.metadata.status"), value: t(`status.${run.status}`, { defaultValue: run.status }) },
+    { name: t("result.metadata.invocationSource"), value: t(`source.${run.invocationSource}`) },
     { name: t("result.metadata.totalDuration"), value: run.durationMs === null ? t("result.metadata.notRecorded") : `${run.durationMs} ms` },
     { name: t("result.metadata.networkDuration"), value: run.networkDurationMs === null ? t("result.metadata.notRecorded") : `${run.networkDurationMs} ms` },
     { name: t("result.metadata.created"), value: run.createdAt },

@@ -96,8 +96,9 @@ export function RunHistoryPage({ api, projectId, onOpenDebug, onCreateTest }: {
               <option value="">{t("page.filters.all")}</option><option value="ORIGINAL">{t("page.filters.original")}</option>
               <option value="REPLAY">{t("page.filters.replay")}</option></Select></label>
             <label>{t("page.filters.source")}<Select value={draft.source} onChange={(event) => setDraft({ ...draft, source: event.target.value })}>
-              <option value="">{t("page.filters.all")}</option><option value="AUTHORING">{t("page.filters.authoring")}</option>
-              <option value="OTHER">{t("page.filters.other")}</option></Select></label>
+              <option value="">{t("page.filters.all")}</option>{(["MANUAL_DEBUG", "AUTHORING_STANDALONE", "AUTHORING_DRAFT",
+                "AUTOMATED_TEST", "TEST_SUITE", "SCRIPT_WORKFLOW", "PRESSURE_TEST"] as const)
+                .map((source) => <option key={source} value={source}>{t(`source.${source}`)}</option>)}</Select></label>
             <label>{t("page.filters.pinned")}<Select value={draft.pinned} onChange={(event) => setDraft({ ...draft, pinned: event.target.value })}>
               <option value="">{t("page.filters.all")}</option><option value="true">{t("page.filters.pinnedOnly")}</option>
               <option value="false">{t("page.filters.unpinnedOnly")}</option></Select></label>

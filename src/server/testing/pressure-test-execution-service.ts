@@ -167,7 +167,7 @@ export function createPressureTestExecutionService(deps: {
             idempotencyKey: `${executionId}:${iteration}`,
             confirmDestructive,
             inputs: initial.definitionSnapshot.inputs,
-          });
+          }, "PRESSURE_TEST");
           const completed = await deps.testExecutions.waitForTerminal(projectId, started.id, state.controller.signal);
           const completedAt = completed.completedAt ?? timestamp();
           const startedAt = completed.startedAt ?? completed.createdAt;

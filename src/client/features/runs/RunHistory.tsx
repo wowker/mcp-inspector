@@ -67,6 +67,7 @@ export function RunHistory({ api, projectId, tabId, connectionId, toolName, filt
         <span className="history-run__id">{compactId ? run.id.slice(-8) : run.id}</span></span>
       <span className={`status-chip status-chip--${run.status}`}>{t(`status.${run.status}`, { defaultValue: run.status })}</span>
       <span className="history-run__meta"><time>{new Date(run.createdAt).toLocaleString()}</time>
+        <span>{t(`source.${run.invocationSource}`)}</span>
         <span>{run.durationMs === null ? t("history.notRecorded") : `${run.durationMs} ms`}</span></span></button>
       {allowPinning && <IconButton size="compact" className="history-run__pin"
         label={run.pinned ? t("history.unpinAria", { id: run.id }) : t("history.pinAria", { id: run.id })}

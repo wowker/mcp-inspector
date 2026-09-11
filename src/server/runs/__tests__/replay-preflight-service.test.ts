@@ -52,6 +52,7 @@ const run: RunDetail = {
   idempotencyKey: "original", status: "succeeded", createdAt: "2026-09-01T00:00:00.000Z",
   startedAt: "2026-09-01T00:00:00.000Z", completedAt: "2026-09-01T00:00:01.000Z",
   durationMs: 1_000, networkDurationMs: 900, pinned: false, replayedFromRunId: null,
+  invocationSource: "MANUAL_DEBUG",
   toolSnapshotHash: sourceHash, protocolVersion: "2025-06-18", serverInfo: null, clientInfo: {},
   request: { arguments: { count: 2, nested: { value: "unchanged" } }, jsonrpc: {}, http: null },
   response: { result: { ok: true }, error: null, truncated: false, originalBytes: 11 }, events: [],

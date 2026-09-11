@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { validateArguments, type SchemaIssue } from "../../shared/json-schema.js";
-import { runHistoryFilterSchema } from "../../shared/run-replay.js";
+import { runHistoryFilterSchema, runInvocationSourceSchema } from "../../shared/run-replay.js";
 import type { ConnectionService } from "../connections/connection-service.js";
 import { CallCancelledError, CallTimeoutError, McpConnectError, type WireObservation } from "../connections/connection-runtime.js";
 import { redactWireObservation, sanitizeWireObservationUrl } from "../connections/observed-fetch.js";
@@ -12,6 +12,7 @@ import { RunEventBus } from "./run-event-bus.js";
 import { RunRepository } from "./run-repository.js";
 import type {
   RunDetail, RunEvent, RunPage, RunService, RunSummary, StartReplayInvocationInput, StartRunInput,
+  RunInvocationSource,
 } from "./run-types.js";
 
 const uuid = z.string().uuid();
@@ -99,7 +100,9 @@ export interface RunServiceWithEvents extends RunService {
     arguments: Record<string, unknown>;
     timeoutMs?: number;
     expectedToolSnapshotId?: string;
+    invocationSource: RunInvocationSource;
   }): RunSummary;
+  startTabInvocation(input: StartRunInput, invocationSource: RunInvocationSource): RunSummary;
   getRedacted(projectId: string, runId: string): RunDetail;
   startReplayInvocation(input: StartReplayInvocationInput): RunSummary;
   waitForTerminal(projectId: string, runId: string, signal?: AbortSignal): Promise<RunDetail>;
@@ -255,6 +258,7 @@ export function createRunService(projects: ProjectService, connections: Connecti
     replayedFromRunId?: string | null;
     expectedToolSnapshotId?: string;
     timeoutMs?: number;
+    invocationSource: RunInvocationSource;
   }): RunSummary {
     if (!uuid.safeParse(input.projectId).success ||
         (input.tabId !== null && !uuid.safeParse(input.tabId).success) ||
@@ -262,6 +266,7 @@ export function createRunService(projects: ProjectService, connections: Connecti
         typeof input.toolName !== "string" || input.toolName.trim() === "" || input.toolName.length > 512 ||
         typeof input.idempotencyKey !== "string" || input.idempotencyKey.length < 1 || input.idempotencyKey.length > 200 ||
         (input.timeoutMs !== undefined && (!Number.isSafeInteger(input.timeoutMs) || input.timeoutMs < 100 || input.timeoutMs > 600_000)) ||
+        !runInvocationSourceSchema.safeParse(input.invocationSource).success ||
         typeof input.arguments !== "object" || input.arguments === null || Array.isArray(input.arguments)) {
       throw new InvalidRunError();
     }
@@ -299,12 +304,14 @@ export function createRunService(projects: ProjectService, connections: Connecti
       clientInfo,
       createdAt,
       replayedFromRunId: input.replayedFromRunId ?? null,
+      invocationSource: input.invocationSource,
     });
     if (!result.created) {
       if (result.identity.tabId !== input.tabId ||
           result.identity.toolSnapshotId !== tool.tool.currentSnapshot.id ||
           result.identity.canonicalArguments !== canonicalArguments ||
-          result.identity.replayedFromRunId !== (input.replayedFromRunId ?? null)) {
+          result.identity.replayedFromRunId !== (input.replayedFromRunId ?? null) ||
+          result.identity.invocationSource !== input.invocationSource) {
         throw new RunIdempotencyConflictError();
       }
       return result.run;
@@ -336,23 +343,29 @@ export function createRunService(projects: ProjectService, connections: Connecti
     return true;
   }
 
+  function startForTab(input: StartRunInput, invocationSource: RunInvocationSource): RunSummary {
+    const tab = tabs.get(input.projectId, input.tabId);
+    if (input.connectionId !== undefined && tab.connectionId !== input.connectionId) {
+      throw new InvalidRunError("Run Tab belongs to a different connection");
+    }
+    return createAndSchedule({
+      projectId: input.projectId,
+      connectionId: tab.connectionId,
+      tabId: tab.id,
+      toolName: tab.toolName,
+      idempotencyKey: input.idempotencyKey,
+      arguments: input.arguments,
+      invocationSource,
+    });
+  }
+
   return {
     eventBus,
     assertExists: requireSummary,
     start(input: StartRunInput): RunSummary {
-      const tab = tabs.get(input.projectId, input.tabId);
-      if (input.connectionId !== undefined && tab.connectionId !== input.connectionId) {
-        throw new InvalidRunError("Run Tab belongs to a different connection");
-      }
-      return createAndSchedule({
-        projectId: input.projectId,
-        connectionId: tab.connectionId,
-        tabId: tab.id,
-        toolName: tab.toolName,
-        idempotencyKey: input.idempotencyKey,
-        arguments: input.arguments,
-      });
+      return startForTab(input, "MANUAL_DEBUG");
     },
+    startTabInvocation: startForTab,
     startInvocation(input) {
       return createAndSchedule({ ...input, tabId: null });
     },
@@ -361,7 +374,7 @@ export function createRunService(projects: ProjectService, connections: Connecti
         throw new InvalidRunError();
       }
       requireRun(input.projectId, input.replayedFromRunId);
-      return createAndSchedule({ ...input, tabId: null });
+      return createAndSchedule({ ...input, tabId: null, invocationSource: "MANUAL_DEBUG" });
     },
     async waitForTerminal(projectId, runId, signal) {
       const current = requireRun(projectId, runId);
