@@ -7,10 +7,10 @@ import { useTranslation } from "react-i18next";
 interface Props { api: InspectorApiClient; projectId: string; tabId?: string; connectionId?: string; toolName?: string;
   filter?: RunListFilter; allowPinning?: boolean; onOpen: (run: RunSummary) => void;
   hideHeading?: boolean; compactId?: boolean; selectedId?: string; refreshKey?: number;
-  onDelete?: (run: RunSummary) => void; onClear?: () => void; actionsDisabled?: boolean }
+  includeUnboundToolRuns?: boolean; onDelete?: (run: RunSummary) => void; onClear?: () => void; actionsDisabled?: boolean }
 export function RunHistory({ api, projectId, tabId, connectionId, toolName, filter: requestedFilter,
   allowPinning = false, onOpen, hideHeading = false, compactId = false, selectedId, refreshKey = 0,
-  onDelete, onClear, actionsDisabled = false }: Props) {
+  includeUnboundToolRuns = false, onDelete, onClear, actionsDisabled = false }: Props) {
   const { t } = useTranslation("runs");
   const [runs, setRuns] = useState<RunSummary[]>([]); const [cursor, setCursor] = useState<string | null | undefined>(undefined);
   const [loading, setLoading] = useState(true); const [error, setError] = useState<string | null>(null); const generation = useRef(0);
@@ -18,7 +18,7 @@ export function RunHistory({ api, projectId, tabId, connectionId, toolName, filt
   const filter: RunListFilter | undefined = tabId === undefined
     ? requestedFilter
     : { ...requestedFilter, tabId, ...(connectionId === undefined ? {} : { connectionId }),
-      ...(toolName === undefined ? {} : { toolName }) };
+      ...(toolName === undefined ? {} : { toolName }), ...(includeUnboundToolRuns ? { includeUnboundToolRuns: true } : {}) };
   useEffect(() => {
     const current = ++generation.current; setRuns([]); setCursor(undefined); setLoading(true); setError(null);
     void api.listRuns(projectId, undefined, filter).then((page) => { if (generation.current !== current) return;
@@ -27,7 +27,8 @@ export function RunHistory({ api, projectId, tabId, connectionId, toolName, filt
     return () => { generation.current += 1; };
   }, [api, projectId, tabId, connectionId, toolName, requestedFilter?.connectionId, requestedFilter?.toolName,
     requestedFilter?.status, requestedFilter?.origin, requestedFilter?.source,
-    requestedFilter?.pinned, requestedFilter?.createdFrom, requestedFilter?.createdTo, requestedFilter?.limit, refreshKey]);
+    requestedFilter?.pinned, requestedFilter?.createdFrom, requestedFilter?.createdTo, requestedFilter?.limit,
+    includeUnboundToolRuns, refreshKey]);
   async function more(): Promise<void> {
     if (cursor === null || cursor === undefined || loading) return; const current = generation.current; const requested = cursor; setLoading(true);
     try { const page = await api.listRuns(projectId, requested, filter); if (generation.current !== current) return;

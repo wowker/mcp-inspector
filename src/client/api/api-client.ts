@@ -1646,6 +1646,7 @@ export function createApiClient(_legacySessionToken?: string): InspectorApiClien
       if (filter.status !== undefined) search.set("status", filter.status);
       if (filter.origin !== undefined) search.set("origin", filter.origin);
       if (filter.source !== undefined) search.set("source", filter.source);
+      if (filter.includeUnboundToolRuns !== undefined) search.set("includeUnboundToolRuns", String(filter.includeUnboundToolRuns));
       if (filter.pinned !== undefined) search.set("pinned", String(filter.pinned));
       if (filter.createdFrom !== undefined) search.set("createdFrom", filter.createdFrom);
       if (filter.createdTo !== undefined) search.set("createdTo", filter.createdTo);

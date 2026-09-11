@@ -75,6 +75,7 @@ export const runHistoryFilterSchema = z.object({
   status: runStatusSchema.optional(),
   origin: runOriginSchema.optional(),
   source: runSourceSchema.optional(),
+  includeUnboundToolRuns: z.boolean().optional(),
   pinned: z.boolean().optional(),
   createdFrom: timestamp.optional(),
   createdTo: timestamp.optional(),
@@ -82,6 +83,11 @@ export const runHistoryFilterSchema = z.object({
 }).strict().superRefine((value, context) => {
   if (value.createdFrom !== undefined && value.createdTo !== undefined && value.createdFrom > value.createdTo) {
     context.addIssue({ code: "custom", path: ["createdTo"], message: "Run history range is invalid" });
+  }
+  if (value.includeUnboundToolRuns === true &&
+      (value.tabId === undefined || value.connectionId === undefined || value.toolName === undefined)) {
+    context.addIssue({ code: "custom", path: ["includeUnboundToolRuns"],
+      message: "Unbound Tool history requires Tab, connection, and Tool identity" });
   }
 });
 

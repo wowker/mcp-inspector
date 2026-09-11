@@ -610,6 +610,26 @@ describe("RunService", () => {
     } finally { projects.close(); }
   });
 
+  it("lists the active Tab plus unbound Runs for the exact Tool identity", () => {
+    const { projects, service, tabA, tabB } = fixture();
+    try {
+      const currentTab = service.start({ projectId, tabId: tabA.id, idempotencyKey: "tool-history-tab", arguments: { a: 1 } });
+      service.cancel(projectId, currentTab.id);
+      const otherTab = service.start({ projectId, tabId: tabB.id, idempotencyKey: "tool-history-other-tab", arguments: { a: 2 } });
+      service.cancel(projectId, otherTab.id);
+      const unbound = service.startInvocation({ projectId, connectionId, toolName: "sum",
+        idempotencyKey: "tool-history-mcp", arguments: { a: 3 } });
+      service.cancel(projectId, unbound.id);
+
+      expect(service.list(projectId, undefined, {
+        tabId: tabA.id, connectionId, toolName: "sum", includeUnboundToolRuns: true,
+      }).runs.map(({ id }) => id)).toEqual(expect.arrayContaining([currentTab.id, unbound.id]));
+      expect(service.list(projectId, undefined, {
+        tabId: tabA.id, connectionId, toolName: "sum", includeUnboundToolRuns: true,
+      }).runs.map(({ id }) => id)).not.toContain(otherTab.id);
+    } finally { projects.close(); }
+  });
+
   it("deletes terminal history and clears an exact Tab while retaining pinned records", () => {
     const { projects, service, tabs, tabA } = fixture();
     try {

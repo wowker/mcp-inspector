@@ -321,7 +321,7 @@ export class RunRepository {
   }
 
   list(projectId: string, cursor?: string, filter: RunListFilter = {}): RunPage {
-    const { tabId, connectionId, toolName, status, origin, source, pinned, createdFrom, createdTo } = filter;
+    const { tabId, connectionId, toolName, status, origin, source, includeUnboundToolRuns, pinned, createdFrom, createdTo } = filter;
     const limit = filter.limit ?? 50;
     const filterIdentity = {
       tabId: tabId ?? null,
@@ -330,6 +330,7 @@ export class RunRepository {
       status: status ?? null,
       origin: origin ?? null,
       source: source ?? null,
+      includeUnboundToolRuns: includeUnboundToolRuns ?? false,
       pinned: pinned ?? null,
       createdFrom: createdFrom ?? null,
       createdTo: createdTo ?? null,
@@ -351,7 +352,10 @@ export class RunRepository {
     }
     const clauses = ["project_id = ?"];
     const parameters: Array<string | number> = [projectId];
-    if (tabId !== undefined) { clauses.push("tab_id = ?"); parameters.push(tabId); }
+    if (tabId !== undefined) {
+      clauses.push(includeUnboundToolRuns === true ? "(tab_id = ? OR tab_id IS NULL)" : "tab_id = ?");
+      parameters.push(tabId);
+    }
     if (connectionId !== undefined) { clauses.push("connection_id = ?"); parameters.push(connectionId); }
     if (toolName !== undefined) { clauses.push("tool_name = ?"); parameters.push(toolName); }
     if (status !== undefined) { clauses.push("status = ?"); parameters.push(status); }

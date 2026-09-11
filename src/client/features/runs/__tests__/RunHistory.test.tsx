@@ -35,6 +35,19 @@ describe("RunHistory", () => {
     ]);
   });
 
+  it("includes unbound MCP Runs only for the active connection and Tool", async () => {
+    const tabId = "00000000-0000-4000-8000-000000000814";
+    const connectionId = "00000000-0000-4000-8000-000000000812";
+    const listRuns = vi.fn(async () => ({ runs: [], nextCursor: null }));
+
+    render(<RunHistory api={{ listRuns } as unknown as InspectorApiClient} projectId={projectId}
+      tabId={tabId} connectionId={connectionId} toolName="sum" includeUnboundToolRuns onOpen={vi.fn()} />);
+
+    await waitFor(() => expect(listRuns).toHaveBeenCalledWith(projectId, undefined, {
+      tabId, connectionId, toolName: "sum", includeUnboundToolRuns: true,
+    }));
+  });
+
   it("fences a stale project response", async () => {
     let resolve!: (value: { runs: RunSummary[]; nextCursor: null }) => void;
     const stale = new Promise<{ runs: RunSummary[]; nextCursor: null }>((done) => { resolve = done; });

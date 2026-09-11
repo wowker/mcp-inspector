@@ -777,7 +777,7 @@ function ProjectWorkspace({ api, projectId, connectionId = "", toolIntent = null
         onLoadRequest={(payload) => { schedule(active.id, { arguments: payload, rawText: formatRawArguments(payload) }); setView("debug"); }} />}
       {view === "history" && <div className="tool-history-workspace">
         <RunHistory api={api} projectId={projectId} tabId={active.id} connectionId={active.connectionId}
-          toolName={active.toolName} hideHeading selectedId={historyDetail?.id} refreshKey={historyRefreshKey}
+          toolName={active.toolName} includeUnboundToolRuns hideHeading selectedId={historyDetail?.id} refreshKey={historyRefreshKey}
           actionsDisabled={historyMutating} onOpen={(run) => void inspectHistory(run)}
           onDelete={deleteHistory} onClear={() => clearHistory(active)} />
         <section className="tool-history-detail" aria-label={t("workspace.history.detail")}>

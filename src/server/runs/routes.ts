@@ -71,6 +71,10 @@ export function createRunRoutes(runs: RunServiceWithEvents): Hono {
       ...(c.req.query("status") === undefined ? {} : { status: c.req.query("status") }),
       ...(c.req.query("origin") === undefined ? {} : { origin: c.req.query("origin") }),
       ...(c.req.query("source") === undefined ? {} : { source: c.req.query("source") }),
+      ...(c.req.query("includeUnboundToolRuns") === undefined ? {} : {
+        includeUnboundToolRuns: c.req.query("includeUnboundToolRuns") === "true"
+          ? true : c.req.query("includeUnboundToolRuns") === "false" ? false : c.req.query("includeUnboundToolRuns"),
+      }),
       ...(rawPinned === undefined ? {} : { pinned: rawPinned === "true" ? true : rawPinned === "false" ? false : rawPinned }),
       ...(c.req.query("createdFrom") === undefined ? {} : { createdFrom: c.req.query("createdFrom") }),
       ...(c.req.query("createdTo") === undefined ? {} : { createdTo: c.req.query("createdTo") }),
