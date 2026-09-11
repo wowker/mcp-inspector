@@ -29,6 +29,10 @@ const releasedHashes = [
   "f717beca49045e1f6b77670b52e2b89a6eb85cf29d29dfa23d1a31dbc8ef0633",
   "95040d192ece7f51853808274f82ffa601880a70abde1ee57d0e73046f76d7b2",
   "48ac9225abce1fc04073daa602b8e57e5625a6ae7bf30f9fbc98a0eb8d174958",
+  "005e513d916d5d022d191a881fe1812519130495b0b0d9f9b35fe1af39c757b0",
+  "a22babb072dc68361568158495deae419b9cbf20f3bb2511c8ee4d4f9ac6e4de",
+  "dd9f831d11303e96b646f01282af7f6054f7635104e90c1e5a9336fc6cdafce9",
+  "73c356dfda6c7ea89cd53c62c294dea422e7a194b0942075450ac60bd1777308",
 ] as const;
 
 describe("Authoring project migrations", () => {
@@ -47,7 +51,7 @@ describe("Authoring project migrations", () => {
 
   it("upgrades a migration-020 project through Draft and Tool-call storage without changing released bytes", () => {
     const source = resolveDefaultMigrationsUrl();
-    const currentHashes = readdirSync(source).filter((name) => Number.parseInt(name.slice(0, 3), 10) <= 20)
+    const currentHashes = readdirSync(source).filter((name) => Number.parseInt(name.slice(0, 3), 10) <= 24)
       .sort().map((name) => createHash("sha256").update(readFileSync(new URL(name, source))).digest("hex"));
     expect(currentHashes).toEqual(releasedHashes);
 
@@ -68,7 +72,7 @@ describe("Authoring project migrations", () => {
     const upgraded = createProjectService({ dataRoot });
     try {
       const database = upgraded.open(project.id).database;
-      expect(database.prepare("SELECT max(version) AS version FROM schema_migrations").get()).toEqual({ version: 24 });
+      expect(database.prepare("SELECT max(version) AS version FROM schema_migrations").get()).toEqual({ version: 25 });
       expect(database.prepare("SELECT name FROM connections WHERE project_id = ?").get(project.id)).toEqual({ name: "Preserved" });
       const tables = (database.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>)
         .map(({ name }) => name);

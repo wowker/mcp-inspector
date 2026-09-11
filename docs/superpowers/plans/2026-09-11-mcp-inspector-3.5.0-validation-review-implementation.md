@@ -103,16 +103,16 @@ Existing Scenario step storage continues to use its current statuses. Evidence p
 - Modify: `src/server/projects/__tests__/migration-dist-parity.test.ts`
 - Modify: `src/server/projects/__tests__/project-migrations.test.ts`
 
-- [ ] Preflight with `git status --short` and `git log -- src/server/projects/migrations/024_run_invocation_sources.sql`; stop if migration 024 is not an authoritative committed baseline.
-- [ ] Add failing fresh-install, 024-upgrade, rollback, source-byte, dist-parity, project-isolation, active-source uniqueness, and restart-interruption tests.
-- [ ] Create `validation_sessions` with source identity, mode, phase, aggregate verdict/review state, exact source snapshot JSON/digest, Tool Schema hashes JSON, linked Draft/Test/Suite execution IDs, timestamps, and optimistic revision.
-- [ ] Add a partial unique index on `(project_id, source_kind, source_id)` for phases `READY`, `RUNNING`, and `EVALUATING`.
-- [ ] Create append-only `validation_evidence_versions` and `validation_expectation_evidence` tables. Bound JSON columns, store redaction/truncation metadata, and foreign-key every row through project+session identity.
-- [ ] Create append-only `validation_ai_assessments` and `validation_ai_assessment_findings` tables with version, request hash, idempotency key, evidence digest, and bounded explanation.
-- [ ] Implement repository transactions for start/claim, phase transition, evidence completion, assessment append, and restart interruption. Terminal sessions and completed evidence must reject updates.
-- [ ] Export strict shared summary/detail/page/evidence schemas and project-bound cursor inputs.
-- [ ] Run the focused migration/repository tests, `npm run typecheck`, then `npm run verify` as Checkpoint A.
-- [ ] Commit with `feat(validation): persist sessions evidence and assessments`.
+- [x] Preflight with `git status --short` and `git log -- src/server/projects/migrations/024_run_invocation_sources.sql`; stop if migration 024 is not an authoritative committed baseline.
+- [x] Add failing fresh-install, 024-upgrade, rollback, source-byte, dist-parity, project-isolation, active-source uniqueness, and restart-interruption tests.
+- [x] Create `validation_sessions` with source identity, mode, phase, aggregate verdict/review state, exact source snapshot JSON/digest, Tool Schema hashes JSON, linked Draft/Test/Suite execution IDs, timestamps, and optimistic revision.
+- [x] Add a partial unique index on `(project_id, source_kind, source_id)` for phases `READY`, `RUNNING`, and `EVALUATING`.
+- [x] Create append-only `validation_evidence_versions` and `validation_expectation_evidence` tables. Bound JSON columns, store redaction/truncation metadata, and foreign-key every row through project+session identity.
+- [x] Create append-only `validation_ai_assessments` and `validation_ai_assessment_findings` tables with version, request hash, idempotency key, evidence digest, and bounded explanation.
+- [x] Implement repository transactions for start/claim, phase transition, evidence completion, assessment append, and restart interruption. Terminal sessions and completed evidence must reject updates.
+- [x] Export strict shared summary/detail/page/evidence schemas and project-bound cursor inputs.
+- [x] Run the focused migration/repository tests, `npm run typecheck`, then `npm run verify` as Checkpoint A.
+- [x] Commit with `feat(validation): persist sessions evidence and assessments`.
 
 ### Task 4: Add Human Review persistence
 

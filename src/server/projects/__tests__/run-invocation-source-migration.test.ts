@@ -80,7 +80,7 @@ describe("Run invocation source migration", () => {
     const upgraded = createProjectService({ dataRoot });
     try {
       const current = upgraded.open(project.id).database;
-      expect(current.prepare("SELECT max(version) AS version FROM schema_migrations").get()).toEqual({ version: 24 });
+      expect(current.prepare("SELECT max(version) AS version FROM schema_migrations").get()).toEqual({ version: 25 });
       expect(current.prepare("SELECT id, invocation_source FROM runs ORDER BY id").all()).toEqual([
         { id: manualRunId, invocation_source: "MANUAL_DEBUG" },
         { id: agentRunId, invocation_source: "AUTHORING_STANDALONE" },
