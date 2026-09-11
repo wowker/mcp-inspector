@@ -36,6 +36,11 @@ execution. Failed, inconclusive, conflicting, or low-confidence expectations rec
 attention priority in the review queue. Passing expectations can be batch-confirmed, but
 they are not human-confirmed until that action occurs.
 
+Data-dependent multi-Tool validation uses the existing ordered Scenario runner. The AI
+authors the complete Scenario before execution; Inspector freezes the exact source
+revision, executes it deterministically, records step and data-flow evidence, and unlocks
+editing only after execution and available cleanup are terminal.
+
 ## 2. Product outcome
 
 The user should be able to give an external AI a Tool description plus any combination of
@@ -63,6 +68,8 @@ The product promise is:
 - Support AI-authored expectations derived from Tool definitions, product requirements,
   code references, and user-provided behavior.
 - Support both human-executed saved tests and AI-driven Draft trial execution.
+- Support ordered multi-Tool Scenarios with cross-step values, dynamic expectations,
+  polling, cleanup, separate flow verdicts, and inspectable data lineage.
 - Reuse the existing Tool Test, Scenario, Suite, Draft, Run, assertion, workflow,
   environment, QuickJS, and connection policy models.
 - Produce immutable, redacted evidence bound to exact project, connection, Tool Schema,
@@ -147,10 +154,16 @@ files, open URLs, grant permissions, or alter identity.
 ### 4.3 Expectation claims
 
 ```ts
+type ExpectationTarget =
+  | { kind: "TOOL_ASSERTION"; assertionId: string }
+  | { kind: "STEP_ASSERTION"; stepId: string; assertionId: string }
+  | { kind: "SCENARIO_ASSERTION"; assertionId: string }
+  | { kind: "CLEANUP_ASSERTION"; stepId: string; assertionId: string };
+
 interface ExpectationClaim {
   localId: string;
   testCaseLocalId: string;
-  assertionId: string;
+  target: ExpectationTarget;
   statement: string;
   rationale: string;
   confidence: "HIGH" | "MEDIUM" | "LOW";
@@ -159,9 +172,33 @@ interface ExpectationClaim {
 }
 ```
 
-Every claim must reference an assertion in the same Draft test case. Natural-language
-claims without an executable assertion are validation errors. A low-confidence claim may
+Every claim must reference an assertion in the same Draft test case and at the exact
+Tool-step, scenario, or cleanup location stated by its target. Natural-language claims
+without an executable assertion are validation errors. A low-confidence claim may
 execute, but it is always attention-required during review.
+
+Multi-Tool scenarios also need to compare a current value with a value extracted from an
+earlier Tool response. Extend the existing assertion definition with one optional dynamic
+expected operand:
+
+```ts
+interface AssertionExpectedSource {
+  source: "VARIABLE";
+  path: string;
+}
+
+interface AssertionDefinitionExtension {
+  expectedSource?: AssertionExpectedSource;
+}
+```
+
+`expected` and `expectedSource` are mutually exclusive. Version 3.5.0 supports only
+scenario variables as dynamic expected operands. The scenario author must first use the
+existing extractor mechanism to capture a previous Tool value. Ordinary fixed-value
+assertions remain unchanged, and old definitions without `expectedSource` retain their
+current meaning. When evaluating a Scenario step assertion, the runner adds the current
+resolved Scenario variables to the assertion context; it never exposes a secret value in
+persisted assertion output.
 
 ### 4.4 Orthogonal states
 
@@ -316,6 +353,115 @@ failing current-conformance verdict. It may therefore contribute to an approved 
 but it can never make the execution appear to have passed. `ENVIRONMENT_ISSUE` and
 `MORE_EVIDENCE_REQUIRED` leave the expectation unresolved.
 
+### 5.6 Source revision freeze
+
+Editing and real Tool verification are separate phases. Static validation is repeatable
+and does not lock a Draft or formal test asset. Starting real execution atomically binds
+and freezes the exact source revision being verified.
+
+```text
+EDITABLE r1 → EDITABLE r2 → EDITABLE r3
+                              │ start execution
+                              ▼
+                           RUNNING r3
+                     source revision is read-only
+                              │ terminal result
+                 ┌────────────┴────────────┐
+                 ▼                         ▼
+          rerun unchanged r3       edit into new r4
+```
+
+The execution-start transaction checks source revision and validation digest, records the
+complete definition and Tool Schema hashes, creates the Validation Session, and claims the
+source's single active verification slot. A project-level partial unique index permits at
+most one active session for the same Draft or formal test asset. The service rechecks the
+exact revision before the first downstream call.
+
+While a session is actively verifying or finishing cleanup:
+
+- `inspector_replace_draft`, formal test update, and equivalent browser mutations fail
+  with a source-specific validation-active error;
+- the editor is read-only and identifies the active session;
+- a second execution start is rejected;
+- cancellation stops future business steps but keeps the freeze until available cleanup
+  reaches a terminal state.
+
+After completion, cancellation, error, or interruption, the active freeze is released.
+The user may rerun the unchanged revision for an implementation fix or environment issue,
+or modify it to create a new Draft/test revision for a test defect, expectation correction,
+or extra evidence step. Old sessions and evidence remain bound to the old revision and
+cannot approve the new one. An applied Draft remains read-only under existing 3.0.0
+semantics; AI-assisted correction starts a new Draft from the exact formal asset revision.
+
+On restart, active sessions become `INTERRUPTED` before Draft mutation is allowed. Existing
+Runs and completed evidence remain; Inspector never resumes or replays an uncertain Tool
+call automatically.
+
+### 5.7 Multi-Tool Scenario Validation
+
+The existing ordered Scenario model and `runScenario` implementation remain the only
+data-dependent multi-Tool execution engine. A Scenario step may target a different exact
+connection and Tool, receive fixed/input/environment arguments, map previous responses or
+extracted variables, apply a bounded argument transform, poll, assert its result, and
+choose current failure behavior. Cleanup steps remain ordered and best-effort.
+
+The AI may use standalone Authoring calls to understand Tools, but exploratory call order
+is not a repeatable test and is not verification evidence. Before formal validation, the
+AI must encode the complete intended flow as a Scenario Draft. The AI cannot add a Tool,
+change an assertion, or choose an unplanned branch while the Scenario is executing.
+Conditions and polling are authored and statically validated before execution.
+
+Inspector preflights every main and cleanup target, Tool Schema hash, policy, mapping,
+extractor, condition, polling bound, dynamic expected source, and worst-case call budget.
+It rechecks connection policy immediately before every invocation. Mapping may reference
+only scenario input, environment, or preceding steps/variables; no cycle, forward
+reference, or cross-Scenario runtime variable is allowed.
+
+For each resolved mapping, Inspector emits bounded data-flow evidence:
+
+```ts
+interface ScenarioDataFlowEvidence {
+  targetStepId: string;
+  targetPath: string;
+  sourceKind:
+    | "LITERAL"
+    | "SCENARIO_INPUT"
+    | "ENVIRONMENT"
+    | "VARIABLE"
+    | "STEP_RESPONSE";
+  sourceStepId?: string;
+  sourcePath?: string;
+  valueDigest: string;
+  isRedacted: boolean;
+}
+```
+
+This proves where an argument came from without duplicating a secret or full response.
+Scenario evidence is hierarchical: scenario, main flow, cleanup flow, step, polling
+attempt, Run, assertion, extraction, and data-flow edge. Each polling attempt keeps its
+own Run evidence; the authored terminal conditions determine the final step verdict.
+
+The result exposes separate verdicts:
+
+```ts
+interface ScenarioValidationVerdicts {
+  mainFlow: "PASS" | "FAIL" | "INCONCLUSIVE" | "ERROR";
+  cleanup: "PASS" | "FAIL" | "NOT_RUN" | "INCONCLUSIVE" | "ERROR";
+  overall: "PASS" | "FAIL" | "INCONCLUSIVE" | "ERROR";
+}
+```
+
+Business assertion failure is `FAIL`; missing required mapping/extraction is `ERROR`;
+unknown non-idempotent effect is `INCONCLUSIVE`; a conditionally skipped step is
+`NOT_APPLICABLE`; and a step prevented by a failed dependency is `BLOCKED`, not a second
+failure. A successful main flow with failed cleanup cannot produce overall `PASS`.
+Cleanup failure never overwrites or conceals the original main-flow result.
+
+Version 3.5.0 deliberately keeps Scenario execution sequential. Independent tests use
+the existing Suite concurrency. It does not add arbitrary DAG execution, unbounded loops,
+runtime AI planning, cross-Scenario variables, or a claim that cleanup rolled back an
+external effect.
+
 ## 6. User journeys
 
 ### 6.1 AI design, human execution
@@ -353,7 +499,10 @@ but it can never make the execution appear to have passed. `ENVIRONMENT_ISSUE` a
 The existing 3.0.0 tools remain. Draft source and expectation fields are optional, so an
 existing client may continue creating ordinary Drafts. Existing Draft execution creates a
 Validation Session when claims are present and adds `validationSessionId` as an optional
-result field.
+result field. Starting that execution freezes the exact source revision until execution
+and available cleanup reach a terminal state. Draft or formal test replacement during
+that interval is rejected at the service boundary, regardless of which client initiated
+it.
 
 Add the following MCP tools:
 
@@ -397,6 +546,8 @@ SOURCE_CONTEXT_INVALID
 SOURCE_AUTHORITY_CONFLICT
 EXPECTATION_CLAIM_INVALID
 EXPECTATION_UNSUPPORTED
+DRAFT_VALIDATION_ACTIVE
+TEST_ASSET_VALIDATION_ACTIVE
 VALIDATION_SESSION_NOT_FOUND
 VALIDATION_SESSION_STALE
 VALIDATION_SESSION_ACTIVE
@@ -416,7 +567,8 @@ Released migrations `001`–`024` remain byte-identical.
 
 `025_validation_sessions.sql` adds session identity, source kind/revision/digest,
 execution mode, phase, machine verdict, timestamps, linked ordinary execution IDs,
-bounded evidence projections, evidence digest, and versioned AI assessments.
+bounded evidence projections, evidence digest, versioned AI assessments, and the unique
+active-source verification claim used for revision freeze.
 
 `026_human_reviews.sql` adds review state/revision, individual decisions, batch audit
 records, and exact formal asset revision verification links.
@@ -456,6 +608,16 @@ The completed evidence remains read-only. Project changes clear prior-project se
 and fence late responses by project, session, expectation, execution, review revision,
 and request generation.
 
+While real validation is active, the relevant Draft or formal test editor is read-only
+and shows the frozen revision plus active session. It offers cancellation but not
+mutation. After the session and cleanup terminate, `再次执行` reuses the unchanged revision
+and `继续修改` creates the next revision with a required reason: implementation changed,
+test steps were wrong, expectation was wrong, more evidence is needed, or other.
+
+Scenario review defaults to an overall summary and expands into main-flow, cleanup, step,
+attempt, assertion, and data-flow evidence. A reviewer works at the expectation level,
+not by manually opening every Run; Run detail remains available for protocol diagnosis.
+
 ## 10. Safety and failure semantics
 
 - Authorization remains keyed by exact project ID and connection ID, never URL, domain,
@@ -479,7 +641,11 @@ and request generation.
 
 - Strict parsing, size limits, cross-reference validation, source authority conflicts,
   and backward-compatible Draft parsing.
+- Expectation target resolution for Tool-step, scenario, and cleanup assertions, plus
+  mutual exclusion and resolution of literal versus variable-backed expected values.
 - Orthogonal state transitions and terminal-state immutability.
+- Revision-freeze race tests for replace/start, duplicate start, cancel-with-cleanup,
+  terminal unlock, rerun of an unchanged revision, new revision after edit, and restart.
 - Deterministic evidence projection and digest stability.
 - AI assessment versioning, idempotency, and forbidden mutation attempts.
 - Individual review decisions, passing-only batch confirmation, stale revisions, and
@@ -499,6 +665,10 @@ and request generation.
 - Prompt-like Tool descriptions, response bodies, code excerpts, and assessments cannot
   alter authorization or review state.
 - Non-idempotent timeout remains unknown and is not retried.
+- A create→poll→read→cleanup Scenario across multiple Tools preserves exact Run and
+  connection identity, dynamic arguments, data-flow edges, and separate cleanup verdict.
+- Main-step failure produces one failure plus blocked dependents; conditional skips remain
+  not applicable rather than failed.
 - Schema, Draft, source, policy, and evidence drift fail before mutation.
 - Redaction covers credentials, resolved secrets, sensitive fields, and source excerpts.
 - Large and deeply nested evidence is bounded without freezing the UI.
@@ -509,6 +679,10 @@ and request generation.
 - Complete AI-authored saved-test-to-manual-execution-to-review flow.
 - Passing batch confirmation and individual attention-item decisions.
 - Expectation correction creates a new revision and preserves old evidence.
+- An active Scenario validation makes the source editor read-only; terminal completion or
+  cancellation after cleanup unlocks it and `继续修改` creates a new revision.
+- Scenario review drills from aggregate verdict into steps, polling attempts, cleanup,
+  expectations, data-flow evidence, and linked Runs.
 - Keyboard, focus, screen-reader semantics, light/dark themes, reduced motion, long
   bilingual content, responsive layout, and project-switch identity fencing.
 - `npm run verify`, release artifact checks, packaged migration parity, and an independent
@@ -522,8 +696,9 @@ and request generation.
    one browser review decision.
 3. Human-executed saved-test slice: unverified formal asset through ordinary execution,
    automatic session linkage, and verification.
-4. Scenario and Suite depth: multi-step evidence, polling, cleanup, transforms, aggregate
-   verdicts, and partial independent execution.
+4. Scenario and Suite depth: ordered multi-Tool execution, dynamic expected values,
+   data-flow evidence, revision freeze, polling, cleanup, transforms, aggregate verdicts,
+   and partial independent execution.
 5. Review workbench: prioritized queue, three-pane detail, passing batch confirmation,
    attention decisions, and correction diff.
 6. Release hardening: isolation, restart, unknown outcomes, redaction, limits,
@@ -546,6 +721,12 @@ parallel only after the relevant shared contracts are fixed.
 - The AI cannot approve, batch-confirm, correct, reject, or mark an asset verified over
   MCP.
 - No observed actual value can silently become a new expected value.
+- Static validation never locks a Draft; real Tool validation freezes its exact revision
+  until execution and available cleanup are terminal.
+- A failed or problematic session can be rerun unchanged or revised into a new Draft
+  revision without mutating the original definition or evidence.
+- A multi-Tool Scenario proves step-level, scenario-level, cleanup, and data-flow outcomes
+  through the existing ordered Scenario runner rather than runtime AI improvisation.
 - Passing work does not interrupt execution and can be batch-confirmed later.
 - Failed, inconclusive, error, conflicting, and low-confidence items cannot be approved by
   the passing batch path.
