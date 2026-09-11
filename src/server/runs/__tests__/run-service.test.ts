@@ -583,6 +583,7 @@ describe("RunService", () => {
         status: "cancelled", origin: "REPLAY", pinned: true,
         createdFrom: "2026-09-01T00:00:02.000Z", createdTo: "2026-09-01T00:00:02.000Z",
       }).runs.map(({ id }) => id)).toEqual([replay.id]);
+      expect(service.list(projectId, undefined, { runId: original.id }).runs.map(({ id }) => id)).toEqual([original.id]);
       expect(service.list(projectId, undefined, { origin: "ORIGINAL" }).runs.map(({ id }) => id))
         .toContain(original.id);
       expect(session.calls).toHaveLength(0);

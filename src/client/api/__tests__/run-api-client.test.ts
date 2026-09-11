@@ -96,11 +96,11 @@ describe("Run API client", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ run: { ...run, pinned: true } }), { status: 200 }));
     const api = createApiClient("session");
     await expect(api.listRuns(projectId, undefined, {
-      status: "succeeded", origin: "REPLAY", pinned: true,
+      runId: run.id, status: "succeeded", origin: "REPLAY", pinned: true,
       createdFrom: "2026-09-01T00:00:00.000Z", limit: 25,
     })).resolves.toEqual({ runs: [{ ...run, pinned: true }], nextCursor: null });
     expect(fetchMock).toHaveBeenLastCalledWith(
-      `/api/projects/${projectId}/runs?status=succeeded&origin=REPLAY&pinned=true&createdFrom=2026-09-01T00%3A00%3A00.000Z&limit=25`,
+      `/api/projects/${projectId}/runs?runId=${run.id}&status=succeeded&origin=REPLAY&pinned=true&createdFrom=2026-09-01T00%3A00%3A00.000Z&limit=25`,
       expect.anything(),
     );
     await expect(api.setRunPinned(projectId, run.id, true)).resolves.toEqual({ ...run, pinned: true });

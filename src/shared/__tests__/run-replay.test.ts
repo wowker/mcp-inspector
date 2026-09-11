@@ -24,8 +24,9 @@ describe("run replay contracts", () => {
   });
 
   it("normalizes bounded history filters and rejects ambiguous ranges", () => {
-    expect(runHistoryFilterSchema.parse({ toolName: "sum", pinned: true, origin: "REPLAY", limit: 25 }))
-      .toEqual({ toolName: "sum", pinned: true, origin: "REPLAY", limit: 25 });
+    expect(runHistoryFilterSchema.parse({ runId: uuid(9), toolName: "sum", pinned: true, origin: "REPLAY", limit: 25 }))
+      .toEqual({ runId: uuid(9), toolName: "sum", pinned: true, origin: "REPLAY", limit: 25 });
+    expect(runHistoryFilterSchema.safeParse({ runId: "not-a-run-id" }).success).toBe(false);
     expect(runHistoryFilterSchema.safeParse({ toolName: " sum" }).success).toBe(false);
     expect(runHistoryFilterSchema.safeParse({
       createdFrom: "2026-09-02T00:00:00.000Z",

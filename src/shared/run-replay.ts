@@ -75,6 +75,7 @@ export const runOriginSchema = z.enum(["ORIGINAL", "REPLAY"]);
 export const runSourceSchema = z.union([runInvocationSourceSchema, z.enum(["AUTHORING", "OTHER"])]);
 
 export const runHistoryFilterSchema = z.object({
+  runId: uuid.optional(),
   tabId: uuid.optional(),
   connectionId: uuid.optional(),
   toolName: toolName.optional(),

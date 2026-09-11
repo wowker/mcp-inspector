@@ -25,7 +25,7 @@ export function RunHistory({ api, projectId, tabId, connectionId, toolName, filt
       setRuns(page.runs); setCursor(page.nextCursor); setLoading(false);
     }).catch((cause: unknown) => { if (generation.current === current) { setError(cause instanceof Error ? cause.message : t("history.loadFailed")); setLoading(false); } });
     return () => { generation.current += 1; };
-  }, [api, projectId, tabId, connectionId, toolName, requestedFilter?.connectionId, requestedFilter?.toolName,
+  }, [api, projectId, tabId, connectionId, toolName, requestedFilter?.runId, requestedFilter?.connectionId, requestedFilter?.toolName,
     requestedFilter?.status, requestedFilter?.origin, requestedFilter?.source,
     requestedFilter?.pinned, requestedFilter?.createdFrom, requestedFilter?.createdTo, requestedFilter?.limit,
     includeUnboundToolRuns, refreshKey]);

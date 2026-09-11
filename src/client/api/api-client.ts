@@ -948,6 +948,7 @@ function decodeRunPage(value: unknown, projectId: string, filter: RunListFilter 
     throw new Error("Invalid Run response");
   }
   const runs = value.runs.map((run) => decodeRunSummary(run, projectId));
+  if (filter.runId !== undefined && runs.some((run) => run.id !== filter.runId)) throw new Error("Invalid Run response");
   if (filter.tabId !== undefined && runs.some((run) => run.tabId !== filter.tabId)) throw new Error("Invalid Run response");
   if (filter.connectionId !== undefined && runs.some((run) => run.connectionId !== filter.connectionId)) throw new Error("Invalid Run response");
   if (filter.toolName !== undefined && runs.some((run) => run.toolName !== filter.toolName)) throw new Error("Invalid Run response");
@@ -1640,6 +1641,7 @@ export function createApiClient(_legacySessionToken?: string): InspectorApiClien
     },
     async listRuns(projectId, cursor, filter = {}) {
       const search = new URLSearchParams(); if (cursor !== undefined) search.set("cursor", cursor);
+      if (filter.runId !== undefined) search.set("runId", filter.runId);
       if (filter.tabId !== undefined) search.set("tabId", filter.tabId);
       if (filter.connectionId !== undefined) search.set("connectionId", filter.connectionId);
       if (filter.toolName !== undefined) search.set("toolName", filter.toolName);

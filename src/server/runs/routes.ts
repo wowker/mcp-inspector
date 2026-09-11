@@ -59,12 +59,14 @@ export function createRunRoutes(runs: RunServiceWithEvents): Hono {
     } catch (error) { return errorResponse(c, error); }
   });
   routes.get("/:projectId/runs", (c) => {
+    const runId = c.req.query("runId");
     const tabId = c.req.query("tabId");
     const connectionId = c.req.query("connectionId");
     const requestedToolName = c.req.query("toolName");
     const rawPinned = c.req.query("pinned");
     const rawLimit = c.req.query("limit");
     const parsed = runHistoryFilterSchema.safeParse({
+      ...(runId === undefined ? {} : { runId }),
       ...(tabId === undefined ? {} : { tabId }),
       ...(connectionId === undefined ? {} : { connectionId }),
       ...(requestedToolName === undefined ? {} : { toolName: requestedToolName }),

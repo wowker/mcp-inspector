@@ -328,9 +328,10 @@ export class RunRepository {
   }
 
   list(projectId: string, cursor?: string, filter: RunListFilter = {}): RunPage {
-    const { tabId, connectionId, toolName, status, origin, source, includeUnboundToolRuns, pinned, createdFrom, createdTo } = filter;
+    const { runId, tabId, connectionId, toolName, status, origin, source, includeUnboundToolRuns, pinned, createdFrom, createdTo } = filter;
     const limit = filter.limit ?? 50;
     const filterIdentity = {
+      runId: runId ?? null,
       tabId: tabId ?? null,
       connectionId: connectionId ?? null,
       toolName: toolName ?? null,
@@ -359,6 +360,7 @@ export class RunRepository {
     }
     const clauses = ["project_id = ?"];
     const parameters: Array<string | number> = [projectId];
+    if (runId !== undefined) { clauses.push("id = ?"); parameters.push(runId); }
     if (tabId !== undefined) {
       clauses.push(includeUnboundToolRuns === true ? "(tab_id = ? OR tab_id IS NULL)" : "tab_id = ?");
       parameters.push(tabId);
